@@ -1,6 +1,7 @@
 en:
   js:
     discourse_journals:
+      title: "Journals"
       admin:
         heading: "Journals"
         imports:
