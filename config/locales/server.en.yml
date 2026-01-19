@@ -8,6 +8,9 @@ en:
     title: "Journals"
     errors:
       missing_category: "Select a journals category in site settings."
+      upload_failed: "File upload failed"
+      invalid_json: "Invalid JSON file format"
+      file_too_large: "File is too large"
     master_record:
       sections:
         identity: "期刊身份 (Journal Identity)"

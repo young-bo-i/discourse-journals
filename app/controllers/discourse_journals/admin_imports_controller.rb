@@ -94,19 +94,46 @@ module DiscourseJournals
 
       Rails.logger.info("[DiscourseJournals] Creating upload: #{filename}, size: #{tempfile.size} bytes")
 
+      # 确保文件存在且可读
+      unless tempfile.respond_to?(:read)
+        raise ArgumentError, "Invalid file object"
+      end
+
+      # 验证文件大小
+      file_size = tempfile.size
+      max_size = SiteSetting.max_attachment_size_kb.kilobytes
+      if file_size > max_size
+        raise ArgumentError, "文件太大 (#{(file_size / 1024.0 / 1024.0).round(2)}MB)，最大允许 #{(max_size / 1024.0 / 1024.0).round(2)}MB"
+      end
+
+      # 验证 JSON 格式
+      tempfile.rewind
+      begin
+        JSON.parse(tempfile.read)
+        tempfile.rewind
+      rescue JSON::ParserError => e
+        raise ArgumentError, "无效的 JSON 文件: #{e.message}"
+      end
+
       upload = UploadCreator.new(
         tempfile, 
         filename, 
-        type: "json", 
+        type: "application/json",
         for_private_message: false
-      ).create_for(Discourse.system_user.id)
+      ).create_for(current_user.id)
 
       if upload.blank?
         Rails.logger.error("[DiscourseJournals] UploadCreator returned nil")
-      elsif upload.errors.any?
-        Rails.logger.error("[DiscourseJournals] Upload errors: #{upload.errors.full_messages.join(", ")}")
+        raise StandardError, "文件上传失败：Upload 对象为空"
       end
 
+      if upload.errors.any?
+        error_msg = upload.errors.full_messages.join(", ")
+        Rails.logger.error("[DiscourseJournals] Upload errors: #{error_msg}")
+        raise StandardError, "文件上传失败: #{error_msg}"
+      end
+
+      Rails.logger.info("[DiscourseJournals] Upload created successfully: ID=#{upload.id}, URL=#{upload.url}")
       upload
     end
   end
