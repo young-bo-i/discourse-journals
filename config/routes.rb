@@ -2,13 +2,8 @@
 
 DiscourseJournals::Engine.routes.draw do
   scope "/admin/plugins/journals", constraints: AdminConstraint.new do
-    scope format: false do
-      get "/" => "admin#index"
-    end
-
-    scope format: :json do
-      post "/imports" => "admin_imports#create"
-    end
+    get "/" => "admin#index"
+    post "/imports" => "admin_imports#create"
   end
 end
 

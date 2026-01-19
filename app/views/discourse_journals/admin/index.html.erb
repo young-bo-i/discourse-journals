@@ -1,0 +1,149 @@
+<div class="admin-container journals-admin-container">
+  <h2><%= t("discourse_journals.admin.heading") %></h2>
+
+  <div class="journals-import-section">
+    <h3><%= t("discourse_journals.admin.imports.title") %></h3>
+    
+    <p class="journals-import-description">
+      <%= t("discourse_journals.admin.imports.description") %>
+    </p>
+
+    <%= form_tag("/admin/plugins/journals/imports", method: :post, multipart: true, id: "journals-import-form", class: "journals-import-form") do %>
+      
+      <div class="control-group">
+        <label class="control-label"><%= t("discourse_journals.admin.imports.file") %></label>
+        <div class="controls">
+          <%= file_field_tag :file, accept: ".json", required: true, class: "journals-file-input" %>
+        </div>
+      </div>
+
+      <div class="control-group">
+        <div class="controls">
+          <%= submit_tag t("discourse_journals.admin.imports.start"), class: "btn btn-primary", data: { disable_with: t("discourse_journals.admin.imports.importing") } %>
+        </div>
+      </div>
+
+    <% end %>
+
+    <div id="journals-import-message" class="alert" style="display: none; margin-top: 20px;"></div>
+
+    <div class="journals-import-note alert alert-info" style="margin-top: 20px;">
+      <p><%= t("discourse_journals.admin.imports.note") %></p>
+    </div>
+  </div>
+</div>
+
+<style>
+  .journals-admin-container {
+    max-width: 800px;
+    padding: 20px;
+  }
+
+  .journals-import-section {
+    background: var(--primary-very-low);
+    border-radius: 8px;
+    padding: 30px;
+    margin-top: 20px;
+  }
+
+  .journals-import-description {
+    color: var(--primary-high);
+    margin-bottom: 25px;
+    line-height: 1.6;
+  }
+
+  .control-group {
+    margin-bottom: 20px;
+  }
+
+  .control-label {
+    display: block;
+    font-weight: bold;
+    margin-bottom: 8px;
+  }
+
+  .journals-file-input {
+    width: 100%;
+    padding: 10px;
+    border: 2px dashed var(--primary-low);
+    border-radius: 6px;
+    background: var(--secondary);
+    cursor: pointer;
+  }
+
+  .journals-file-input:hover {
+    border-color: var(--primary-medium);
+  }
+
+  .journals-import-note {
+    border-left: 4px solid var(--tertiary);
+  }
+
+  #journals-import-message {
+    padding: 15px;
+    border-radius: 6px;
+  }
+
+  #journals-import-message.alert-success {
+    background: var(--success-low);
+    border: 1px solid var(--success);
+    color: var(--success);
+  }
+
+  #journals-import-message.alert-error {
+    background: var(--danger-low);
+    border: 1px solid var(--danger);
+    color: var(--danger);
+  }
+</style>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const form = document.getElementById('journals-import-form');
+    const messageDiv = document.getElementById('journals-import-message');
+
+    if (form) {
+      form.addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const formData = new FormData(form);
+        const submitBtn = form.querySelector('button[type="submit"], input[type="submit"]');
+        
+        if (submitBtn) {
+          submitBtn.disabled = true;
+        }
+
+        messageDiv.style.display = 'none';
+
+        fetch(form.action, {
+          method: 'POST',
+          body: formData,
+          headers: {
+            'X-CSRF-Token': document.querySelector('meta[name="csrf-token"]').content
+          }
+        })
+        .then(response => response.json())
+        .then(data => {
+          if (data.success !== false) {
+            messageDiv.className = 'alert alert-success';
+            messageDiv.textContent = data.message || '<%= t("discourse_journals.admin.imports.started") %>';
+            messageDiv.style.display = 'block';
+            form.reset();
+          } else {
+            throw new Error(data.message || 'Import failed');
+          }
+        })
+        .catch(error => {
+          messageDiv.className = 'alert alert-error';
+          messageDiv.textContent = error.message || 'An error occurred during import';
+          messageDiv.style.display = 'block';
+        })
+        .finally(() => {
+          if (submitBtn) {
+            submitBtn.disabled = false;
+          }
+        });
+      });
+    }
+  });
+</script>

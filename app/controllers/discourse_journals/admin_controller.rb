@@ -5,6 +5,7 @@ module DiscourseJournals
     requires_plugin DiscourseJournals::PLUGIN_NAME
 
     def index
+      # 渲染主页面
     end
   end
 end
