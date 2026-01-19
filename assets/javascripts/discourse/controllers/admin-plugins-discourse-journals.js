@@ -1,7 +1,7 @@
+import { tracked } from "@glimmer/tracking";
 import Controller from "@ember/controller";
 import { action } from "@ember/object";
 import { service } from "@ember/service";
-import { tracked } from "@glimmer/tracking";
 import { ajax } from "discourse/lib/ajax";
 import { popupAjaxError } from "discourse/lib/ajax-error";
 
@@ -24,7 +24,12 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
   @tracked showErrors = false;
   @tracked importMessage = null;
   @tracked importSuccess = false;
-  
+
+  // 删除相关
+  @tracked deleting = false;
+  @tracked deleteMessage = null;
+  @tracked deleteSuccess = false;
+
   // 筛选条件
   @tracked showFilters = false;
   @tracked filterQ = "";
@@ -50,21 +55,41 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
 
   get activeFiltersCount() {
     let count = 0;
-    if (this.filterQ) count++;
-    if (this.filterInDoaj) count++;
-    if (this.filterInNlm) count++;
-    if (this.filterHasWikidata) count++;
-    if (this.filterIsOpenAccess) count++;
+    if (this.filterQ) {
+      count++;
+    }
+    if (this.filterInDoaj) {
+      count++;
+    }
+    if (this.filterInNlm) {
+      count++;
+    }
+    if (this.filterHasWikidata) {
+      count++;
+    }
+    if (this.filterIsOpenAccess) {
+      count++;
+    }
     return count;
   }
 
   get filtersData() {
     const filters = {};
-    if (this.filterQ) filters.q = this.filterQ;
-    if (this.filterInDoaj) filters.in_doaj = this.filterInDoaj === "true";
-    if (this.filterInNlm) filters.in_nlm = this.filterInNlm === "true";
-    if (this.filterHasWikidata) filters.has_wikidata = this.filterHasWikidata === "true";
-    if (this.filterIsOpenAccess) filters.is_open_access = this.filterIsOpenAccess === "true";
+    if (this.filterQ) {
+      filters.q = this.filterQ;
+    }
+    if (this.filterInDoaj) {
+      filters.in_doaj = this.filterInDoaj === "true";
+    }
+    if (this.filterInNlm) {
+      filters.in_nlm = this.filterInNlm === "true";
+    }
+    if (this.filterHasWikidata) {
+      filters.has_wikidata = this.filterHasWikidata === "true";
+    }
+    if (this.filterIsOpenAccess) {
+      filters.is_open_access = this.filterIsOpenAccess === "true";
+    }
     return filters;
   }
 
@@ -132,8 +157,7 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
       this.testMessage = result.message;
     } catch (e) {
       this.testSuccess = false;
-      this.testMessage =
-        e.jqXHR?.responseJSON?.errors?.[0] || "连接测试失败";
+      this.testMessage = e.jqXHR?.responseJSON?.errors?.[0] || "连接测试失败";
       popupAjaxError(e);
     } finally {
       this.testing = false;
@@ -151,7 +175,9 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
       message: "确定要导入第一页数据吗？（约100个期刊）",
     });
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
 
     this.startSync("first_page");
   }
@@ -168,7 +194,9 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
         "确定要导入所有数据吗？\n\n这可能需要较长时间（15万期刊约50分钟）。\n\n导入过程会在后台运行，您可以安全关闭此页面。",
     });
 
-    if (!confirmed) return;
+    if (!confirmed) {
+      return;
+    }
 
     this.startSync("all_pages");
   }
@@ -185,7 +213,7 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
     try {
       const data = {
         api_url: this.apiUrl,
-        mode: mode,
+        mode,
       };
 
       // 添加筛选条件
@@ -195,7 +223,7 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
 
       const result = await ajax("/admin/journals/sync", {
         type: "POST",
-        data: data,
+        data,
       });
 
       this.currentImportId = result.import_log_id;
@@ -207,8 +235,7 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
       this.syncing = false;
       this.showProgress = false;
       this.importSuccess = false;
-      this.importMessage =
-        e.jqXHR?.responseJSON?.errors?.[0] || "启动同步失败";
+      this.importMessage = e.jqXHR?.responseJSON?.errors?.[0] || "启动同步失败";
       popupAjaxError(e);
     }
   }
@@ -235,7 +262,8 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
         this.importSuccess = data.status === "completed";
 
         if (data.status === "completed") {
-          const skippedMsg = data.skipped > 0 ? `，跳过 ${data.skipped} 个` : "";
+          const skippedMsg =
+            data.skipped > 0 ? `，跳过 ${data.skipped} 个` : "";
           this.importMessage = `✅ 同步完成！新建 ${data.created} 个，更新 ${data.updated} 个${skippedMsg}`;
         } else {
           this.importMessage = `❌ 同步失败`;
@@ -260,8 +288,8 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
         this.errors = result.errors;
         this.showErrors = true;
       }
-    } catch (e) {
-      console.error("Failed to load errors:", e);
+    } catch {
+      // Silently fail - errors will be shown in the UI
     }
   }
 
@@ -279,5 +307,49 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
     navigator.clipboard.writeText(errorText).then(() => {
       this.dialog.alert("错误日志已复制到剪贴板");
     });
+  }
+
+  @action
+  async deleteAllJournals() {
+    const confirmed = await this.dialog.yesNoConfirm({
+      message:
+        "⚠️ 确定要删除所有期刊帖子吗？\n\n此操作不可撤销！所有导入的期刊帖子将被永久删除。",
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    // 二次确认
+    const doubleConfirmed = await this.dialog.yesNoConfirm({
+      message:
+        "🚨 最后确认：真的要永久删除所有期刊帖子吗？\n\n这将删除所有通过此插件导入的期刊数据，且无法恢复！",
+    });
+
+    if (!doubleConfirmed) {
+      return;
+    }
+
+    this.deleting = true;
+    this.deleteMessage = null;
+
+    try {
+      const result = await ajax("/admin/journals/delete_all", {
+        type: "DELETE",
+      });
+
+      this.deleteSuccess = true;
+      this.deleteMessage = result.message;
+
+      if (result.errors && result.errors.length > 0) {
+        this.deleteMessage += `\n\n部分错误：\n${result.errors.join("\n")}`;
+      }
+    } catch (e) {
+      this.deleteSuccess = false;
+      this.deleteMessage = e.jqXHR?.responseJSON?.errors?.[0] || "删除失败";
+      popupAjaxError(e);
+    } finally {
+      this.deleting = false;
+    }
   }
 }

@@ -92,6 +92,10 @@ after_initialize do
     post "/admin/journals/sync/test" => "discourse_journals/admin_sync#test_connection",
          :constraints => AdminConstraint.new
     
+    # 删除所有期刊
+    delete "/admin/journals/delete_all" => "discourse_journals/admin_sync#delete_all",
+           :constraints => AdminConstraint.new
+    
     # 导入日志查询
     get "/admin/journals/imports/:id/status" => "discourse_journals/admin_imports#status",
         :constraints => AdminConstraint.new

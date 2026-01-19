@@ -65,17 +65,17 @@ module DiscourseJournals
 
     # A. 身份与链接类
     def build_identity
-      crossref = sources[:crossref] || {}
-      doaj = sources[:doaj] || {}
-      nlm = sources[:nlm] || {}
-      openalex = sources[:openalex] || {}
-      wikidata = sources[:wikidata] || {}
+      crossref = ensure_hash(sources[:crossref])
+      doaj = ensure_hash(sources[:doaj])
+      nlm = ensure_hash(sources[:nlm])
+      openalex = ensure_hash(sources[:openalex])
+      wikidata = ensure_hash(sources[:wikidata])
 
-      crossref_msg = safe_dig(crossref, :message) || crossref
-      doaj_result = safe_dig(doaj, :results, 0) || {}
-      doaj_bibjson = doaj_result[:bibjson] || {}
-      nlm_result = nlm[:result] || {}
-      nlm_journal = nlm_result.values.find { |v| v.is_a?(Hash) && v[:uid] } || {}
+      crossref_msg = ensure_hash(safe_dig(crossref, :message) || crossref)
+      doaj_result = ensure_hash(safe_dig(doaj, :results, 0))
+      doaj_bibjson = ensure_hash(doaj_result[:bibjson])
+      nlm_result = ensure_hash(nlm[:result])
+      nlm_journal = ensure_hash(nlm_result.values.find { |v| v.is_a?(Hash) && v[:uid] })
       wikidata_bindings = safe_dig(wikidata, :results, :bindings) || []
 
       {
@@ -97,16 +97,16 @@ module DiscourseJournals
 
     # B. 出版与地域类
     def build_publication
-      crossref = sources[:crossref] || {}
-      doaj = sources[:doaj] || {}
-      nlm = sources[:nlm] || {}
-      openalex = sources[:openalex] || {}
+      crossref = ensure_hash(sources[:crossref])
+      doaj = ensure_hash(sources[:doaj])
+      nlm = ensure_hash(sources[:nlm])
+      openalex = ensure_hash(sources[:openalex])
 
-      crossref_msg = safe_dig(crossref, :message) || crossref
-      doaj_result = safe_dig(doaj, :results, 0) || {}
-      doaj_bibjson = doaj_result[:bibjson] || {}
-      nlm_result = nlm[:result] || {}
-      nlm_journal = nlm_result.values.find { |v| v.is_a?(Hash) && v[:uid] } || {}
+      crossref_msg = ensure_hash(safe_dig(crossref, :message) || crossref)
+      doaj_result = ensure_hash(safe_dig(doaj, :results, 0))
+      doaj_bibjson = ensure_hash(doaj_result[:bibjson])
+      nlm_result = ensure_hash(nlm[:result])
+      nlm_journal = ensure_hash(nlm_result.values.find { |v| v.is_a?(Hash) && v[:uid] })
 
       {
         publisher_name: extract_publisher_name(doaj_bibjson, crossref_msg, nlm_journal, openalex),
@@ -123,11 +123,11 @@ module DiscourseJournals
 
     # C. 开放获取与费用类
     def build_open_access
-      doaj = sources[:doaj] || {}
-      openalex = sources[:openalex] || {}
+      doaj = ensure_hash(sources[:doaj])
+      openalex = ensure_hash(sources[:openalex])
 
-      doaj_result = safe_dig(doaj, :results, 0) || {}
-      doaj_bibjson = doaj_result[:bibjson] || {}
+      doaj_result = ensure_hash(safe_dig(doaj, :results, 0))
+      doaj_bibjson = ensure_hash(doaj_result[:bibjson])
 
       {
         is_oa: openalex[:is_oa] || doaj_bibjson[:boai],
@@ -149,9 +149,9 @@ module DiscourseJournals
 
     # D. 同行评审与伦理合规
     def build_review_compliance
-      doaj = sources[:doaj] || {}
-      doaj_result = safe_dig(doaj, :results, 0) || {}
-      doaj_bibjson = doaj_result[:bibjson] || {}
+      doaj = ensure_hash(sources[:doaj])
+      doaj_result = ensure_hash(safe_dig(doaj, :results, 0))
+      doaj_bibjson = ensure_hash(doaj_result[:bibjson])
 
       {
         review_process: safe_dig(doaj_bibjson, :editorial, :review_process),
@@ -168,9 +168,9 @@ module DiscourseJournals
 
     # E. 归档保存与索引政策
     def build_preservation
-      doaj = sources[:doaj] || {}
-      doaj_result = safe_dig(doaj, :results, 0) || {}
-      doaj_bibjson = doaj_result[:bibjson] || {}
+      doaj = ensure_hash(sources[:doaj])
+      doaj_result = ensure_hash(safe_dig(doaj, :results, 0))
+      doaj_bibjson = ensure_hash(doaj_result[:bibjson])
 
       {
         preservation_service: safe_dig(doaj_bibjson, :preservation, :service),
@@ -184,11 +184,11 @@ module DiscourseJournals
 
     # F. 学科与主题
     def build_subjects_topics
-      doaj = sources[:doaj] || {}
-      openalex = sources[:openalex] || {}
+      doaj = ensure_hash(sources[:doaj])
+      openalex = ensure_hash(sources[:openalex])
 
-      doaj_result = safe_dig(doaj, :results, 0) || {}
-      doaj_bibjson = doaj_result[:bibjson] || {}
+      doaj_result = ensure_hash(safe_dig(doaj, :results, 0))
+      doaj_bibjson = ensure_hash(doaj_result[:bibjson])
 
       {
         subject_list: doaj_bibjson[:subject],
@@ -200,7 +200,7 @@ module DiscourseJournals
 
     # G. 产出、引用与指标
     def build_metrics
-      openalex = sources[:openalex] || {}
+      openalex = ensure_hash(sources[:openalex])
 
       {
         works_count: openalex[:works_count] || unified_index[:works_count],
@@ -216,8 +216,8 @@ module DiscourseJournals
 
     # H. Crossref 覆盖度与存量统计
     def build_crossref_quality
-      crossref = sources[:crossref] || {}
-      crossref_msg = safe_dig(crossref, :message) || crossref
+      crossref = ensure_hash(sources[:crossref])
+      crossref_msg = ensure_hash(safe_dig(crossref, :message) || crossref)
 
       {
         doi_counts: crossref_msg[:counts],
@@ -231,9 +231,9 @@ module DiscourseJournals
 
     # I. NLM 编目与索引信息
     def build_nlm_cataloging
-      nlm = sources[:nlm] || {}
-      nlm_result = nlm[:result] || {}
-      nlm_journal = nlm_result.values.find { |v| v.is_a?(Hash) && v[:uid] } || {}
+      nlm = ensure_hash(sources[:nlm])
+      nlm_result = ensure_hash(nlm[:result])
+      nlm_journal = ensure_hash(nlm_result.values.find { |v| v.is_a?(Hash) && v[:uid] })
 
       {
         title_sort: nlm_journal[:titlemainsort],

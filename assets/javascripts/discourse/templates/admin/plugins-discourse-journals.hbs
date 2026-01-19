@@ -237,6 +237,34 @@
         <li>导入在后台运行，可以安全关闭此页面</li>
       </ul>
     </div>
+
+    {{! 危险操作区域 }}
+    <div class="danger-zone" style="margin-top: 30px; padding: 20px; border: 1px solid var(--danger); border-radius: 6px; background: var(--danger-low);">
+      <h4 style="color: var(--danger); margin-top: 0;">⚠️ 危险操作</h4>
+      <p style="color: var(--primary-high); margin-bottom: 15px;">
+        以下操作不可撤销，请谨慎使用。
+      </p>
+      
+      <div class="danger-actions" style="display: flex; align-items: center; gap: 15px;">
+        <DButton
+          @class="btn-danger"
+          @action={{action "deleteAllJournals"}}
+          @label="删除所有期刊帖子"
+          @icon="trash-alt"
+          @isLoading={{this.deleting}}
+          @disabled={{this.syncing}}
+        />
+        <span style="color: var(--primary-medium); font-size: 0.9em;">
+          永久删除所有导入的期刊帖子（不可恢复）
+        </span>
+      </div>
+
+      {{#if this.deleteMessage}}
+        <div class="alert {{if this.deleteSuccess 'alert-success' 'alert-error'}}" style="margin-top: 15px;">
+          {{this.deleteMessage}}
+        </div>
+      {{/if}}
+    </div>
   </div>
 </div>
 
