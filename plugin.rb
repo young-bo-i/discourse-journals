@@ -29,6 +29,7 @@ require_relative "lib/discourse_journals/engine"
 add_admin_route "discourse_journals.title", "discourse-journals"
 
 after_initialize do
+  require_relative "app/models/discourse_journals/import_log"
   require_relative "app/services/discourse_journals/field_normalizer"
   require_relative "app/services/discourse_journals/master_record_renderer"
   require_relative "app/services/discourse_journals/json_import/importer"
@@ -39,5 +40,9 @@ after_initialize do
   Discourse::Application.routes.append do
     post "/admin/journals/imports" => "discourse_journals/admin_imports#create", 
          :constraints => AdminConstraint.new
+    get "/admin/journals/imports/:id/status" => "discourse_journals/admin_imports#status",
+        :constraints => AdminConstraint.new
+    get "/admin/journals/imports/logs" => "discourse_journals/admin_imports#logs",
+        :constraints => AdminConstraint.new
   end
 end

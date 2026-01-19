@@ -3,7 +3,7 @@
 
   <div class="journals-import-section">
     <h3>{{i18n "discourse_journals.admin.imports.title"}}</h3>
-    
+
     <p class="journals-import-description">
       {{i18n "discourse_journals.admin.imports.description"}}
     </p>
@@ -13,11 +13,7 @@
         {{i18n "discourse_journals.admin.imports.file"}}
       </label>
       <div class="controls">
-        <input
-          id="journals-import-file"
-          type="file"
-          accept=".json"
-        />
+        <input id="journals-import-file" type="file" accept=".json" />
       </div>
     </div>
 
@@ -28,13 +24,83 @@
           @action={{action "startImport"}}
           @label="discourse_journals.admin.imports.start"
           @isLoading={{this.importing}}
+          @disabled={{this.importing}}
         />
       </div>
     </div>
 
+    {{! 进度条 }}
+    {{#if this.showProgress}}
+      <div class="import-progress">
+        <div class="progress-bar-container">
+          <div class="progress-bar" style="width: {{this.progress}}%">
+            <span class="progress-text">{{this.progress}}%</span>
+          </div>
+        </div>
+        <p class="progress-message">{{this.progressMessage}}</p>
+
+        {{#if this.importStats}}
+          <div class="import-stats">
+            <span class="stat">
+              📊 已处理:
+              {{this.importStats.processed}}/{{this.importStats.total}}
+            </span>
+            <span class="stat">✅ 新建: {{this.importStats.created}}</span>
+            <span class="stat">🔄 更新: {{this.importStats.updated}}</span>
+            {{#if (gt this.importStats.errors 0)}}
+              <span class="stat error">❌ 错误:
+                {{this.importStats.errors}}</span>
+            {{/if}}
+          </div>
+        {{/if}}
+      </div>
+    {{/if}}
+
+    {{! 结果消息 }}
     {{#if this.importMessage}}
       <div class="alert {{if this.importSuccess 'alert-success' 'alert-error'}}">
         {{this.importMessage}}
+      </div>
+    {{/if}}
+
+    {{! 错误日志 }}
+    {{#if (gt this.errors.length 0)}}
+      <div class="import-errors">
+        <div class="errors-header">
+          <h4>❌ 错误日志 ({{this.errors.length}})</h4>
+          <div class="errors-actions">
+            <DButton
+              @action={{action "toggleErrors"}}
+              @label={{if
+                this.showErrors
+                "隐藏错误"
+                "显示错误"
+              }}
+              @icon={{if this.showErrors "chevron-up" "chevron-down"}}
+            />
+            <DButton
+              @action={{action "copyErrors"}}
+              @label="复制错误日志"
+              @icon="copy"
+            />
+          </div>
+        </div>
+
+        {{#if this.showErrors}}
+          <div class="errors-list">
+            {{#each this.errors as |error index|}}
+              <div class="error-item">
+                <div class="error-message">
+                  <strong>{{add index 1}}.</strong>
+                  {{error.message}}
+                </div>
+                {{#if error.details}}
+                  <pre class="error-details">{{error.details}}</pre>
+                {{/if}}
+              </div>
+            {{/each}}
+          </div>
+        {{/if}}
       </div>
     {{/if}}
 
@@ -43,3 +109,133 @@
     </div>
   </div>
 </div>
+
+<style>
+  .journals-admin-page {
+    max-width: 900px;
+  }
+
+  .journals-import-section {
+    background: var(--primary-very-low);
+    padding: 20px;
+    border-radius: 8px;
+    margin-top: 20px;
+  }
+
+  .journals-import-description {
+    color: var(--primary-medium);
+    margin-bottom: 20px;
+  }
+
+  .import-progress {
+    margin: 20px 0;
+    padding: 15px;
+    background: var(--secondary);
+    border-radius: 6px;
+    border: 1px solid var(--primary-low);
+  }
+
+  .progress-bar-container {
+    width: 100%;
+    height: 30px;
+    background: var(--primary-very-low);
+    border-radius: 15px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, var(--tertiary), var(--success));
+    transition: width 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 50px;
+  }
+
+  .progress-text {
+    color: white;
+    font-weight: bold;
+    font-size: 14px;
+  }
+
+  .progress-message {
+    margin-top: 10px;
+    font-size: 14px;
+    color: var(--primary-high);
+  }
+
+  .import-stats {
+    display: flex;
+    gap: 15px;
+    margin-top: 10px;
+    flex-wrap: wrap;
+  }
+
+  .import-stats .stat {
+    padding: 5px 10px;
+    background: var(--primary-very-low);
+    border-radius: 4px;
+    font-size: 13px;
+  }
+
+  .import-stats .stat.error {
+    background: var(--danger-low);
+    color: var(--danger);
+  }
+
+  .import-errors {
+    margin-top: 20px;
+    padding: 15px;
+    background: var(--danger-low);
+    border: 1px solid var(--danger);
+    border-radius: 6px;
+  }
+
+  .errors-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+
+  .errors-header h4 {
+    margin: 0;
+    color: var(--danger);
+  }
+
+  .errors-actions {
+    display: flex;
+    gap: 10px;
+  }
+
+  .errors-list {
+    max-height: 400px;
+    overflow-y: auto;
+    margin-top: 15px;
+  }
+
+  .error-item {
+    padding: 10px;
+    margin-bottom: 10px;
+    background: var(--secondary);
+    border-radius: 4px;
+    border-left: 3px solid var(--danger);
+  }
+
+  .error-message {
+    color: var(--primary);
+    margin-bottom: 5px;
+  }
+
+  .error-details {
+    margin: 8px 0 0 0;
+    padding: 8px;
+    background: var(--primary-very-low);
+    border-radius: 3px;
+    font-size: 12px;
+    color: var(--primary-medium);
+    overflow-x: auto;
+  }
+</style>

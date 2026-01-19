@@ -5,9 +5,10 @@ module DiscourseJournals
     class Importer
       attr_reader :processed_rows, :created_topics, :updated_topics, :skipped_rows, :errors
 
-      def initialize(file_path:, system_user: Discourse.system_user)
+      def initialize(file_path:, system_user: Discourse.system_user, progress_callback: nil)
         @file_path = file_path
         @system_user = system_user
+        @progress_callback = progress_callback
         @processed_rows = 0
         @created_topics = 0
         @updated_topics = 0
@@ -19,29 +20,48 @@ module DiscourseJournals
         data = parse_json_file
         return unless data
 
+        total = data.is_a?(Array) ? data.size : 1
+        report_progress(0, total, "准备导入 #{total} 个期刊...")
+
         if data.is_a?(Array)
-          data.each_with_index { |journal, index| process_journal(journal, index) }
+          data.each_with_index do |journal, index|
+            process_journal(journal, index)
+            
+            # 每处理 10 个或最后一个时报告进度
+            if (index + 1) % 10 == 0 || index == total - 1
+              report_progress(
+                index + 1,
+                total,
+                "已处理 #{index + 1}/#{total} (#{@created_topics} 新建, #{@updated_topics} 更新, #{@errors.size} 错误)"
+              )
+            end
+          end
         elsif data.is_a?(Hash)
           process_journal(data, 0)
+          report_progress(1, 1, "处理完成")
         else
-          @errors << "Invalid JSON format: expected Array or Hash"
+          @errors << { message: "Invalid JSON format: expected Array or Hash", details: nil }
         end
       rescue StandardError => e
-        @errors << "Import failed: #{e.message}"
+        @errors << { message: "Import failed: #{e.message}", details: e.backtrace&.first(5)&.join("\n") }
       end
 
       private
 
       attr_reader :file_path, :system_user
 
+      def report_progress(current, total, message)
+        @progress_callback&.call(current, total, message)
+      end
+
       def parse_json_file
         content = File.read(file_path)
         JSON.parse(content)
       rescue JSON::ParserError => e
-        @errors << "JSON parse error: #{e.message}"
+        @errors << { message: "JSON parse error: #{e.message}", details: nil }
         nil
       rescue StandardError => e
-        @errors << "File read error: #{e.message}"
+        @errors << { message: "File read error: #{e.message}", details: e.backtrace&.first(3)&.join("\n") }
         nil
       end
 
@@ -51,7 +71,7 @@ module DiscourseJournals
         primary_issn = journal["primary_issn"]
         if primary_issn.blank?
           @skipped_rows += 1
-          @errors << "Row #{index + 1}: Missing primary_issn"
+          @errors << { message: "Row #{index + 1}: Missing primary_issn", details: nil }
           return
         end
 
@@ -59,7 +79,7 @@ module DiscourseJournals
         title = unified_index["title"]
         if title.blank?
           @skipped_rows += 1
-          @errors << "Row #{index + 1}: Missing title in unified_index"
+          @errors << { message: "Row #{index + 1}: Missing title in unified_index", details: nil }
           return
         end
 
@@ -81,7 +101,12 @@ module DiscourseJournals
           @updated_topics += 1
         end
       rescue StandardError => e
-        @errors << "Row #{index + 1} (ISSN: #{primary_issn}): #{e.message}"
+        error_msg = "Row #{index + 1} (ISSN: #{primary_issn}): #{e.message}"
+        @errors << { 
+          message: error_msg, 
+          details: "Title: #{title}\n#{e.backtrace&.first(5)&.join("\n")}"
+        }
+        @skipped_rows += 1
       end
 
       def extract_sources(sources_by_provider)
