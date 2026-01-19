@@ -8,6 +8,7 @@
 enabled_site_setting :discourse_journals_enabled
 
 register_asset "stylesheets/common/discourse-journals.scss"
+register_asset "stylesheets/common/discourse-journals-admin.scss"
 
 module ::DiscourseJournals
   PLUGIN_NAME = "discourse-journals"

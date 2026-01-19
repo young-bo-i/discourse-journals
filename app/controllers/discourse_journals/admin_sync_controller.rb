@@ -101,6 +101,16 @@ module DiscourseJournals
         end
       end
 
+      # 更新分类统计缓存
+      if category_id.present?
+        category = Category.find_by(id: category_id)
+        if category
+          Category.update_stats
+          category.reload
+          Rails.logger.info("[DiscourseJournals::DeleteAll] Updated category stats for category #{category_id}")
+        end
+      end
+
       message = "已删除 #{deleted_count} 个期刊话题"
       message += "，#{errors.count} 个删除失败" if errors.any?
 
