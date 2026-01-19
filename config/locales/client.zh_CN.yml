@@ -1,0 +1,44 @@
+zh_CN:
+  js:
+    discourse_journals:
+      admin:
+        heading: "期刊库"
+        profiles:
+          title: "导入配置"
+          create: "新建配置"
+          new_profile: "新建配置"
+          edit: "编辑"
+          save: "保存"
+          delete: "删除"
+          download_template: "下载 Excel 模板"
+          name: "名称"
+          cas_schema: "中科院分区结构（JSON）"
+          wos_schema: "WOS 分区结构（JSON）"
+          invalid_json: "JSON 格式错误：%{error}"
+          columns_title: "字段映射"
+          columns_help: "将 Excel 表头列名映射到期刊字段。"
+          columns:
+            issn: "ISSN 列"
+            name: "期刊名称列"
+            impact_factors: "影响因子列"
+            cas: "中科院分区列（JSON）"
+            wos: "WOS 分区列（JSON）"
+          parsing_title: "解析规则"
+          parsing_help: "配置影响因子列的分隔符。"
+          parsing:
+            entry_separator: "条目分隔符"
+            kv_separator: "键值分隔符"
+        imports:
+          title: "导入"
+          profile: "配置"
+          file: "Excel 文件（.xlsx）"
+          start: "开始导入"
+          started: "已开始导入"
+          refresh: "刷新"
+          status: "状态"
+          processed: "已处理"
+          created: "新增"
+          updated: "更新"
+          skipped: "跳过"
+          errors: "错误"
+          missing_category: "请先在站点设置中选择期刊库分类。"

@@ -1,0 +1,32 @@
+zh_CN:
+  site_settings:
+    discourse_journals_enabled: "启用期刊插件"
+    discourse_journals_category_id: "期刊库分类"
+    discourse_journals_close_topics: "导入/更新后自动关闭期刊条目"
+    discourse_journals_bypass_bump: "更新条目时不顶帖"
+  discourse_journals:
+    title: "期刊库"
+    errors:
+      missing_category: "请先在站点设置中选择期刊库分类。"
+    topic:
+      title: "%{name}（ISSN %{issn}）"
+      empty: "暂无数据。"
+      missing_value: "—"
+      latest_prefix: "最新（%{year}）"
+      published_at: "发布于 %{date}"
+      headings:
+        basic_info: "基础信息"
+        impact_factors: "影响因子"
+        cas_latest: "中科院分区"
+        wos_latest: "WOS 分区"
+        wos_jcr: "JCR 学科分类"
+        wos_jci: "JCI 学科分类"
+      fields:
+        name: "期刊名称"
+        issn: "期刊 ISSN"
+      columns:
+        year: "年份"
+        impact_factor: "影响因子"
+    values:
+      yes: "是"
+      no: "否"

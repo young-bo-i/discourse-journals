@@ -1,0 +1,13 @@
+en:
+  js:
+    discourse_journals:
+      admin:
+        heading: "Journals"
+        imports:
+          title: "Import Journals"
+          description: "Upload a JSON file containing journal data from OpenAlex, Crossref, DOAJ, NLM, and Wikidata. The system will create or update journal topics based on the ISSN."
+          file: "JSON file (.json)"
+          start: "Start import"
+          importing: "Importing..."
+          started: "Import started successfully. Check server logs for progress."
+          note: "The import is running in the background. This may take a while for large files."

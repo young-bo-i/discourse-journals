@@ -1,0 +1,12 @@
+plugins:
+  discourse_journals_enabled:
+    default: false
+    client: true
+  discourse_journals_category_id:
+    default: ""
+    type: category
+  discourse_journals_close_topics:
+    default: true
+  discourse_journals_bypass_bump:
+    default: true
+
