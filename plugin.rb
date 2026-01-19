@@ -2,7 +2,7 @@
 
 # name: discourse-journals
 # about: 期刊统一档案系统 - 导入页面：/admin/journals
-# version: 0.4
+# version: 0.5
 # authors: enterscholar
 
 enabled_site_setting :discourse_journals_enabled
@@ -32,8 +32,13 @@ after_initialize do
   require_relative "app/services/discourse_journals/journal_upserter"
   require_relative "app/jobs/regular/discourse_journals/import_json"
 
-  # 在管理员菜单中添加导航链接
-  Discourse::Application.routes.append do
+  # 加载控制器
+  load File.expand_path("../app/controllers/discourse_journals/admin_controller.rb", __FILE__)
+  load File.expand_path("../app/controllers/discourse_journals/admin_imports_controller.rb", __FILE__)
+
+  # 直接在 Discourse 路由中注册
+  Discourse::Application.routes.prepend do
     get "/admin/journals" => "discourse_journals/admin#index", :constraints => AdminConstraint.new
+    post "/admin/journals/imports" => "discourse_journals/admin_imports#create", :constraints => AdminConstraint.new
   end
 end
