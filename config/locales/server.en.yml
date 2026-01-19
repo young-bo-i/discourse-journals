@@ -2,6 +2,8 @@ en:
   site_settings:
     discourse_journals_enabled: "Enable journals plugin"
     discourse_journals_category_id: "Journals category"
+    discourse_journals_api_url: "External API URL for syncing journals"
+    discourse_journals_title_suffix: "Title suffix for SEO (only in HTML title tag)"
     discourse_journals_close_topics: "Close journal topics after upsert"
     discourse_journals_bypass_bump: "Bypass bump when updating topics"
   discourse_journals:

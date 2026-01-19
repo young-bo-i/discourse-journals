@@ -4,9 +4,9 @@ module DiscourseJournals
   # 字段归一化服务：将各数据源字段映射到统一结构
   class FieldNormalizer
     def initialize(journal_data)
-      @journal_data = journal_data.deep_symbolize_keys
-      @unified_index = @journal_data[:unified_index] || {}
-      @sources = @journal_data[:sources] || {}
+      @journal_data = ensure_hash(journal_data).deep_symbolize_keys
+      @unified_index = ensure_hash(@journal_data[:unified_index])
+      @sources = ensure_hash(@journal_data[:sources])
     end
 
     def normalize
@@ -27,9 +27,40 @@ module DiscourseJournals
 
     attr_reader :journal_data, :unified_index, :sources
 
+    def ensure_hash(data)
+      return {} if data.nil?
+      return data if data.is_a?(Hash)
+      
+      if data.is_a?(String)
+        begin
+          parsed = JSON.parse(data)
+          return parsed if parsed.is_a?(Hash)
+        rescue JSON::ParserError
+          # fallthrough
+        end
+      end
+      
+      {}
+    end
+
     def safe_dig(hash, *keys)
       return nil if hash.nil?
+      
+      # 如果是字符串，尝试解析为 JSON
+      if hash.is_a?(String)
+        begin
+          hash = JSON.parse(hash)
+        rescue JSON::ParserError
+          return nil
+        end
+      end
+      
+      # 如果不是哈希类型，返回 nil
+      return nil unless hash.respond_to?(:dig)
+      
       hash.dig(*keys)
+    rescue StandardError
+      nil
     end
 
     # A. 身份与链接类

@@ -24,11 +24,39 @@ module ::DiscourseJournals
 end
 
 require_relative "lib/discourse_journals/engine"
+require_relative "lib/discourse_journals/title_modifier"
 
 # 注册管理员路由（在 Plugins 菜单中显示）
 add_admin_route "discourse_journals.title", "discourse-journals"
 
 after_initialize do
+  # 修改话题标题（用于 SEO）
+  on(:topic_created) do |topic, opts, user|
+    if SiteSetting.discourse_journals_enabled && 
+       topic.category_id == SiteSetting.discourse_journals_category_id.to_i
+      
+      # 标题只在 HTML meta 中使用，不修改数据库中的标题
+      # 实际修改在 TopicView 中进行
+    end
+  end
+
+  # 修改 TopicView 以添加 SEO 标题
+  require_dependency "topic_view"
+  class ::TopicView
+    alias_method :original_canonical_path, :canonical_path
+
+    def canonical_path
+      path = original_canonical_path
+      
+      # 在序列化时添加 SEO 标题
+      if SiteSetting.discourse_journals_enabled && 
+         @topic.category_id == SiteSetting.discourse_journals_category_id.to_i
+        # 标题修改在前端完成，这里只是确保数据正确
+      end
+      
+      path
+    end
+  end
   require_relative "app/models/discourse_journals/import_log"
   require_relative "app/services/discourse_journals/field_normalizer"
   require_relative "app/services/discourse_journals/master_record_renderer"

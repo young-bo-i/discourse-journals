@@ -19,9 +19,23 @@ module DiscourseJournals
       end
     end
 
-    private
+      private
 
-    attr_reader :system_user
+      attr_reader :system_user
+
+      def ensure_hash(data)
+        return data if data.is_a?(Hash)
+        
+        if data.is_a?(String)
+          begin
+            return JSON.parse(data)
+          rescue JSON::ParserError
+            return {}
+          end
+        end
+        
+        {}
+      end
 
     def find_topic_by_issn(issn)
       TopicCustomField
@@ -93,9 +107,15 @@ module DiscourseJournals
       normalizer = FieldNormalizer.new(journal)
       normalized = normalizer.normalize
       
-      title = normalized.dig(:identity, :title_main) || journal[:name]
-      issn = normalized.dig(:identity, :issn_l) || journal[:issn]
+      title = normalized.dig(:identity, :title_main) || journal[:name] || journal["name"]
+      issn = normalized.dig(:identity, :issn_l) || journal[:issn] || journal["issn"]
       
+      "#{title} (#{issn})"
+    rescue StandardError => e
+      # 如果归一化失败，使用原始数据
+      Rails.logger.warn("[DiscourseJournals] Failed to build title: #{e.message}")
+      title = journal[:name] || journal["name"] || "Unknown"
+      issn = journal[:issn] || journal["issn"] || "Unknown"
       "#{title} (#{issn})"
     end
 
@@ -106,6 +126,13 @@ module DiscourseJournals
 
       renderer = MasterRecordRenderer.new(normalized_data)
       renderer.render
+    rescue StandardError => e
+      # 如果归一化失败，返回简单内容
+      Rails.logger.warn("[DiscourseJournals] Failed to build content: #{e.message}\n#{e.backtrace.first(3).join("\n")}")
+      title = journal[:name] || journal["name"] || "Unknown"
+      issn = journal[:issn] || journal["issn"] || "Unknown"
+      
+      "# #{title}\n\n**ISSN**: #{issn}\n\n*数据归一化失败，已记录错误日志*"
     end
   end
 end

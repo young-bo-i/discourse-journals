@@ -8,6 +8,10 @@ plugins:
   discourse_journals_api_url:
     default: ""
     client: true
+  discourse_journals_title_suffix:
+    default: "期刊详情 | 学术期刊库 | 开放获取期刊"
+    client: true
+    description: "期刊话题标题后缀（用于 SEO，只在 HTML title 标签中显示）"
   discourse_journals_close_topics:
     default: true
   discourse_journals_bypass_bump:
