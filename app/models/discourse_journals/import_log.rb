@@ -7,7 +7,8 @@ module DiscourseJournals
     validates :upload_id, presence: true
     validates :status, presence: true
 
-    enum status: { pending: 0, processing: 1, completed: 2, failed: 3 }
+    # Rails 8 enum syntax
+    enum :status, { pending: 0, processing: 1, completed: 2, failed: 3 }
 
     def add_error(message, details = nil)
       self.errors_data ||= []
