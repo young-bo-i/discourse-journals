@@ -8,9 +8,13 @@ import { popupAjaxError } from "discourse/lib/ajax-error";
 export default class AdminPluginsDiscourseJournalsController extends Controller {
   @service dialog;
   @service messageBus;
-  @tracked importing = false;
-  @tracked importMessage = null;
-  @tracked importSuccess = false;
+  @service siteSettings;
+
+  @tracked apiUrl = "";
+  @tracked testing = false;
+  @tracked testMessage = null;
+  @tracked testSuccess = false;
+  @tracked syncing = false;
   @tracked progress = 0;
   @tracked progressMessage = "";
   @tracked currentImportId = null;
@@ -18,60 +22,120 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
   @tracked importStats = null;
   @tracked errors = [];
   @tracked showErrors = false;
+  @tracked importMessage = null;
+  @tracked importSuccess = false;
+
+  constructor() {
+    super(...arguments);
+    this.apiUrl = this.siteSettings.discourse_journals_api_url || "";
+  }
 
   @action
-  async startImport() {
-    const input = document.getElementById("journals-import-file");
-    const file = input?.files?.[0];
+  updateApiUrl(event) {
+    this.apiUrl = event.target.value;
+  }
 
-    if (!file) {
-      this.dialog.alert("请先选择一个 JSON 文件");
+  @action
+  async testConnection() {
+    if (!this.apiUrl) {
+      this.dialog.alert("请输入 API URL");
       return;
     }
 
-    const body = new FormData();
-    body.append("file", file);
-
-    this.importing = true;
-    this.importMessage = null;
-    this.showProgress = true;
-    this.progress = 0;
-    this.progressMessage = "准备上传...";
-    this.errors = [];
-    this.showErrors = false;
+    this.testing = true;
+    this.testMessage = null;
 
     try {
-      const result = await ajax("/admin/journals/imports", {
+      const result = await ajax("/admin/journals/sync/test", {
         type: "POST",
-        data: body,
-        processData: false,
-        contentType: false,
+        data: { api_url: this.apiUrl },
+      });
+
+      this.testSuccess = true;
+      this.testMessage = result.message;
+    } catch (e) {
+      this.testSuccess = false;
+      this.testMessage =
+        e.jqXHR?.responseJSON?.errors?.[0] || "连接测试失败";
+      popupAjaxError(e);
+    } finally {
+      this.testing = false;
+    }
+  }
+
+  @action
+  async syncFirstPage() {
+    if (!this.apiUrl) {
+      this.dialog.alert("请输入 API URL");
+      return;
+    }
+
+    const confirmed = await this.dialog.yesNoConfirm({
+      message: "确定要导入第一页数据吗？（约100个期刊）",
+    });
+
+    if (!confirmed) return;
+
+    this.startSync("first_page");
+  }
+
+  @action
+  async syncAllPages() {
+    if (!this.apiUrl) {
+      this.dialog.alert("请输入 API URL");
+      return;
+    }
+
+    const confirmed = await this.dialog.yesNoConfirm({
+      message:
+        "确定要导入所有数据吗？\n\n这可能需要较长时间（15万期刊约50分钟）。\n\n导入过程会在后台运行，您可以安全关闭此页面。",
+    });
+
+    if (!confirmed) return;
+
+    this.startSync("all_pages");
+  }
+
+  async startSync(mode) {
+    this.syncing = true;
+    this.showProgress = true;
+    this.progress = 0;
+    this.progressMessage = "准备开始...";
+    this.errors = [];
+    this.showErrors = false;
+    this.importMessage = null;
+
+    try {
+      const result = await ajax("/admin/journals/sync", {
+        type: "POST",
+        data: {
+          api_url: this.apiUrl,
+          mode: mode,
+        },
       });
 
       this.currentImportId = result.import_log_id;
-      this.progressMessage = "导入已开始，正在处理...";
-      
-      // 订阅 MessageBus 获取实时进度
+      this.progressMessage = result.message;
+
+      // 订阅 MessageBus
       this.subscribeToProgress(result.import_log_id);
-      
-      input.value = "";
     } catch (e) {
-      this.importing = false;
+      this.syncing = false;
       this.showProgress = false;
       this.importSuccess = false;
       this.importMessage =
-        e.jqXHR?.responseJSON?.errors?.[0] || "导入失败";
+        e.jqXHR?.responseJSON?.errors?.[0] || "启动同步失败";
       popupAjaxError(e);
     }
   }
 
   subscribeToProgress(importLogId) {
     const channel = `/journals/import/${importLogId}`;
-    
+
     this.messageBus.subscribe(channel, (data) => {
       this.progress = Math.round(data.progress || 0);
       this.progressMessage = data.message || "处理中...";
-      
+
       this.importStats = {
         processed: data.processed || 0,
         total: data.total || 0,
@@ -80,15 +144,15 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
         errors: data.errors || 0,
       };
 
-      // 完成或失败时停止订阅
+      // 完成或失败
       if (data.status === "completed" || data.status === "failed") {
-        this.importing = false;
+        this.syncing = false;
         this.importSuccess = data.status === "completed";
-        
+
         if (data.status === "completed") {
-          this.importMessage = `✅ 导入完成！新建 ${data.created} 个，更新 ${data.updated} 个`;
+          this.importMessage = `✅ 同步完成！新建 ${data.created} 个，更新 ${data.updated} 个`;
         } else {
-          this.importMessage = `❌ 导入失败`;
+          this.importMessage = `❌ 同步失败`;
         }
 
         // 获取错误日志
@@ -103,7 +167,9 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
 
   async loadErrors(importLogId) {
     try {
-      const result = await ajax(`/admin/journals/imports/${importLogId}/status`);
+      const result = await ajax(
+        `/admin/journals/imports/${importLogId}/status`
+      );
       if (result.errors && result.errors.length > 0) {
         this.errors = result.errors;
         this.showErrors = true;
@@ -123,7 +189,7 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
     const errorText = this.errors
       .map((e, i) => `${i + 1}. ${e.message}\n   ${e.details || ""}`)
       .join("\n\n");
-    
+
     navigator.clipboard.writeText(errorText).then(() => {
       this.dialog.alert("错误日志已复制到剪贴板");
     });

@@ -32,17 +32,21 @@ after_initialize do
   require_relative "app/models/discourse_journals/import_log"
   require_relative "app/services/discourse_journals/field_normalizer"
   require_relative "app/services/discourse_journals/master_record_renderer"
-  require_relative "app/services/discourse_journals/json_import/importer"
+  require_relative "app/services/discourse_journals/api_sync/client"
+  require_relative "app/services/discourse_journals/api_sync/importer"
   require_relative "app/services/discourse_journals/journal_upserter"
-  require_relative "app/jobs/regular/discourse_journals/import_json"
+  require_relative "app/jobs/regular/discourse_journals/sync_from_api"
 
   # 注册 API 路由
   Discourse::Application.routes.append do
-    post "/admin/journals/imports" => "discourse_journals/admin_imports#create", 
+    # API 同步
+    post "/admin/journals/sync" => "discourse_journals/admin_sync#create",
          :constraints => AdminConstraint.new
+    post "/admin/journals/sync/test" => "discourse_journals/admin_sync#test_connection",
+         :constraints => AdminConstraint.new
+    
+    # 导入日志查询
     get "/admin/journals/imports/:id/status" => "discourse_journals/admin_imports#status",
-        :constraints => AdminConstraint.new
-    get "/admin/journals/imports/logs" => "discourse_journals/admin_imports#logs",
         :constraints => AdminConstraint.new
   end
 end

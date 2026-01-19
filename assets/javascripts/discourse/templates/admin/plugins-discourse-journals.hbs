@@ -1,31 +1,76 @@
 <div class="admin-container journals-admin-page">
   <h2>{{i18n "discourse_journals.admin.heading"}}</h2>
 
-  <div class="journals-import-section">
-    <h3>{{i18n "discourse_journals.admin.imports.title"}}</h3>
+  <div class="journals-sync-section">
+    <h3>从 API 同步期刊数据</h3>
 
-    <p class="journals-import-description">
-      {{i18n "discourse_journals.admin.imports.description"}}
-    </p>
+    <div class="sync-config">
+      <div class="control-group">
+        <label class="control-label">API URL</label>
+        <div class="controls">
+          <input
+            type="text"
+            {{on "input" this.updateApiUrl}}
+            value={{this.apiUrl}}
+            placeholder="https://api.example.com"
+            class="api-url-input"
+          />
+          <p class="help-text">
+            可以在
+            <a href="/admin/site_settings/category/plugins?filter=journals">站点设置</a>
+            中配置默认 API URL
+          </p>
+        </div>
+      </div>
 
-    <div class="control-group">
-      <label class="control-label">
-        {{i18n "discourse_journals.admin.imports.file"}}
-      </label>
-      <div class="controls">
-        <input id="journals-import-file" type="file" accept=".json" />
+      <div class="control-group">
+        <div class="controls">
+          <DButton
+            @class="btn-default"
+            @action={{action "testConnection"}}
+            @label="测试连接"
+            @icon="plug"
+            @isLoading={{this.testing}}
+            @disabled={{this.syncing}}
+          />
+        </div>
+        {{#if this.testMessage}}
+          <div class="alert {{if this.testSuccess 'alert-success' 'alert-error'}}">
+            {{this.testMessage}}
+          </div>
+        {{/if}}
       </div>
     </div>
 
-    <div class="control-group">
-      <div class="controls">
-        <DButton
-          @class="btn-primary"
-          @action={{action "startImport"}}
-          @label="discourse_journals.admin.imports.start"
-          @isLoading={{this.importing}}
-          @disabled={{this.importing}}
-        />
+    <div class="sync-actions">
+      <h4>导入选项</h4>
+
+      <div class="action-buttons">
+        <div class="action-item">
+          <DButton
+            @class="btn-primary"
+            @action={{action "syncFirstPage"}}
+            @label="导入第一页（测试）"
+            @icon="download"
+            @isLoading={{this.syncing}}
+            @disabled={{this.syncing}}
+          />
+          <p class="action-description">仅导入第一页数据（约100个期刊），用于测试</p>
+        </div>
+
+        <div class="action-item">
+          <DButton
+            @class="btn-danger"
+            @action={{action "syncAllPages"}}
+            @label="导入所有数据"
+            @icon="cloud-download-alt"
+            @isLoading={{this.syncing}}
+            @disabled={{this.syncing}}
+          />
+          <p class="action-description">
+            导入所有期刊数据（可能需要较长时间）
+          </p>
+        </div>
       </div>
     </div>
 
@@ -71,11 +116,7 @@
           <div class="errors-actions">
             <DButton
               @action={{action "toggleErrors"}}
-              @label={{if
-                this.showErrors
-                "隐藏错误"
-                "显示错误"
-              }}
+              @label={{if this.showErrors "隐藏错误" "显示错误"}}
               @icon={{if this.showErrors "chevron-up" "chevron-down"}}
             />
             <DButton
@@ -105,7 +146,13 @@
     {{/if}}
 
     <div class="alert alert-info" style="margin-top: 20px;">
-      <p>{{i18n "discourse_journals.admin.imports.note"}}</p>
+      <p>💡 提示：</p>
+      <ul>
+        <li>首次导入建议先测试第一页，确认数据正确后再导入全部</li>
+        <li>导入过程中会自动创建或更新期刊话题</li>
+        <li>重复导入会更新已存在的期刊，不会创建重复话题</li>
+        <li>导入在后台运行，可以安全关闭此页面</li>
+      </ul>
     </div>
   </div>
 </div>
@@ -115,16 +162,52 @@
     max-width: 900px;
   }
 
-  .journals-import-section {
+  .journals-sync-section {
     background: var(--primary-very-low);
     padding: 20px;
     border-radius: 8px;
     margin-top: 20px;
   }
 
-  .journals-import-description {
+  .sync-config {
+    margin-bottom: 30px;
+  }
+
+  .api-url-input {
+    width: 100%;
+    max-width: 500px;
+  }
+
+  .help-text {
     color: var(--primary-medium);
-    margin-bottom: 20px;
+    font-size: 0.9em;
+    margin-top: 5px;
+  }
+
+  .sync-actions {
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid var(--primary-low);
+  }
+
+  .action-buttons {
+    display: flex;
+    gap: 20px;
+    margin-top: 15px;
+  }
+
+  .action-item {
+    flex: 1;
+    padding: 15px;
+    background: var(--secondary);
+    border-radius: 6px;
+    border: 1px solid var(--primary-low);
+  }
+
+  .action-description {
+    margin-top: 10px;
+    font-size: 0.9em;
+    color: var(--primary-medium);
   }
 
   .import-progress {
