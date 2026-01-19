@@ -1,0 +1,61 @@
+.journals-import-section {
+  margin-bottom: 30px;
+  padding: 20px;
+  background: var(--primary-very-low);
+  border-radius: 8px;
+
+  h3 {
+    margin-top: 0;
+    color: var(--primary);
+  }
+
+  .journals-import-description {
+    margin-bottom: 20px;
+    color: var(--primary-high);
+  }
+
+  .control-group {
+    margin-bottom: 15px;
+
+    .control-label {
+      font-weight: bold;
+      margin-bottom: 5px;
+      display: block;
+    }
+
+    input[type="file"] {
+      width: 100%;
+      padding: 8px;
+      border: 1px solid var(--primary-low);
+      border-radius: 4px;
+      background: var(--secondary);
+      
+      &:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+    }
+
+    .btn {
+      margin-right: 10px;
+    }
+  }
+
+  .journals-import-note {
+    margin-top: 15px;
+    padding: 10px;
+    background: var(--tertiary-low);
+    border-left: 3px solid var(--tertiary);
+    border-radius: 4px;
+    
+    p {
+      margin: 0;
+      color: var(--primary-high);
+    }
+  }
+
+  hr {
+    border: none;
+    border-top: 1px solid var(--primary-low);
+  }
+}

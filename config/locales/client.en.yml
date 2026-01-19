@@ -12,3 +12,4 @@ en:
           importing: "Importing..."
           started: "Import started successfully. Check server logs for progress."
           note: "The import is running in the background. This may take a while for large files."
+          no_file: "Please select a JSON file first"
