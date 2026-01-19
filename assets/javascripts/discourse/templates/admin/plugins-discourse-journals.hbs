@@ -1,0 +1,45 @@
+<div class="admin-container journals-admin-page">
+  <h2>{{i18n "discourse_journals.admin.heading"}}</h2>
+
+  <div class="journals-import-section">
+    <h3>{{i18n "discourse_journals.admin.imports.title"}}</h3>
+    
+    <p class="journals-import-description">
+      {{i18n "discourse_journals.admin.imports.description"}}
+    </p>
+
+    <div class="control-group">
+      <label class="control-label">
+        {{i18n "discourse_journals.admin.imports.file"}}
+      </label>
+      <div class="controls">
+        <input
+          id="journals-import-file"
+          type="file"
+          accept=".json"
+        />
+      </div>
+    </div>
+
+    <div class="control-group">
+      <div class="controls">
+        <DButton
+          @class="btn-primary"
+          @action={{action "startImport"}}
+          @label="discourse_journals.admin.imports.start"
+          @isLoading={{this.importing}}
+        />
+      </div>
+    </div>
+
+    {{#if this.importMessage}}
+      <div class="alert {{if this.importSuccess 'alert-success' 'alert-error'}}">
+        {{this.importMessage}}
+      </div>
+    {{/if}}
+
+    <div class="alert alert-info" style="margin-top: 20px;">
+      <p>{{i18n "discourse_journals.admin.imports.note"}}</p>
+    </div>
+  </div>
+</div>

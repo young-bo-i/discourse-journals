@@ -1,10 +1,4 @@
 # frozen_string_literal: true
 
-DiscourseJournals::Engine.routes.draw do
-  scope "/admin/journals", constraints: AdminConstraint.new do
-    get "/" => "admin#index"
-    post "/imports" => "admin_imports#create"
-  end
-end
+# 使用 Engine 路由已被废弃，改为在 plugin.rb 中直接注册
 
-Discourse::Application.routes.draw { mount ::DiscourseJournals::Engine, at: "/" }

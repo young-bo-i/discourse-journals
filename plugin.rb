@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 # name: discourse-journals
-# about: 期刊统一档案系统 - 导入页面：/admin/journals
-# version: 0.5
+# about: 期刊统一档案系统 - JSON 导入管理
+# version: 0.6
 # authors: enterscholar
 
 enabled_site_setting :discourse_journals_enabled
@@ -25,6 +25,9 @@ end
 
 require_relative "lib/discourse_journals/engine"
 
+# 注册管理员路由（在 Plugins 菜单中显示）
+add_admin_route "discourse_journals.title", "discourse-journals"
+
 after_initialize do
   require_relative "app/services/discourse_journals/field_normalizer"
   require_relative "app/services/discourse_journals/master_record_renderer"
@@ -32,13 +35,9 @@ after_initialize do
   require_relative "app/services/discourse_journals/journal_upserter"
   require_relative "app/jobs/regular/discourse_journals/import_json"
 
-  # 加载控制器
-  load File.expand_path("../app/controllers/discourse_journals/admin_controller.rb", __FILE__)
-  load File.expand_path("../app/controllers/discourse_journals/admin_imports_controller.rb", __FILE__)
-
-  # 直接在 Discourse 路由中注册
-  Discourse::Application.routes.prepend do
-    get "/admin/journals" => "discourse_journals/admin#index", :constraints => AdminConstraint.new
-    post "/admin/journals/imports" => "discourse_journals/admin_imports#create", :constraints => AdminConstraint.new
+  # 注册 API 路由
+  Discourse::Application.routes.append do
+    post "/admin/journals/imports" => "discourse_journals/admin_imports#create", 
+         :constraints => AdminConstraint.new
   end
 end
