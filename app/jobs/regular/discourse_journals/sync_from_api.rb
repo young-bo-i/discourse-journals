@@ -8,6 +8,7 @@ module Jobs
         user_id = args[:user_id]
         api_url = args[:api_url]
         mode = args[:mode] # "first_page" 或 "all_pages"
+        filters = args[:filters] || {}
 
         import_log = ::DiscourseJournals::ImportLog.find_by(id: import_log_id)
         return unless import_log
@@ -18,6 +19,7 @@ module Jobs
         # 创建导入器
         importer = ::DiscourseJournals::ApiSync::Importer.new(
           api_url: api_url,
+          filters: filters,
           progress_callback: ->(current, total, message) {
             update_progress(import_log, user_id, current, total, message)
           }

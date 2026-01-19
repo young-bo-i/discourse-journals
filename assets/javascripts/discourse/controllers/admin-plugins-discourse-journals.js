@@ -24,15 +24,92 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
   @tracked showErrors = false;
   @tracked importMessage = null;
   @tracked importSuccess = false;
+  
+  // 筛选条件
+  @tracked showFilters = false;
+  @tracked filterQ = "";
+  @tracked filterInDoaj = "";
+  @tracked filterInNlm = "";
+  @tracked filterHasWikidata = "";
+  @tracked filterIsOpenAccess = "";
 
   constructor() {
     super(...arguments);
     this.apiUrl = this.siteSettings.discourse_journals_api_url || "";
   }
 
+  get hasActiveFilters() {
+    return !!(
+      this.filterQ ||
+      this.filterInDoaj ||
+      this.filterInNlm ||
+      this.filterHasWikidata ||
+      this.filterIsOpenAccess
+    );
+  }
+
+  get activeFiltersCount() {
+    let count = 0;
+    if (this.filterQ) count++;
+    if (this.filterInDoaj) count++;
+    if (this.filterInNlm) count++;
+    if (this.filterHasWikidata) count++;
+    if (this.filterIsOpenAccess) count++;
+    return count;
+  }
+
+  get filtersData() {
+    const filters = {};
+    if (this.filterQ) filters.q = this.filterQ;
+    if (this.filterInDoaj) filters.in_doaj = this.filterInDoaj === "true";
+    if (this.filterInNlm) filters.in_nlm = this.filterInNlm === "true";
+    if (this.filterHasWikidata) filters.has_wikidata = this.filterHasWikidata === "true";
+    if (this.filterIsOpenAccess) filters.is_open_access = this.filterIsOpenAccess === "true";
+    return filters;
+  }
+
   @action
   updateApiUrl(event) {
     this.apiUrl = event.target.value;
+  }
+
+  @action
+  toggleFilters() {
+    this.showFilters = !this.showFilters;
+  }
+
+  @action
+  updateFilterQ(event) {
+    this.filterQ = event.target.value;
+  }
+
+  @action
+  updateFilterInDoaj(event) {
+    this.filterInDoaj = event.target.value;
+  }
+
+  @action
+  updateFilterInNlm(event) {
+    this.filterInNlm = event.target.value;
+  }
+
+  @action
+  updateFilterHasWikidata(event) {
+    this.filterHasWikidata = event.target.value;
+  }
+
+  @action
+  updateFilterIsOpenAccess(event) {
+    this.filterIsOpenAccess = event.target.value;
+  }
+
+  @action
+  clearFilters() {
+    this.filterQ = "";
+    this.filterInDoaj = "";
+    this.filterInNlm = "";
+    this.filterHasWikidata = "";
+    this.filterIsOpenAccess = "";
   }
 
   @action
@@ -106,12 +183,19 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
     this.importMessage = null;
 
     try {
+      const data = {
+        api_url: this.apiUrl,
+        mode: mode,
+      };
+
+      // 添加筛选条件
+      if (this.hasActiveFilters) {
+        data.filters = this.filtersData;
+      }
+
       const result = await ajax("/admin/journals/sync", {
         type: "POST",
-        data: {
-          api_url: this.apiUrl,
-          mode: mode,
-        },
+        data: data,
       });
 
       this.currentImportId = result.import_log_id;

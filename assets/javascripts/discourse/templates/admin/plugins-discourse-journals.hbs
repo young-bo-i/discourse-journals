@@ -33,6 +33,14 @@
             @isLoading={{this.testing}}
             @disabled={{this.syncing}}
           />
+          
+          <DButton
+            @class="btn-default"
+            @action={{action "toggleFilters"}}
+            @label={{if this.showFilters "隐藏筛选" "显示筛选"}}
+            @icon="filter"
+            @disabled={{this.syncing}}
+          />
         </div>
         {{#if this.testMessage}}
           <div class="alert {{if this.testSuccess 'alert-success' 'alert-error'}}">
@@ -40,6 +48,77 @@
           </div>
         {{/if}}
       </div>
+
+      {{#if this.showFilters}}
+        <div class="filters-section">
+          <h4>筛选条件</h4>
+          
+          <div class="filters-grid">
+            <div class="filter-item">
+              <label>搜索关键词</label>
+              <input
+                type="text"
+                {{on "input" this.updateFilterQ}}
+                value={{this.filterQ}}
+                placeholder="搜索 ISSN、标题、出版商..."
+              />
+            </div>
+
+            <div class="filter-item">
+              <label>是否在 DOAJ 中</label>
+              <select {{on "change" this.updateFilterInDoaj}} value={{this.filterInDoaj}}>
+                <option value="">全部</option>
+                <option value="true">是</option>
+                <option value="false">否</option>
+              </select>
+            </div>
+
+            <div class="filter-item">
+              <label>是否在 NLM 中</label>
+              <select {{on "change" this.updateFilterInNlm}} value={{this.filterInNlm}}>
+                <option value="">全部</option>
+                <option value="true">是</option>
+                <option value="false">否</option>
+              </select>
+            </div>
+
+            <div class="filter-item">
+              <label>是否有 Wikidata</label>
+              <select {{on "change" this.updateFilterHasWikidata}} value={{this.filterHasWikidata}}>
+                <option value="">全部</option>
+                <option value="true">是</option>
+                <option value="false">否</option>
+              </select>
+            </div>
+
+            <div class="filter-item">
+              <label>是否开放获取</label>
+              <select {{on "change" this.updateFilterIsOpenAccess}} value={{this.filterIsOpenAccess}}>
+                <option value="">全部</option>
+                <option value="true">是</option>
+                <option value="false">否</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="filter-actions">
+            <DButton
+              @class="btn-default"
+              @action={{action "clearFilters"}}
+              @label="清除筛选"
+              @icon="times"
+            />
+            
+            <span class="filter-info">
+              {{#if this.hasActiveFilters}}
+                ✅ 已应用 {{this.activeFiltersCount}} 个筛选条件
+              {{else}}
+                暂无筛选条件
+              {{/if}}
+            </span>
+          </div>
+        </div>
+      {{/if}}
     </div>
 
     <div class="sync-actions">
@@ -206,6 +285,62 @@
 
   .action-description {
     margin-top: 10px;
+    font-size: 0.9em;
+    color: var(--primary-medium);
+  }
+
+  .filters-section {
+    margin-top: 20px;
+    padding: 20px;
+    background: var(--secondary);
+    border-radius: 6px;
+    border: 1px solid var(--primary-low);
+  }
+
+  .filters-section h4 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: var(--primary);
+  }
+
+  .filters-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 15px;
+    margin-bottom: 15px;
+  }
+
+  .filter-item {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .filter-item label {
+    margin-bottom: 5px;
+    font-weight: 500;
+    font-size: 0.9em;
+    color: var(--primary-high);
+  }
+
+  .filter-item input,
+  .filter-item select {
+    width: 100%;
+    padding: 6px 10px;
+    border: 1px solid var(--primary-low);
+    border-radius: 4px;
+    background: var(--secondary);
+    color: var(--primary);
+  }
+
+  .filter-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding-top: 15px;
+    border-top: 1px solid var(--primary-low);
+  }
+
+  .filter-info {
     font-size: 0.9em;
     color: var(--primary-medium);
   }

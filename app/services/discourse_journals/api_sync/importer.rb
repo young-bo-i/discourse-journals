@@ -5,8 +5,9 @@ module DiscourseJournals
     class Importer
       attr_reader :processed_count, :created_count, :updated_count, :skipped_count, :errors
 
-      def initialize(api_url:, progress_callback: nil)
+      def initialize(api_url:, filters: {}, progress_callback: nil)
         @api_url = api_url
+        @filters = filters
         @progress_callback = progress_callback
         @client = Client.new(api_url)
         @processed_count = 0
@@ -18,9 +19,9 @@ module DiscourseJournals
 
       # 导入第一页（测试用）
       def import_first_page!(page_size: 100)
-        Rails.logger.info("[DiscourseJournals::ApiSync] Importing first page (#{page_size} items)")
+        Rails.logger.info("[DiscourseJournals::ApiSync] Importing first page (#{page_size} items) with filters: #{@filters}")
 
-        result = @client.fetch_page(page: 1, page_size: page_size)
+        result = @client.fetch_page(page: 1, page_size: page_size, filters: @filters)
         journals = result[:journals]
         total = journals.size
 
@@ -36,16 +37,16 @@ module DiscourseJournals
 
       # 导入所有页
       def import_all_pages!(page_size: 100)
-        Rails.logger.info("[DiscourseJournals::ApiSync] Importing all pages")
+        Rails.logger.info("[DiscourseJournals::ApiSync] Importing all pages with filters: #{@filters}")
 
         # 先获取总数
-        first_result = @client.fetch_page(page: 1, page_size: 1)
+        first_result = @client.fetch_page(page: 1, page_size: 1, filters: @filters)
         total = first_result.dig(:pagination, "total") || 0
 
         report_progress(0, total, "准备导入所有数据：共 #{total} 个期刊...")
 
         # 流式处理所有页
-        @client.fetch_all_pages(page_size: page_size) do |journal, index|
+        @client.fetch_all_pages(page_size: page_size, filters: @filters) do |journal, index|
           process_journal(journal, index)
 
           # 每处理 100 个报告一次进度

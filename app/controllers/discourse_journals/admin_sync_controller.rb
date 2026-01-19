@@ -9,6 +9,7 @@ module DiscourseJournals
     def create
       mode = params[:mode] # "first_page" 或 "all_pages"
       api_url = params[:api_url].presence || SiteSetting.discourse_journals_api_url
+      filters = params[:filters] || {}
 
       if api_url.blank?
         return render_json_error("请在设置中配置 API URL")
@@ -18,7 +19,7 @@ module DiscourseJournals
         return render_json_error("无效的模式，必须是 first_page 或 all_pages")
       end
 
-      Rails.logger.info("[DiscourseJournals::Sync] Starting sync: mode=#{mode}, api_url=#{api_url}")
+      Rails.logger.info("[DiscourseJournals::Sync] Starting sync: mode=#{mode}, api_url=#{api_url}, filters=#{filters}")
 
       # 创建导入日志
       import_log = ImportLog.create!(
@@ -34,15 +35,20 @@ module DiscourseJournals
         import_log_id: import_log.id,
         user_id: current_user.id,
         api_url: api_url,
-        mode: mode
+        mode: mode,
+        filters: filters
       )
+
+      filter_desc = build_filter_description(filters)
+      message = mode == "first_page" ? "开始导入第一页数据..." : "开始导入所有数据..."
+      message += filter_desc if filter_desc.present?
 
       render_json_dump(
         {
           status: "started",
           import_log_id: import_log.id,
           mode: mode,
-          message: mode == "first_page" ? "开始导入第一页数据..." : "开始导入所有数据..."
+          message: message
         }
       )
     rescue StandardError => e
@@ -73,6 +79,24 @@ module DiscourseJournals
     rescue StandardError => e
       Rails.logger.error("[DiscourseJournals::Sync] Test failed: #{e.message}")
       render_json_error("API 连接失败: #{e.message}")
+    end
+
+    private
+
+    def build_filter_description(filters)
+      return "" if filters.blank?
+
+      parts = []
+      parts << "关键词: #{filters['q']}" if filters['q'].present?
+      parts << "DOAJ期刊" if filters['in_doaj'] == true
+      parts << "非DOAJ期刊" if filters['in_doaj'] == false
+      parts << "NLM期刊" if filters['in_nlm'] == true
+      parts << "非NLM期刊" if filters['in_nlm'] == false
+      parts << "有Wikidata" if filters['has_wikidata'] == true
+      parts << "开放获取" if filters['is_open_access'] == true
+      parts << "非开放获取" if filters['is_open_access'] == false
+
+      parts.any? ? "（筛选：#{parts.join('、')}）" : ""
     end
   end
 end
