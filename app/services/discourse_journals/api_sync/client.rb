@@ -81,13 +81,18 @@ module DiscourseJournals
           pageSize: page_size
         }
 
-        params[:q] = filters[:q] if filters[:q].present?
-        params[:inDoaj] = filters[:in_doaj] if filters[:in_doaj].present?
-        params[:inNlm] = filters[:in_nlm] if filters[:in_nlm].present?
-        params[:hasWikidata] = filters[:has_wikidata] if filters[:has_wikidata].present?
-        params[:isOpenAccess] = filters[:is_open_access] if filters[:is_open_access].present?
-        params[:sortBy] = filters[:sort_by] if filters[:sort_by].present?
-        params[:sortOrder] = filters[:sort_order] if filters[:sort_order].present?
+        # 确保 filters 是一个哈希
+        filters = filters.to_h if filters.respond_to?(:to_h)
+        filters ||= {}
+
+        # 支持字符串键和符号键
+        params[:q] = filters["q"] || filters[:q] if (filters["q"] || filters[:q]).present?
+        params[:inDoaj] = filters["in_doaj"] || filters[:in_doaj] if (filters["in_doaj"] || filters[:in_doaj]).present?
+        params[:inNlm] = filters["in_nlm"] || filters[:in_nlm] if (filters["in_nlm"] || filters[:in_nlm]).present?
+        params[:hasWikidata] = filters["has_wikidata"] || filters[:has_wikidata] if (filters["has_wikidata"] || filters[:has_wikidata]).present?
+        params[:isOpenAccess] = filters["is_open_access"] || filters[:is_open_access] if (filters["is_open_access"] || filters[:is_open_access]).present?
+        params[:sortBy] = filters["sort_by"] || filters[:sort_by] if (filters["sort_by"] || filters[:sort_by]).present?
+        params[:sortOrder] = filters["sort_order"] || filters[:sort_order] if (filters["sort_order"] || filters[:sort_order]).present?
 
         params.map { |k, v| "#{k}=#{CGI.escape(v.to_s)}" }.join("&")
       end

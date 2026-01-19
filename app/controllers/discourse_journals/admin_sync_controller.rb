@@ -9,7 +9,7 @@ module DiscourseJournals
     def create
       mode = params[:mode] # "first_page" 或 "all_pages"
       api_url = params[:api_url].presence || SiteSetting.discourse_journals_api_url
-      filters = params[:filters] || {}
+      filters = (params[:filters] || {}).to_h.with_indifferent_access
 
       if api_url.blank?
         return render_json_error("请在设置中配置 API URL")
