@@ -1,10 +1,9 @@
 # frozen_string_literal: true
 
 # name: discourse-journals
-# about: 期刊统一档案系统 - 通过 JSON 导入管理期刊数据
-# version: 0.3
+# about: 期刊统一档案系统 - 导入页面：/admin/journals
+# version: 0.4
 # authors: enterscholar
-# url: https://github.com/enterscholar/discourse-journals
 
 enabled_site_setting :discourse_journals_enabled
 
@@ -32,4 +31,9 @@ after_initialize do
   require_relative "app/services/discourse_journals/json_import/importer"
   require_relative "app/services/discourse_journals/journal_upserter"
   require_relative "app/jobs/regular/discourse_journals/import_json"
+
+  # 在管理员菜单中添加导航链接
+  Discourse::Application.routes.append do
+    get "/admin/journals" => "discourse_journals/admin#index", :constraints => AdminConstraint.new
+  end
 end

@@ -8,7 +8,7 @@
       <%= t("discourse_journals.admin.imports.description") %>
     </p>
 
-    <%= form_tag("/admin/plugins/journals/imports", method: :post, multipart: true, id: "journals-import-form", class: "journals-import-form") do %>
+    <%= form_tag("/admin/journals/imports", method: :post, multipart: true, id: "journals-import-form", class: "journals-import-form") do %>
       
       <div class="control-group">
         <label class="control-label"><%= t("discourse_journals.admin.imports.file") %></label>
