@@ -7,8 +7,16 @@ module DiscourseJournals
     end
 
     def upsert!(journal)
-      journal = journal.deep_symbolize_keys
-      topic = find_topic_by_issn(journal.fetch(:issn))
+      journal = ensure_hash(journal).deep_symbolize_keys
+      
+      # 验证必要字段
+      issn = journal[:issn] || journal.dig(:unified_index, :issn_l)
+      raise ArgumentError, "Missing ISSN" if issn.blank?
+      
+      # 预先验证数据是否可以正常处理
+      validate_journal_data!(journal)
+      
+      topic = find_topic_by_issn(issn)
 
       if topic
         update_topic!(topic, journal)
@@ -17,6 +25,11 @@ module DiscourseJournals
         create_topic!(journal)
         :created
       end
+    rescue StandardError => e
+      # 记录详细错误日志
+      log_error(journal, e)
+      # 重新抛出异常，让调用者知道失败了
+      raise
     end
 
       private
@@ -38,11 +51,38 @@ module DiscourseJournals
       end
 
     def find_topic_by_issn(issn)
-      TopicCustomField
+      topic_id = TopicCustomField
         .where(name: CUSTOM_FIELD_ISSN, value: issn)
         .limit(1)
         .pluck(:topic_id)
-        .then { |ids| ids.first && Topic.find_by(id: ids.first) }
+        .first
+      
+      return nil unless topic_id
+      
+      # 查找话题，包括已删除的
+      topic = Topic.with_deleted.find_by(id: topic_id)
+      
+      if topic.nil?
+        # 话题已被永久删除，清理孤立的 custom field
+        Rails.logger.warn("[DiscourseJournals] Cleaning orphaned custom field for ISSN: #{issn}")
+        TopicCustomField.where(name: CUSTOM_FIELD_ISSN, value: issn).delete_all
+        return nil
+      end
+      
+      # 如果话题被软删除
+      if topic.deleted_at.present?
+        if SiteSetting.discourse_journals_auto_recover_deleted
+          # 自动恢复（默认行为）
+          Rails.logger.info("[DiscourseJournals] Recovering deleted topic for ISSN: #{issn}")
+          topic.recover!(system_user)
+        else
+          # 尊重删除决定，跳过该期刊
+          Rails.logger.info("[DiscourseJournals] Skipping deleted topic for ISSN: #{issn}")
+          return nil
+        end
+      end
+      
+      topic
     end
 
     def create_topic!(journal)
@@ -102,37 +142,63 @@ module DiscourseJournals
       topic.save_custom_fields(true)
     end
 
+    def validate_journal_data!(journal)
+      # 尝试归一化和渲染，如果失败会抛出异常
+      normalizer = FieldNormalizer.new(journal)
+      normalized_data = normalizer.normalize
+      
+      renderer = MasterRecordRenderer.new(normalized_data)
+      renderer.render
+      
+      # 验证必要字段
+      title = normalized_data.dig(:identity, :title_main)
+      issn = normalized_data.dig(:identity, :issn_l)
+      
+      raise ArgumentError, "Missing title in normalized data" if title.blank?
+      raise ArgumentError, "Missing ISSN in normalized data" if issn.blank?
+      
+      true
+    end
+
     def build_title(journal)
-      # 使用归一化后的标题
+      # 使用归一化后的标题，不捕获异常
       normalizer = FieldNormalizer.new(journal)
       normalized = normalizer.normalize
       
-      title = normalized.dig(:identity, :title_main) || journal[:name] || journal["name"]
-      issn = normalized.dig(:identity, :issn_l) || journal[:issn] || journal["issn"]
+      title = normalized.dig(:identity, :title_main)
+      issn = normalized.dig(:identity, :issn_l)
       
-      "#{title} (#{issn})"
-    rescue StandardError => e
-      # 如果归一化失败，使用原始数据
-      Rails.logger.warn("[DiscourseJournals] Failed to build title: #{e.message}")
-      title = journal[:name] || journal["name"] || "Unknown"
-      issn = journal[:issn] || journal["issn"] || "Unknown"
+      raise ArgumentError, "Missing title" if title.blank?
+      raise ArgumentError, "Missing ISSN" if issn.blank?
+      
       "#{title} (#{issn})"
     end
 
     def build_raw(journal)
-      # 使用归一化器和渲染器生成内容
+      # 使用归一化器和渲染器生成内容，不捕获异常
       normalizer = FieldNormalizer.new(journal)
       normalized_data = normalizer.normalize
 
       renderer = MasterRecordRenderer.new(normalized_data)
-      renderer.render
-    rescue StandardError => e
-      # 如果归一化失败，返回简单内容
-      Rails.logger.warn("[DiscourseJournals] Failed to build content: #{e.message}\n#{e.backtrace.first(3).join("\n")}")
-      title = journal[:name] || journal["name"] || "Unknown"
-      issn = journal[:issn] || journal["issn"] || "Unknown"
+      content = renderer.render
       
-      "# #{title}\n\n**ISSN**: #{issn}\n\n*数据归一化失败，已记录错误日志*"
+      raise ArgumentError, "Empty content generated" if content.blank?
+      
+      content
+    end
+    
+    def log_error(journal, error)
+      issn = journal[:issn] || journal.dig(:unified_index, :issn_l) || "Unknown"
+      name = journal[:name] || journal.dig(:unified_index, :title_main) || "Unknown"
+      
+      Rails.logger.error("[DiscourseJournals] Failed to upsert journal: #{name} (#{issn})")
+      Rails.logger.error("[DiscourseJournals] Error: #{error.class} - #{error.message}")
+      Rails.logger.error("[DiscourseJournals] Backtrace:\n#{error.backtrace.first(5).join("\n")}")
+      
+      # 如果有原始数据，也记录一部分
+      if journal.present?
+        Rails.logger.error("[DiscourseJournals] Journal data keys: #{journal.keys.inspect}")
+      end
     end
   end
 end

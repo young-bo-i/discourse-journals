@@ -171,6 +171,9 @@
             </span>
             <span class="stat">✅ 新建: {{this.importStats.created}}</span>
             <span class="stat">🔄 更新: {{this.importStats.updated}}</span>
+            {{#if (gt this.importStats.skipped 0)}}
+              <span class="stat warning">⏭️ 跳过: {{this.importStats.skipped}}</span>
+            {{/if}}
             {{#if (gt this.importStats.errors 0)}}
               <span class="stat error">❌ 错误:
                 {{this.importStats.errors}}</span>
@@ -230,6 +233,7 @@
         <li>首次导入建议先测试第一页，确认数据正确后再导入全部</li>
         <li>导入过程中会自动创建或更新期刊话题</li>
         <li>重复导入会更新已存在的期刊，不会创建重复话题</li>
+        <li>⚠️ 如果数据处理失败（如缺少必要字段），该期刊会被跳过，不会创建/更新帖子</li>
         <li>导入在后台运行，可以安全关闭此页面</li>
       </ul>
     </div>
@@ -396,6 +400,11 @@
     background: var(--primary-very-low);
     border-radius: 4px;
     font-size: 13px;
+  }
+
+  .import-stats .stat.warning {
+    background: var(--highlight-low);
+    color: var(--highlight);
   }
 
   .import-stats .stat.error {

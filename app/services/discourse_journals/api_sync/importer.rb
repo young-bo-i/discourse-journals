@@ -69,19 +69,18 @@ module DiscourseJournals
 
         primary_issn = journal_data["primary_issn"]
         if primary_issn.blank?
-          @skipped_count += 1
-          @errors << { message: "Missing primary_issn", details: nil }
+          skip_journal("缺少 primary_issn", nil, journal_data)
           return
         end
 
         unified_index = journal_data["unified_index"] || {}
         title = unified_index["title"]
         if title.blank?
-          @skipped_count += 1
-          @errors << { message: "Missing title in unified_index for ISSN: #{primary_issn}", details: nil }
+          skip_journal("缺少 title 字段", primary_issn, journal_data)
           return
         end
 
+        # 构建期刊参数
         journal_params = {
           issn: primary_issn,
           name: title,
@@ -90,20 +89,48 @@ module DiscourseJournals
           sources: extract_sources(journal_data["sources_by_provider"] || {})
         }
 
+        # 尝试创建/更新帖子
         upserter = JournalUpserter.new(system_user: Discourse.system_user)
         result = upserter.upsert!(journal_params)
 
         case result
         when :created
           @created_count += 1
+          Rails.logger.info("[DiscourseJournals::ApiSync] ✓ Created: #{title} (#{primary_issn})")
         when :updated
           @updated_count += 1
+          Rails.logger.info("[DiscourseJournals::ApiSync] ✓ Updated: #{title} (#{primary_issn})")
         end
       rescue StandardError => e
-        error_msg = "Error processing ISSN #{primary_issn}: #{e.message}"
-        Rails.logger.error("[DiscourseJournals::ApiSync] #{error_msg}")
-        @errors << { message: error_msg, details: e.backtrace&.first(5)&.join("\n") }
+        # 数据处理失败，跳过该期刊
+        skip_journal(e.message, primary_issn, journal_data, e)
+      end
+      
+      def skip_journal(reason, issn, journal_data, exception = nil)
         @skipped_count += 1
+        
+        issn_display = issn || journal_data["primary_issn"] || "Unknown"
+        title_display = journal_data.dig("unified_index", "title") || journal_data["name"] || "Unknown"
+        
+        error_info = {
+          issn: issn_display,
+          title: title_display,
+          reason: reason,
+          timestamp: Time.now.iso8601
+        }
+        
+        # 记录错误到日志
+        Rails.logger.warn("[DiscourseJournals::ApiSync] ✗ Skipped: #{title_display} (#{issn_display})")
+        Rails.logger.warn("[DiscourseJournals::ApiSync]   Reason: #{reason}")
+        
+        if exception
+          error_info[:error_class] = exception.class.name
+          error_info[:backtrace] = exception.backtrace&.first(3)
+          Rails.logger.warn("[DiscourseJournals::ApiSync]   Error: #{exception.class} - #{exception.message}")
+          Rails.logger.warn("[DiscourseJournals::ApiSync]   Backtrace:\n    #{exception.backtrace&.first(3)&.join("\n    ")}")
+        end
+        
+        @errors << error_info
       end
 
       def extract_sources(sources_by_provider)

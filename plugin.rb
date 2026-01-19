@@ -2,7 +2,7 @@
 
 # name: discourse-journals
 # about: 期刊统一档案系统 - JSON 导入管理
-# version: 0.6
+# version: 0.7
 # authors: enterscholar
 
 enabled_site_setting :discourse_journals_enabled
@@ -24,39 +24,11 @@ module ::DiscourseJournals
 end
 
 require_relative "lib/discourse_journals/engine"
-require_relative "lib/discourse_journals/title_modifier"
 
 # 注册管理员路由（在 Plugins 菜单中显示）
 add_admin_route "discourse_journals.title", "discourse-journals"
 
 after_initialize do
-  # 修改话题标题（用于 SEO）
-  on(:topic_created) do |topic, opts, user|
-    if SiteSetting.discourse_journals_enabled && 
-       topic.category_id == SiteSetting.discourse_journals_category_id.to_i
-      
-      # 标题只在 HTML meta 中使用，不修改数据库中的标题
-      # 实际修改在 TopicView 中进行
-    end
-  end
-
-  # 修改 TopicView 以添加 SEO 标题
-  require_dependency "topic_view"
-  class ::TopicView
-    alias_method :original_canonical_path, :canonical_path
-
-    def canonical_path
-      path = original_canonical_path
-      
-      # 在序列化时添加 SEO 标题
-      if SiteSetting.discourse_journals_enabled && 
-         @topic.category_id == SiteSetting.discourse_journals_category_id.to_i
-        # 标题修改在前端完成，这里只是确保数据正确
-      end
-      
-      path
-    end
-  end
   require_relative "app/models/discourse_journals/import_log"
   require_relative "app/services/discourse_journals/field_normalizer"
   require_relative "app/services/discourse_journals/master_record_renderer"
@@ -64,6 +36,52 @@ after_initialize do
   require_relative "app/services/discourse_journals/api_sync/importer"
   require_relative "app/services/discourse_journals/journal_upserter"
   require_relative "app/jobs/regular/discourse_journals/sync_from_api"
+
+  # 注册自定义字段
+  Topic.register_custom_field_type("journal_issn_l", :string)
+
+  # 使用 register_modifier 来修改标题内容（这是 Discourse 官方推荐的方法）
+  register_modifier(:meta_data_content) do |content, type, context|
+    # 只修改 title 类型的元数据
+    next content unless type == :title
+    next content unless SiteSetting.discourse_journals_enabled
+    next content if SiteSetting.discourse_journals_title_suffix.blank?
+    
+    # 获取当前请求的上下文
+    request_path = context[:url]
+    next content unless request_path&.start_with?("/t/")
+    
+    # 尝试从请求中获取话题信息
+    # 这个方法在服务器端渲染时有效
+    begin
+      # 从 request_path 解析话题 ID
+      # 路径格式: /t/topic-slug/123
+      topic_id = request_path.match(%r{/t/[^/]+/(\d+)}i)&.captures&.first
+      next content unless topic_id
+      
+      topic = Topic.find_by(id: topic_id)
+      next content unless topic
+      
+      category_id = SiteSetting.discourse_journals_category_id
+      next content if category_id.blank?
+      
+      # 检查是否是期刊分类的话题
+      if topic.category_id == category_id.to_i
+        suffix = SiteSetting.discourse_journals_title_suffix
+        
+        # 避免重复添加后缀
+        next content if content.include?(suffix)
+        
+        # 返回修改后的标题
+        "#{content} - #{suffix}"
+      else
+        content
+      end
+    rescue StandardError => e
+      Rails.logger.warn("[DiscourseJournals] Failed to modify title: #{e.message}")
+      content
+    end
+  end
 
   # 注册 API 路由
   Discourse::Application.routes.append do

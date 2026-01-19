@@ -45,9 +45,23 @@ module Jobs
           result_message: "同步完成：#{importer.created_count} 新建，#{importer.updated_count} 更新"
         )
 
-        # 记录错误
-        importer.errors.each do |error|
-          import_log.add_error(error[:message], error[:details])
+        # 记录错误（只记录前100个，避免日志过大）
+        importer.errors.take(100).each do |error|
+          error_message = "#{error[:title]} (#{error[:issn]}): #{error[:reason]}"
+          error_details = if error[:backtrace]
+            "Error: #{error[:error_class]}\nBacktrace:\n#{error[:backtrace].join("\n")}"
+          else
+            nil
+          end
+          import_log.add_error(error_message, error_details)
+        end
+        
+        # 如果错误太多，添加一条总结
+        if importer.errors.size > 100
+          import_log.add_error(
+            "...还有 #{importer.errors.size - 100} 个错误未显示",
+            "查看服务器日志获取完整错误列表"
+          )
         end
 
         publish_progress(user_id, import_log, "同步完成！")
@@ -89,6 +103,7 @@ module Jobs
             total: import_log.total_records,
             created: import_log.created_count,
             updated: import_log.updated_count,
+            skipped: import_log.skipped_count,
             errors: import_log.error_count,
             message: message
           },

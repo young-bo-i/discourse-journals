@@ -225,6 +225,7 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
         total: data.total || 0,
         created: data.created || 0,
         updated: data.updated || 0,
+        skipped: data.skipped || 0,
         errors: data.errors || 0,
       };
 
@@ -234,7 +235,8 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
         this.importSuccess = data.status === "completed";
 
         if (data.status === "completed") {
-          this.importMessage = `✅ 同步完成！新建 ${data.created} 个，更新 ${data.updated} 个`;
+          const skippedMsg = data.skipped > 0 ? `，跳过 ${data.skipped} 个` : "";
+          this.importMessage = `✅ 同步完成！新建 ${data.created} 个，更新 ${data.updated} 个${skippedMsg}`;
         } else {
           this.importMessage = `❌ 同步失败`;
         }
