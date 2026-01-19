@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module DiscourseJournals
-  module Json
+  module JsonImport
     class Importer
       attr_reader :processed_rows, :created_topics, :updated_topics, :skipped_rows, :errors
 

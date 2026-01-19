@@ -28,7 +28,7 @@ require_relative "lib/discourse_journals/engine"
 after_initialize do
   require_relative "app/services/discourse_journals/field_normalizer"
   require_relative "app/services/discourse_journals/master_record_renderer"
-  require_relative "app/services/discourse_journals/json/importer"
+  require_relative "app/services/discourse_journals/json_import/importer"
   require_relative "app/services/discourse_journals/journal_upserter"
   require_relative "app/jobs/regular/discourse_journals/import_json"
 

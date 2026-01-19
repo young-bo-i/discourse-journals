@@ -12,7 +12,7 @@ module Jobs
         file_path = Discourse.store.path_for(upload)
         return if file_path.blank? || !File.exist?(file_path)
 
-        importer = ::DiscourseJournals::Json::Importer.new(file_path: file_path)
+        importer = ::DiscourseJournals::JsonImport::Importer.new(file_path: file_path)
         importer.import!
 
         Rails.logger.info(
