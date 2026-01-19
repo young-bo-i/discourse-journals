@@ -258,33 +258,74 @@ module DiscourseJournals
 
     def extract_alternate_titles(nlm_journal, openalex)
       titles = []
-      titles.concat(nlm_journal[:titleotherlist]&.map { |t| t[:titlealternate] } || [])
-      titles.concat(openalex[:alternate_titles] || [])
+      
+      # NLM alternate titles
+      if nlm_journal[:titleotherlist].is_a?(Array)
+        titles.concat(nlm_journal[:titleotherlist].map { |t| t.is_a?(Hash) ? t[:titlealternate] : nil }.compact)
+      end
+      
+      # OpenAlex alternate titles
+      openalex_titles = openalex[:alternate_titles]
+      if openalex_titles.is_a?(Array)
+        titles.concat(openalex_titles)
+      elsif openalex_titles.is_a?(String)
+        titles << openalex_titles
+      end
+      
       titles.compact.uniq
     end
 
     def extract_issn_list(crossref_msg, nlm_journal, openalex, doaj_bibjson)
       issns = []
-      issns.concat(crossref_msg[:ISSN] || [])
-      issns.concat(nlm_journal[:issnlist]&.map { |i| i[:issn] } || [])
-      issns.concat(openalex[:issn] || [])
-      issns << doaj_bibjson[:eissn] if doaj_bibjson[:eissn]
-      issns << doaj_bibjson[:pissn] if doaj_bibjson[:pissn]
+      
+      # Crossref ISSN（可能是数组或字符串）
+      crossref_issn = crossref_msg[:ISSN]
+      if crossref_issn.is_a?(Array)
+        issns.concat(crossref_issn)
+      elsif crossref_issn.is_a?(String)
+        issns << crossref_issn
+      end
+      
+      # NLM ISSN list
+      if nlm_journal[:issnlist].is_a?(Array)
+        issns.concat(nlm_journal[:issnlist].map { |i| i.is_a?(Hash) ? i[:issn] : nil }.compact)
+      end
+      
+      # OpenAlex ISSN（可能是数组或字符串）
+      openalex_issn = openalex[:issn]
+      if openalex_issn.is_a?(Array)
+        issns.concat(openalex_issn)
+      elsif openalex_issn.is_a?(String)
+        issns << openalex_issn
+      end
+      
+      # DOAJ ISSN
+      issns << doaj_bibjson[:eissn] if doaj_bibjson[:eissn].is_a?(String)
+      issns << doaj_bibjson[:pissn] if doaj_bibjson[:pissn].is_a?(String)
+      
       issns.compact.uniq
     end
 
     def extract_issn_type_detail(crossref_msg, nlm_journal)
       details = []
 
-      if crossref_msg[:"issn-type"]
-        crossref_msg[:"issn-type"].each do |item|
-          details << { issn: item[:value], type: item[:type], source: "Crossref" }
+      # Crossref ISSN types
+      crossref_issn_types = crossref_msg[:"issn-type"]
+      if crossref_issn_types.is_a?(Array)
+        crossref_issn_types.each do |item|
+          if item.is_a?(Hash)
+            details << { issn: item[:value], type: item[:type], source: "Crossref" }
+          end
         end
       end
 
-      if nlm_journal[:issnlist]
-        nlm_journal[:issnlist].each do |item|
-          details << { issn: item[:issn], type: item[:issntype], source: "NLM" }
+      # NLM ISSN list
+      nlm_issn_list = nlm_journal[:issnlist]
+      if nlm_issn_list.is_a?(Array)
+        nlm_issn_list.each do |item|
+          if item.is_a?(Hash)
+            details << { issn: item[:issn], type: item[:issntype], source: "NLM" }
+          end
         end
       end
 

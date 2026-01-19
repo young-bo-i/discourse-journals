@@ -2,7 +2,7 @@
 
 # name: discourse-journals
 # about: 期刊统一档案系统 - JSON 导入管理
-# version: 0.7
+# version: 0.8
 # authors: enterscholar
 
 enabled_site_setting :discourse_journals_enabled
@@ -31,6 +31,7 @@ add_admin_route "discourse_journals.title", "discourse-journals"
 after_initialize do
   require_relative "app/models/discourse_journals/import_log"
   require_relative "app/services/discourse_journals/field_normalizer"
+  require_relative "app/services/discourse_journals/field_usage_tracker"
   require_relative "app/services/discourse_journals/master_record_renderer"
   require_relative "app/services/discourse_journals/api_sync/client"
   require_relative "app/services/discourse_journals/api_sync/importer"
