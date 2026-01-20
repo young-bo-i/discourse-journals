@@ -5,6 +5,7 @@ plugins:
   discourse_journals_category_id:
     default: ""
     type: category
+    client: true
   discourse_journals_api_url:
     default: ""
     client: true
