@@ -600,10 +600,11 @@ html.dark-theme .cooked {
 
   .search-link {
     display: block;
-    padding: 0.5rem 1rem;
+    padding: 0.65rem 1rem;
     color: var(--primary);
     text-decoration: none;
     transition: background 0.15s ease;
+    border-bottom: 1px solid var(--primary-very-low);
 
     &:hover,
     &:focus {
@@ -611,30 +612,40 @@ html.dark-theme .cooked {
       text-decoration: none;
     }
 
+    &:last-of-type {
+      border-bottom: none;
+    }
+
     .topic {
       display: block;
+      margin-bottom: 0.35rem;
     }
 
     .first-line {
       display: block;
       line-height: var(--line-height-medium, 1.4);
+      margin-bottom: 0.25rem;
     }
 
     .topic-title {
-      font-size: var(--font-up-1-rem, 1.05rem);
+      font-size: 1.1em;
+      font-weight: 500;
       color: var(--tertiary);
       overflow-wrap: anywhere;
+
+      &:hover {
+        text-decoration: underline;
+      }
     }
 
     .second-line {
       display: flex;
       flex-wrap: wrap;
-      align-items: baseline;
-      gap: 0 0.5rem;
-      margin-top: 0.25rem;
+      align-items: center;
+      gap: 0.35rem 0.5rem;
 
       .badge-category__wrapper {
-        font-size: var(--font-down-1, 0.875rem);
+        font-size: 0.85em;
       }
 
       .discourse-tags {
@@ -643,22 +654,31 @@ html.dark-theme .cooked {
         gap: 0.25rem;
 
         .discourse-tag {
-          font-size: var(--font-down-2, 0.8rem);
+          font-size: 0.8em;
+          padding: 0.1em 0.4em;
+          background: var(--primary-very-low);
+          border-radius: 3px;
+          color: var(--primary-high);
+
+          &:hover {
+            background: var(--primary-low);
+          }
         }
       }
     }
 
     .blurb {
       display: block;
-      margin-top: 0.35rem;
-      font-size: var(--font-down-1, 0.875rem);
-      color: var(--primary-high);
-      line-height: 1.4;
-      overflow-wrap: break-word;
-      word-break: break-word;
+      font-size: 0.875em;
+      color: var(--primary-medium);
+      line-height: 1.5;
+      overflow: hidden;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
 
       .blurb-separator {
-        color: var(--primary-medium);
+        color: var(--primary-low-mid);
       }
 
       .blurb-text {
@@ -666,7 +686,7 @@ html.dark-theme .cooked {
       }
 
       .relative-date {
-        color: var(--primary-medium);
+        color: var(--primary-low-mid);
       }
     }
   }
