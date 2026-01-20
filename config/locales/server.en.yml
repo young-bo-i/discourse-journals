@@ -16,15 +16,18 @@ en:
       file_too_large: "File is too large"
     master_record:
       sections:
-        identity: "期刊身份 (Journal Identity)"
-        publication: "出版信息 (Publication Information)"
-        open_access: "开放获取与费用 (Open Access & Fees)"
-        review_compliance: "同行评审与伦理合规 (Peer Review & Ethics)"
-        preservation: "归档保存与索引政策 (Preservation & Archiving)"
-        subjects_topics: "学科与主题 (Subjects & Topics)"
-        metrics: "产出与影响 (Output & Impact)"
-        crossref_quality: "Crossref 元数据质量 (Crossref Metadata Quality)"
-        nlm_cataloging: "NLM 编目信息 (NLM Cataloging)"
+        identity: "Journal Identity"
+        jcr: "JCR Impact Factor"
+        cas_partition: "CAS Partition"
+        publication: "Publication Information"
+        open_access: "Open Access & Fees"
+        review_compliance: "Peer Review & Ethics"
+        preservation: "Preservation & Archiving"
+        subjects_topics: "Subjects & Topics"
+        metrics: "Output & Impact"
+        crossref_quality: "Crossref Metadata Quality"
+        nlm_cataloging: "NLM Cataloging"
+        external_links: "External Links"
       fields:
         # 身份类
         title_main: "期刊主标题"
@@ -111,6 +114,18 @@ en:
         nlm_date_revised: "编目更新时间"
         broad_heading: "主题分类"
         continuation_notes: "连续出版说明"
+        # JCR
+        impact_factor: "Impact Factor"
+        quartile: "JCR Quartile"
+        jcr_rank: "Rank"
+        jcr_category: "Category"
+        # CAS Partition
+        major_category: "Major Category"
+        major_partition: "Major Partition"
+        minor_categories: "Minor Categories"
+        is_top_journal: "Top Journal"
+        web_of_science: "WOS Index"
+        review_journal: "Review Journal"
       columns:
         issn: "ISSN"
         type: "类型"

@@ -20,6 +20,8 @@ module DiscourseJournals
         metrics: build_metrics,
         crossref_quality: build_crossref_quality,
         nlm_cataloging: build_nlm_cataloging,
+        jcr: build_jcr,
+        cas_partition: build_cas_partition,
       }
     end
 
@@ -244,6 +246,66 @@ module DiscourseJournals
         broad_heading: nlm_journal[:broadheading],
         continuation_notes: nlm_journal[:continuationnotes],
       }
+    end
+
+    # J. JCR 影响因子数据
+    def build_jcr
+      jcr = ensure_hash(journal_data[:jcr])
+      return nil if jcr.empty?
+
+      {
+        total_years: jcr[:total_years],
+        data: normalize_jcr_data(jcr[:data]),
+      }
+    end
+
+    # K. 中科院分区数据
+    def build_cas_partition
+      cas = ensure_hash(journal_data[:cas_partition])
+      return nil if cas.empty?
+
+      {
+        total_years: cas[:total_years],
+        data: normalize_cas_data(cas[:data]),
+      }
+    end
+
+    def normalize_jcr_data(data)
+      return [] unless data.is_a?(Array)
+
+      data.map do |item|
+        item = ensure_hash(item)
+        {
+          year: item[:year],
+          journal: item[:journal],
+          issn: item[:issn],
+          eissn: item[:eissn],
+          category: item[:category],
+          impact_factor: item[:impact_factor],
+          quartile: item[:quartile],
+          rank: item[:rank],
+        }
+      end
+    end
+
+    def normalize_cas_data(data)
+      return [] unless data.is_a?(Array)
+
+      data.map do |item|
+        item = ensure_hash(item)
+        {
+          year: item[:year],
+          journal: item[:journal],
+          issn: item[:issn],
+          review: item[:review],
+          open_access: item[:open_access],
+          web_of_science: item[:web_of_science],
+          major_category: item[:major_category],
+          major_partition: item[:major_partition],
+          is_top_journal: item[:is_top_journal],
+          minor_categories: item[:minor_categories],
+        }
+      end
     end
 
     # 辅助方法

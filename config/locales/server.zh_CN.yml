@@ -22,6 +22,8 @@ zh_CN:
     master_record:
       sections:
         identity: "基本信息"
+        jcr: "JCR 影响因子"
+        cas_partition: "中科院分区"
         publication: "出版信息"
         open_access: "开放获取与费用"
         review_compliance: "审稿与编辑政策"
@@ -120,6 +122,18 @@ zh_CN:
         nlm_date_revised: "NLM 修订日期"
         broad_heading: "广泛主题词"
         continuation_notes: "连续说明"
+        # JCR 影响因子
+        impact_factor: "影响因子"
+        quartile: "JCR 分区"
+        jcr_rank: "排名"
+        jcr_category: "学科类别"
+        # 中科院分区
+        major_category: "大类学科"
+        major_partition: "大类分区"
+        minor_categories: "小类分区"
+        is_top_journal: "Top 期刊"
+        web_of_science: "WOS 收录"
+        review_journal: "综述期刊"
       columns:
         issn: "ISSN"
         type: "类型"

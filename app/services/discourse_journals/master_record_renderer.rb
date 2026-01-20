@@ -18,6 +18,8 @@ module DiscourseJournals
 
         # 折叠分区
         sections << render_details_section(t("sections.identity"), render_identity_content, open: true)
+        sections << render_details_section(t("sections.jcr"), render_jcr_content)
+        sections << render_details_section(t("sections.cas_partition"), render_cas_content)
         sections << render_details_section(t("sections.open_access"), render_open_access_content)
         sections << render_details_section(t("sections.metrics"), render_metrics_content)
         sections << render_details_section(t("sections.review_compliance"), render_review_content)
@@ -92,6 +94,8 @@ module DiscourseJournals
       oa = @data[:open_access] || {}
       review = @data[:review_compliance] || {}
       nlm = @data[:nlm_cataloging] || {}
+      jcr = @data[:jcr] || {}
+      cas = @data[:cas_partition] || {}
 
       title = identity[:title_main] || "未知期刊"
       issn = identity[:issn_l] || "—"
@@ -102,27 +106,43 @@ module DiscourseJournals
 
       # 构建徽章
       badges = []
+      
+      # JCR 分区徽章
+      jcr_latest = jcr[:data]&.first
+      if jcr_latest && jcr_latest[:quartile]
+        badges << "**#{jcr_latest[:quartile]}**"
+      end
+      
+      # 中科院分区徽章
+      cas_latest = cas[:data]&.first
+      if cas_latest && cas_latest[:major_partition]
+        badges << "**中科院#{cas_latest[:major_partition]}区**"
+        if cas_latest[:is_top_journal]
+          badges << "**Top期刊**"
+        end
+      end
+      
       if oa[:is_oa]
-        badges << "🟢 **OA**"
+        badges << "**OA**"
         mark_used("open_access.is_oa")
       end
       if oa[:is_in_doaj]
-        badges << "📘 **DOAJ**"
+        badges << "**DOAJ**"
         mark_used("open_access.is_in_doaj")
       end
       if nlm[:current_indexing_status] == "Y"
-        badges << "🏥 **NLM**"
+        badges << "**NLM**"
         mark_used("nlm_cataloging.current_indexing_status")
-      end
-      if oa[:license_list]&.any?
-        license_type = oa[:license_list].first
-        license_name = license_type.is_a?(Hash) ? license_type[:type] : license_type.to_s
-        badges << "🏷️ **#{license_name}**" if license_name.present?
-        mark_used("open_access.license_list")
       end
 
       # 构建关键指标
       stats = []
+      
+      # 影响因子放在最前面
+      if jcr_latest && jcr_latest[:impact_factor]
+        stats << "**IF** #{jcr_latest[:impact_factor]}"
+      end
+      
       if metrics[:h_index]
         stats << "**h-index** #{metrics[:h_index]}"
         mark_used("metrics.h_index")
@@ -152,6 +172,95 @@ module DiscourseJournals
       out << "---\n\n" if stats_line.present?
 
       out
+    end
+
+    # ==================== JCR 影响因子 ====================
+    def render_jcr_content
+      jcr = @data[:jcr]
+      return nil if jcr.nil? || jcr[:data].nil? || jcr[:data].empty?
+
+      out = +""
+      data = jcr[:data]
+
+      # 最新年份的数据作为摘要
+      latest = data.first
+      if latest
+        out << "**最新数据 (#{latest[:year]})**:\n"
+        out << "- **影响因子**: #{latest[:impact_factor]}\n" if latest[:impact_factor]
+        out << "- **分区**: #{latest[:quartile]}\n" if latest[:quartile]
+        out << "- **排名**: #{latest[:rank]}\n" if latest[:rank]
+        out << "- **学科**: #{latest[:category]}\n" if latest[:category]
+        out << "\n"
+      end
+
+      # 历年数据表格
+      if data.size > 1
+        out << "**历年影响因子**:\n\n"
+        out << "| 年份 | 影响因子 | 分区 | 排名 | 学科 |\n"
+        out << "|------|----------|------|------|------|\n"
+        data.each do |item|
+          year = item[:year] || "—"
+          impact = item[:impact_factor] || "—"
+          quartile = item[:quartile] || "—"
+          rank = item[:rank] || "—"
+          category = item[:category] || "—"
+          out << "| #{year} | #{impact} | #{quartile} | #{rank} | #{category} |\n"
+        end
+        out << "\n"
+      end
+
+      mark_used("jcr.total_years", "jcr.data")
+      out.presence
+    end
+
+    # ==================== 中科院分区 ====================
+    def render_cas_content
+      cas = @data[:cas_partition]
+      return nil if cas.nil? || cas[:data].nil? || cas[:data].empty?
+
+      out = +""
+      data = cas[:data]
+
+      # 最新年份的数据作为摘要
+      latest = data.first
+      if latest
+        out << "**最新数据 (#{latest[:year]})**:\n"
+        out << "- **大类分区**: #{latest[:major_category]} #{latest[:major_partition]}区\n" if latest[:major_category]
+        out << "- **是否Top期刊**: #{latest[:is_top_journal] ? '是' : '否'}\n" unless latest[:is_top_journal].nil?
+        out << "- **收录**: #{latest[:web_of_science]}\n" if latest[:web_of_science]
+        out << "- **综述期刊**: #{latest[:review]}\n" if latest[:review]
+        out << "- **开放获取**: #{latest[:open_access]}\n" if latest[:open_access]
+
+        # 小类分区
+        if latest[:minor_categories]&.any?
+          out << "\n**小类分区**:\n"
+          latest[:minor_categories].each do |cat|
+            if cat.is_a?(Hash)
+              out << "- #{cat[:category]}: #{cat[:partition]}\n"
+            end
+          end
+        end
+        out << "\n"
+      end
+
+      # 历年分区数据
+      if data.size > 1
+        out << "**历年分区**:\n\n"
+        out << "| 年份 | 大类 | 分区 | Top期刊 | 收录 |\n"
+        out << "|------|------|------|---------|------|\n"
+        data.each do |item|
+          year = item[:year] || "—"
+          major = item[:major_category] || "—"
+          partition = item[:major_partition] ? "#{item[:major_partition]}区" : "—"
+          top = item[:is_top_journal] ? "是" : "否"
+          wos = item[:web_of_science] || "—"
+          out << "| #{year} | #{major} | #{partition} | #{top} | #{wos} |\n"
+        end
+        out << "\n"
+      end
+
+      mark_used("cas_partition.total_years", "cas_partition.data")
+      out.presence
     end
 
     # ==================== 基本信息 ====================
