@@ -125,9 +125,34 @@ module DiscourseJournals
         end
       end
 
+      # 学术指标（单行展示）
+      stats = []
+      if metrics[:h_index]
+        stats << "**h-index** #{metrics[:h_index]}"
+        mark_used("metrics.h_index")
+      end
+      if metrics[:works_count]
+        stats << "**论文** #{format_number(metrics[:works_count])}"
+        mark_used("metrics.works_count")
+      end
+      if metrics[:cited_by_count]
+        stats << "**被引** #{format_number(metrics[:cited_by_count])}"
+        mark_used("metrics.cited_by_count")
+      end
+      if review[:publication_time_weeks]
+        stats << "**审稿周期** #{review[:publication_time_weeks]}周"
+        mark_used("review_compliance.publication_time_weeks")
+      end
+      stats_line = stats.any? ? stats.join(" · ") : ""
+
+      mark_used("open_access.is_oa", "open_access.is_in_doaj", "nlm_cataloging.current_indexing_status")
+
       out = +""
       out << "## #{title_line}\n\n"
       out << aliases_line
+      out << "#{stats_line}\n\n" if stats_line.present?
+
+      out << "---\n\n"
 
       # 基本信息表格
       out << "| | |\n"
@@ -156,46 +181,8 @@ module DiscourseJournals
           out << "| **中科院分区** | #{cas_info.join(" · ")} |\n"
         end
       end
-      
+
       out << "\n"
-
-      # 构建标签式徽章
-      badges = []
-      badges << "`OA`" if oa[:is_oa]
-      badges << "`NLM`" if nlm[:current_indexing_status] == "Y"
-      badges << "`DOAJ`" if oa[:is_in_doaj]
-      
-      mark_used("open_access.is_oa", "open_access.is_in_doaj", "nlm_cataloging.current_indexing_status")
-      
-      if badges.any?
-        out << badges.join(" ") + "\n\n"
-      end
-
-      out << "---\n\n"
-
-      # 学术指标（单行展示）
-      stats = []
-      if metrics[:h_index]
-        stats << "**h-index** #{metrics[:h_index]}"
-        mark_used("metrics.h_index")
-      end
-      if metrics[:works_count]
-        stats << "**论文** #{format_number(metrics[:works_count])}"
-        mark_used("metrics.works_count")
-      end
-      if metrics[:cited_by_count]
-        stats << "**被引** #{format_number(metrics[:cited_by_count])}"
-        mark_used("metrics.cited_by_count")
-      end
-      if review[:publication_time_weeks]
-        stats << "**审稿周期** #{review[:publication_time_weeks]}周"
-        mark_used("review_compliance.publication_time_weeks")
-      end
-
-      if stats.any?
-        out << stats.join(" · ") + "\n\n"
-      end
-
       out
     end
 
@@ -207,46 +194,41 @@ module DiscourseJournals
       out = +""
       data = jcr[:data]
 
-      # 最新年份摘要（一行展示）
+      # 最新年份详细信息
       latest = data.first
       if latest
-        summary = []
-        summary << "**IF #{latest[:impact_factor]}**" if latest[:impact_factor]
-        summary << "#{latest[:quartile]}" if latest[:quartile]
-        summary << "#{latest[:rank]}" if latest[:rank]
-        summary << "#{latest[:category]}" if latest[:category]
-        out << "#{latest[:year]}年: #{summary.join(" · ")}\n\n" if summary.any?
+        out << "**最新数据 (#{latest[:year]}年)**\n\n"
+        out << "| 指标 | 数值 |\n"
+        out << "|:--|:--|\n"
+        out << "| 影响因子 | **#{latest[:impact_factor]}** |\n" if latest[:impact_factor]
+        out << "| JCR 分区 | #{latest[:quartile]} |\n" if latest[:quartile]
+        out << "| 学科排名 | #{latest[:rank]} |\n" if latest[:rank]
+        out << "| 学科类别 | #{latest[:category]} |\n" if latest[:category]
+        out << "\n"
       end
 
-      # 历年影响因子柱状图（所有年份，年份大的在上）
-      out << render_jcr_chart(data)
+      # 历年影响因子趋势（表格形式）
+      if data.size > 1
+        out << "**历年趋势**\n\n"
+        out << "| 年份 | 影响因子 | 分区 | 排名 |\n"
+        out << "|:--:|:--:|:--:|:--:|\n"
+        data.each_with_index do |item, index|
+          year = item[:year] || "—"
+          impact = item[:impact_factor] || "—"
+          quartile = item[:quartile] || "—"
+          rank = item[:rank] || "—"
+          # 最新年份加粗
+          if index == 0
+            out << "| **#{year}** | **#{impact}** | **#{quartile}** | **#{rank}** |\n"
+          else
+            out << "| #{year} | #{impact} | #{quartile} | #{rank} |\n"
+          end
+        end
+        out << "\n"
+      end
 
       mark_used("jcr.total_years", "jcr.data")
       out.presence
-    end
-
-    def render_jcr_chart(data)
-      return "" if data.empty?
-
-      # 保持年份降序（大的在上面）
-      chart_data = data
-      max_if = chart_data.map { |d| d[:impact_factor].to_f }.max
-      max_if = 1 if max_if.zero?
-
-      out = +"**历年影响因子**\n\n"
-      out << "```\n"
-      
-      chart_data.each do |item|
-        year = item[:year].to_s
-        impact = item[:impact_factor].to_f
-        quartile = item[:quartile] || ""
-        bar_length = (impact / max_if * 20).round
-        bar = "█" * bar_length
-        out << "#{year} │#{bar} #{impact} #{quartile}\n"
-      end
-      
-      out << "```\n"
-      out
     end
 
     # ==================== 中科院分区 ====================
@@ -257,57 +239,69 @@ module DiscourseJournals
       out = +""
       data = cas[:data]
 
-      # 最新年份摘要（一行展示）
+      # 最新年份详细信息
       latest = data.first
       if latest
-        summary = []
-        summary << "**#{latest[:major_category]}#{latest[:major_partition]}区**" if latest[:major_partition]
-        summary << "Top期刊" if latest[:is_top_journal]
-        summary << latest[:web_of_science] if latest[:web_of_science]
-        out << "#{latest[:year]}年: #{summary.join(" · ")}\n\n" if summary.any?
+        out << "**最新数据 (#{latest[:year]}年)**\n\n"
+        out << "| 指标 | 数值 |\n"
+        out << "|:--|:--|\n"
+        out << "| 大类学科 | #{latest[:major_category]} |\n" if latest[:major_category]
+        
+        # 提取分区数字
+        partition_num = nil
+        if latest[:major_partition]
+          partition_str = latest[:major_partition].to_s
+          if match = partition_str.match(/(\d+)/)
+            partition_num = match[1]
+          end
+        end
+        out << "| 大类分区 | **#{partition_num}区** |\n" if partition_num
+        out << "| Top 期刊 | #{latest[:is_top_journal] ? '是' : '否'} |\n" unless latest[:is_top_journal].nil?
+        out << "| WOS 收录 | #{latest[:web_of_science]} |\n" if latest[:web_of_science]
+        out << "\n"
 
         # 小类分区
         if latest[:minor_categories]&.any?
-          out << "**小类分区**: "
-          minor_items = latest[:minor_categories].map do |cat|
-            cat.is_a?(Hash) ? "#{cat[:category]} #{cat[:partition]}" : nil
-          end.compact
-          out << minor_items.join(" · ") + "\n\n"
+          out << "**小类分区**\n\n"
+          out << "| 学科 | 分区 |\n"
+          out << "|:--|:--|\n"
+          latest[:minor_categories].each do |cat|
+            if cat.is_a?(Hash)
+              out << "| #{cat[:category]} | #{cat[:partition]} |\n"
+            end
+          end
+          out << "\n"
         end
       end
 
-      # 历年分区柱状图（所有年份，年份大的在上）
-      out << render_cas_chart(data)
+      # 历年分区（表格形式）
+      if data.size > 1
+        out << "**历年趋势**\n\n"
+        out << "| 年份 | 大类 | 分区 | Top |\n"
+        out << "|:--:|:--:|:--:|:--:|\n"
+        data.each_with_index do |item, index|
+          year = item[:year] || "—"
+          major = item[:major_category] || "—"
+          # 提取分区数字
+          partition = "—"
+          if item[:major_partition]
+            if match = item[:major_partition].to_s.match(/(\d+)/)
+              partition = "#{match[1]}区"
+            end
+          end
+          top = item[:is_top_journal] ? "是" : "否"
+          # 最新年份加粗
+          if index == 0
+            out << "| **#{year}** | **#{major}** | **#{partition}** | **#{top}** |\n"
+          else
+            out << "| #{year} | #{major} | #{partition} | #{top} |\n"
+          end
+        end
+        out << "\n"
+      end
 
       mark_used("cas_partition.total_years", "cas_partition.data")
       out.presence
-    end
-
-    def render_cas_chart(data)
-      return "" if data.empty?
-
-      out = +"**历年分区**\n\n"
-      out << "```\n"
-      
-      data.each do |item|
-        year = item[:year].to_s
-        partition = item[:major_partition] || "—"
-        top_mark = item[:is_top_journal] ? " ★" : ""
-        # 用分区数值画柱状图（1区最长，4区最短）
-        bar_length = case partition.to_s
-                     when "1" then 20
-                     when "2" then 15
-                     when "3" then 10
-                     when "4" then 5
-                     else 0
-                     end
-        bar = "█" * bar_length
-        out << "#{year} │#{bar} #{partition}区#{top_mark}\n"
-      end
-      
-      out << "```\n"
-      out << "*★ 表示 Top 期刊*\n" if data.any? { |d| d[:is_top_journal] }
-      out
     end
 
     # ==================== 开放获取与费用 ====================
@@ -446,6 +440,7 @@ module DiscourseJournals
       return "" if chart_data.empty?
 
       out = +""
+      latest_year = chart_data.first[:year] rescue nil
 
       # 发文量柱状图
       max_works = chart_data.map { |d| d[:works_count].to_i }.max
@@ -462,7 +457,9 @@ module DiscourseJournals
         works = item[:works_count].to_i
         bar_length = (works.to_f / max_works * 25).round
         bar = "█" * bar_length
-        out << "#{year} │#{bar} #{format_number(works)}\n"
+        # 最新年份用 ► 标记
+        marker = (item[:year] == latest_year) ? "►" : " "
+        out << "#{marker}#{year} │#{bar} #{format_number(works)}\n"
       end
       
       out << "```\n\n"
@@ -481,7 +478,9 @@ module DiscourseJournals
           cited = item[:cited_by_count].to_i
           bar_length = (cited.to_f / max_cited * 25).round
           bar = "█" * bar_length
-          out << "#{year} │#{bar} #{format_number(cited)}\n"
+          # 最新年份用 ► 标记
+          marker = (item[:year] == latest_year) ? "►" : " "
+          out << "#{marker}#{year} │#{bar} #{format_number(cited)}\n"
         end
         
         out << "```\n"
