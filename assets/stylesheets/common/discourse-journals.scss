@@ -632,10 +632,6 @@ html.dark-theme .cooked {
       font-weight: 500;
       color: var(--tertiary);
       overflow-wrap: anywhere;
-
-      &:hover {
-        text-decoration: underline;
-      }
     }
 
     .second-line {
@@ -659,10 +655,6 @@ html.dark-theme .cooked {
           background: var(--primary-very-low);
           border-radius: 3px;
           color: var(--primary-high);
-
-          &:hover {
-            background: var(--primary-low);
-          }
         }
       }
     }

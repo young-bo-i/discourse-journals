@@ -59,7 +59,8 @@ export default class JournalSearchBox extends Component {
 
   @action
   onFocus() {
-    if (this.results.length > 0) {
+    // 只有当搜索框有内容且有结果时才显示
+    if (this.searchQuery.trim().length >= 2 && this.results.length > 0) {
       this.showResults = true;
     }
   }
@@ -109,6 +110,7 @@ export default class JournalSearchBox extends Component {
     event.preventDefault();
     this.showResults = false;
     this.searchQuery = "";
+    this.results = [];  // 清空历史结果
     const topic = post.topic;
     DiscourseURL.routeTo(`/t/${topic.slug}/${topic.id}`);
   }
@@ -118,8 +120,10 @@ export default class JournalSearchBox extends Component {
     if (event) {
       event.preventDefault();
     }
-    this.showResults = false;
     const query = `${this.searchQuery} category:${this.categoryId}`;
+    this.showResults = false;
+    this.searchQuery = "";
+    this.results = [];  // 清空历史结果
     DiscourseURL.routeTo(`/search?q=${encodeURIComponent(query)}`);
   }
 
