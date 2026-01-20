@@ -511,37 +511,42 @@ html.dark-theme .cooked {
 // ==================== 期刊搜索框样式 ====================
 .journal-search-box {
   margin-bottom: 20px;
-  padding: 16px 20px;
-  background: var(--primary-very-low);
-  border-radius: 8px;
-  border: 1px solid var(--primary-low);
+
+  .journal-search-container {
+    position: relative;
+    max-width: 100%;
+  }
 
   .journal-search-input-wrapper {
     display: flex;
     align-items: center;
-    gap: 12px;
-    max-width: 600px;
+    background: var(--secondary);
+    border: 1px solid var(--primary-low);
+    border-radius: 8px;
+    padding: 0 14px;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+
+    &:focus-within {
+      border-color: var(--tertiary);
+      box-shadow: 0 0 0 3px rgba(var(--tertiary-rgb), 0.15);
+    }
 
     .search-icon {
       color: var(--primary-medium);
-      font-size: 1.1em;
-      flex-shrink: 0;
+      font-size: 1em;
     }
 
     .journal-search-input {
       flex: 1;
-      padding: 10px 14px;
-      border: 1px solid var(--primary-low);
-      border-radius: 6px;
-      background: var(--secondary);
+      border: none;
+      background: transparent;
+      padding: 12px 10px;
+      font-size: 1em;
       color: var(--primary);
-      font-size: 0.95em;
-      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+      min-width: 0;
 
       &:focus {
         outline: none;
-        border-color: var(--tertiary);
-        box-shadow: 0 0 0 2px rgba(var(--tertiary-rgb), 0.2);
       }
 
       &::placeholder {
@@ -549,35 +554,98 @@ html.dark-theme .cooked {
       }
     }
 
-    .journal-search-btn {
-      flex-shrink: 0;
-      padding: 10px 20px;
-      font-weight: 500;
+    .loading-spinner {
+      color: var(--primary-medium);
     }
+  }
+
+  .journal-search-results {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+    margin-top: 4px;
+    background: var(--secondary);
+    border: 1px solid var(--primary-low);
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    max-height: 400px;
+    overflow-y: auto;
+  }
+
+  .journal-search-result-item {
+    padding: 12px 16px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+    border-bottom: 1px solid var(--primary-very-low);
+
+    &:hover {
+      background: var(--tertiary-very-low);
+    }
+
+    &:last-of-type {
+      border-bottom: none;
+    }
+
+    .result-title {
+      font-weight: 500;
+      color: var(--primary);
+      margin-bottom: 2px;
+      line-height: 1.4;
+    }
+
+    .result-blurb {
+      font-size: 0.85em;
+      color: var(--primary-medium);
+      line-height: 1.4;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .journal-search-more {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    cursor: pointer;
+    color: var(--tertiary);
+    font-weight: 500;
+    border-top: 1px solid var(--primary-low);
+    transition: background 0.15s ease;
+
+    &:hover {
+      background: var(--tertiary-very-low);
+    }
+
+    .d-icon {
+      font-size: 0.9em;
+    }
+  }
+
+  .journal-search-no-results {
+    padding: 16px;
+    text-align: center;
+    color: var(--primary-medium);
   }
 }
 
 // 移动端适配
 @media (max-width: 600px) {
   .journal-search-box {
-    padding: 12px 16px;
-
     .journal-search-input-wrapper {
-      flex-wrap: wrap;
-
-      .search-icon {
-        display: none;
-      }
+      padding: 0 10px;
 
       .journal-search-input {
-        width: 100%;
-        flex: none;
+        padding: 10px 8px;
+        font-size: 0.95em;
       }
+    }
 
-      .journal-search-btn {
-        width: 100%;
-        margin-top: 8px;
-      }
+    .journal-search-result-item {
+      padding: 10px 14px;
     }
   }
 }
