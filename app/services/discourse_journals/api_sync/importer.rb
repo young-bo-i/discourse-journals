@@ -86,7 +86,9 @@ module DiscourseJournals
           name: title,
           unified_index: unified_index,
           aliases: journal_data["aliases"] || [],
-          sources: extract_sources(journal_data["sources_by_provider"] || {})
+          sources: extract_sources(journal_data["sources_by_provider"] || {}),
+          jcr: extract_jcr(journal_data["jcr"]),
+          cas_partition: extract_cas_partition(journal_data["cas_partition"]),
         }
 
         # 尝试创建/更新帖子
@@ -140,6 +142,24 @@ module DiscourseJournals
           nlm: sources_by_provider["nlm"]&.dig("data"),
           openalex: sources_by_provider["openalex"]&.dig("data"),
           wikidata: sources_by_provider["wikidata"]&.dig("data")
+        }
+      end
+
+      def extract_jcr(jcr_data)
+        return nil if jcr_data.blank?
+        
+        {
+          total_years: jcr_data["total_years"],
+          data: jcr_data["data"]
+        }
+      end
+
+      def extract_cas_partition(cas_data)
+        return nil if cas_data.blank?
+        
+        {
+          total_years: cas_data["total_years"],
+          data: cas_data["data"]
         }
       end
 
