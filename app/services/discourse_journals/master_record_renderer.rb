@@ -76,24 +76,11 @@ module DiscourseJournals
       return nil if content.blank?
 
       # 使用 Markdown 标题，支持右侧时间线索引跳转
-      # 标题下方使用 details 保持折叠功能
-      if open
-        <<~MD
-          ## #{title}
+      <<~MD
+        ## #{title}
 
-          [details="查看详情" open]
-          #{content}
-          [/details]
-        MD
-      else
-        <<~MD
-          ## #{title}
-
-          [details="查看详情"]
-          #{content}
-          [/details]
-        MD
-      end
+        #{content}
+      MD
     end
 
     # ==================== 顶部摘要卡片 ====================
