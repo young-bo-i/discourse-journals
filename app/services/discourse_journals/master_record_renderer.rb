@@ -122,45 +122,72 @@ module DiscourseJournals
       # 别名
       aliases_line = ""
       if identity[:title_alternate]&.any?
-        aliases_line = "*别名: #{identity[:title_alternate].join(", ")}*\n\n"
+        aliases_line = "*#{identity[:title_alternate].join(" / ")}*\n\n"
         mark_used("identity.title_alternate")
       end
 
-      # 构建徽章
-      badges = []
-      
-      # JCR 分区徽章
       jcr_latest = jcr[:data]&.first
-      if jcr_latest && jcr_latest[:quartile]
-        badges << "**#{jcr_latest[:quartile]}**"
-      end
-      
-      # 中科院分区徽章
       cas_latest = cas[:data]&.first
+
+      # 提取中科院分区数字
+      cas_partition_num = nil
       if cas_latest && cas_latest[:major_partition]
-        badges << "**中科院#{cas_latest[:major_partition]}区**"
-        if cas_latest[:is_top_journal]
-          badges << "**Top**"
+        partition_str = cas_latest[:major_partition].to_s
+        if match = partition_str.match(/(\d+)/)
+          cas_partition_num = match[1]
+        end
+      end
+
+      out = +""
+      out << "## #{title_line}\n\n"
+      out << aliases_line
+
+      # 基本信息表格
+      out << "| | |\n"
+      out << "|:--|:--|\n"
+      out << "| **ISSN** | `#{issn}` |\n"
+      out << "| **出版商** | #{publisher} |\n"
+      out << "| **国家** | #{country} |\n"
+      
+      # JCR 信息
+      if jcr_latest
+        if jcr_latest[:impact_factor]
+          out << "| **影响因子** | #{jcr_latest[:impact_factor]} (#{jcr_latest[:year] || '—'}) |\n"
+        end
+        if jcr_latest[:quartile]
+          out << "| **JCR 分区** | #{jcr_latest[:quartile]} |\n"
         end
       end
       
-      if oa[:is_oa]
-        badges << "**OA**"
-        mark_used("open_access.is_oa")
+      # 中科院分区信息
+      if cas_latest
+        cas_info = []
+        cas_info << "#{cas_partition_num}区" if cas_partition_num
+        cas_info << "Top" if cas_latest[:is_top_journal]
+        cas_info << cas_latest[:major_category] if cas_latest[:major_category]
+        if cas_info.any?
+          out << "| **中科院分区** | #{cas_info.join(" · ")} |\n"
+        end
       end
-      if nlm[:current_indexing_status] == "Y"
-        badges << "**NLM**"
-        mark_used("nlm_cataloging.current_indexing_status")
+      
+      out << "\n"
+
+      # 构建标签式徽章
+      badges = []
+      badges << "`OA`" if oa[:is_oa]
+      badges << "`NLM`" if nlm[:current_indexing_status] == "Y"
+      badges << "`DOAJ`" if oa[:is_in_doaj]
+      
+      mark_used("open_access.is_oa", "open_access.is_in_doaj", "nlm_cataloging.current_indexing_status")
+      
+      if badges.any?
+        out << badges.join(" ") + "\n\n"
       end
 
-      # 构建关键指标
+      out << "---\n\n"
+
+      # 学术指标（单行展示）
       stats = []
-      
-      # 影响因子放在最前面
-      if jcr_latest && jcr_latest[:impact_factor]
-        stats << "**IF** #{jcr_latest[:impact_factor]}"
-      end
-      
       if metrics[:h_index]
         stats << "**h-index** #{metrics[:h_index]}"
         mark_used("metrics.h_index")
@@ -174,20 +201,13 @@ module DiscourseJournals
         mark_used("metrics.cited_by_count")
       end
       if review[:publication_time_weeks]
-        stats << "**审稿** #{review[:publication_time_weeks]}周"
+        stats << "**审稿周期** #{review[:publication_time_weeks]}周"
         mark_used("review_compliance.publication_time_weeks")
       end
 
-      badges_line = badges.any? ? badges.join(" · ") : ""
-      stats_line = stats.any? ? stats.join(" · ") : ""
-
-      out = +""
-      out << "## #{title_line}\n\n"
-      out << aliases_line
-      out << "**ISSN** `#{issn}` · **出版商** #{publisher} · **国家** #{country}\n\n"
-      out << "#{badges_line}\n\n" if badges_line.present?
-      out << "---\n\n"
-      out << "#{stats_line}\n\n" if stats_line.present?
+      if stats.any?
+        out << stats.join(" · ") + "\n\n"
+      end
 
       out
     end
