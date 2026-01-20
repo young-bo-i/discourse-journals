@@ -19,11 +19,11 @@ module DiscourseJournals
         # 折叠分区
         sections << render_details_section(t("sections.jcr"), render_jcr_content)
         sections << render_details_section(t("sections.cas_partition"), render_cas_content)
-        sections << render_details_section(t("sections.open_access"), render_open_access_content)
         sections << render_details_section(t("sections.metrics"), render_metrics_content)
         sections << render_details_section(t("sections.review_compliance"), render_review_content)
-        sections << render_details_section(t("sections.preservation"), render_preservation_content)
         sections << render_details_section(t("sections.subjects_topics"), render_subjects_content)
+        sections << render_details_section(t("sections.open_access"), render_open_access_content)
+        sections << render_details_section(t("sections.preservation"), render_preservation_content)
         sections << render_details_section(t("sections.crossref_quality"), render_crossref_content)
         sections << render_details_section(t("sections.nlm_cataloging"), render_nlm_content)
 
@@ -408,60 +408,31 @@ module DiscourseJournals
 
       out = +""
 
-      # 指标汇总表格
-      metric_rows = []
-      if metrics[:works_count]
-        metric_rows << "| 论文总数 | #{format_number(metrics[:works_count])} |"
-      end
-      if metrics[:oa_works_count]
-        metric_rows << "| OA 论文数 | #{format_number(metrics[:oa_works_count])} |"
-        mark_used("metrics.oa_works_count")
-      end
-      if metrics[:cited_by_count]
-        metric_rows << "| 被引总数 | #{format_number(metrics[:cited_by_count])} |"
-      end
-      if metrics[:two_year_mean_citedness]
-        metric_rows << "| 近2年平均被引 | #{metrics[:two_year_mean_citedness].round(2)} |"
-        mark_used("metrics.two_year_mean_citedness")
-      end
-      if metrics[:h_index]
-        metric_rows << "| h-index | #{metrics[:h_index]} |"
-      end
-      if metrics[:i10_index]
-        metric_rows << "| i10-index | #{metrics[:i10_index]} |"
-        mark_used("metrics.i10_index")
-      end
+      # 标记字段为已使用（数据在顶部摘要卡片中展示）
+      mark_used("metrics.oa_works_count") if metrics[:oa_works_count]
+      mark_used("metrics.two_year_mean_citedness") if metrics[:two_year_mean_citedness]
+      mark_used("metrics.i10_index") if metrics[:i10_index]
+      mark_used("metrics.works_api_url") if metrics[:works_api_url].present?
 
-      if metric_rows.any?
-        out << "| 指标 | 数值 |\n"
-        out << "|------|------|\n"
-        out << metric_rows.join("\n") + "\n\n"
-      end
-
-      # 年度统计折线图
+      # 年度统计柱状图
       if metrics[:counts_by_year]&.any?
         out << render_metrics_chart(metrics[:counts_by_year])
         mark_used("metrics.counts_by_year")
-      end
-
-      # API 链接
-      if metrics[:works_api_url].present?
-        out << "#{link('OpenAlex 作品数据', metrics[:works_api_url])}\n"
-        mark_used("metrics.works_api_url")
       end
 
       out.presence
     end
 
     def render_metrics_chart(counts_by_year)
-      # 取最近 8 年数据，按年份正序排列
-      chart_data = counts_by_year.first(8).reverse
+      # 取最近 8 年数据，保持年份降序（大的在上面）
+      chart_data = counts_by_year.first(8)
       return "" if chart_data.empty?
 
+      # 发文量柱状图
       max_works = chart_data.map { |d| d[:works_count].to_i }.max
       max_works = 1 if max_works.zero?
 
-      out = +"**年度发文趋势**\n\n"
+      out = +"**年度发文量**\n\n"
       out << "```\n"
       
       chart_data.each do |item|
@@ -474,14 +445,22 @@ module DiscourseJournals
       
       out << "```\n\n"
 
-      # 详细数据表格
-      out << "**年度详细数据**\n\n"
-      out << "| 年份 | 论文 | OA论文 | 被引 |\n"
-      out << "|------|------|--------|------|\n"
-      chart_data.reverse.first(5).each do |item|
-        out << "| #{item[:year]} | #{format_number(item[:works_count])} | #{format_number(item[:oa_works_count])} | #{format_number(item[:cited_by_count])} |\n"
+      # 被引量柱状图
+      max_cited = chart_data.map { |d| d[:cited_by_count].to_i }.max
+      if max_cited && max_cited > 0
+        out << "**年度被引量**\n\n"
+        out << "```\n"
+        
+        chart_data.each do |item|
+          year = item[:year].to_s
+          cited = item[:cited_by_count].to_i
+          bar_length = (cited.to_f / max_cited * 25).round
+          bar = "█" * bar_length
+          out << "#{year} │#{bar} #{format_number(cited)}\n"
+        end
+        
+        out << "```\n"
       end
-      out << "\n"
 
       out
     end
