@@ -93,7 +93,8 @@ export default class JournalSearchBox extends Component {
         },
       });
 
-      this.results = (response.topics || []).slice(0, 8);
+      // 使用 posts 数据源，包含 blurb 摘要信息
+      this.results = (response.posts || []).slice(0, 8);
     } catch (e) {
       this.results = [];
     } finally {
@@ -102,9 +103,10 @@ export default class JournalSearchBox extends Component {
   }
 
   @action
-  goToTopic(topic) {
+  goToTopic(post) {
     this.showResults = false;
     this.searchQuery = "";
+    const topic = post.topic;
     DiscourseURL.routeTo(`/t/${topic.slug}/${topic.id}`);
   }
 
@@ -139,15 +141,15 @@ export default class JournalSearchBox extends Component {
         {{#if this.showResults}}
           <div class="journal-search-results">
             {{#if this.results.length}}
-              {{#each this.results as |topic|}}
+              {{#each this.results as |post|}}
                 <div
                   class="journal-search-result-item"
                   role="button"
-                  {{on "click" (fn this.goToTopic topic)}}
+                  {{on "click" (fn this.goToTopic post)}}
                 >
-                  <div class="result-title">{{topic.title}}</div>
-                  {{#if topic.blurb}}
-                    <div class="result-blurb">{{topic.blurb}}</div>
+                  <div class="result-title">{{post.topic.title}}</div>
+                  {{#if post.blurb}}
+                    <div class="result-blurb">{{post.blurb}}</div>
                   {{/if}}
                 </div>
               {{/each}}
