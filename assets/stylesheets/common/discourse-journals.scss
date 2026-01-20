@@ -542,16 +542,22 @@ html.dark-theme .cooked {
     .journal-search-input {
       flex: 1;
       height: 100%;
-      border: none;
+      border: none !important;
+      border-bottom: none !important;
+      box-shadow: none !important;
       background: transparent;
       padding: 0 10px;
+      margin: 0;
       font-size: 1em;
-      line-height: normal;
+      line-height: 44px;
       color: var(--primary);
       min-width: 0;
+      box-sizing: border-box;
 
       &:focus {
         outline: none;
+        border: none !important;
+        box-shadow: none !important;
       }
 
       &::placeholder {
@@ -652,6 +658,7 @@ html.dark-theme .cooked {
       .journal-search-input {
         padding: 0 8px;
         font-size: 0.95em;
+        line-height: 40px;
       }
     }
 
