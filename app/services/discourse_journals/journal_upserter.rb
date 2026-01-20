@@ -90,12 +90,15 @@ module DiscourseJournals
       category = Category.find_by(id: category_id)
       raise Discourse::InvalidParameters.new(:discourse_journals_category_id) if category.blank?
 
+      tags = build_tags(journal)
+
       creator =
         PostCreator.new(
           system_user,
           title: build_title(journal),
           raw: build_raw(journal),
           category: category.id,
+          tags: tags,
           skip_validations: true,
         )
 
@@ -119,6 +122,9 @@ module DiscourseJournals
 
       topic.update!(title: build_title(journal)) if topic.title != build_title(journal)
 
+      # 更新标签
+      update_tags!(topic, journal)
+
       update_custom_fields!(topic, journal)
       close_topic!(topic)
       topic
@@ -127,6 +133,17 @@ module DiscourseJournals
     def close_topic!(topic)
       return unless SiteSetting.discourse_journals_close_topics
       topic.update_status("closed", true, system_user)
+    end
+
+    def update_tags!(topic, journal)
+      return unless SiteSetting.tagging_enabled
+      
+      tags = build_tags(journal)
+      return if tags.empty?
+      
+      # 使用 DiscourseTagging 更新标签
+      # add_or_create_tags_by_name 会自动创建不存在的标签
+      DiscourseTagging.add_or_create_tags_by_name(topic, tags)
     end
 
     def update_custom_fields!(topic, journal)
@@ -183,6 +200,61 @@ module DiscourseJournals
       raise ArgumentError, "Empty content generated" if content.blank?
       
       content
+    end
+
+    def build_tags(journal)
+      tags = []
+      
+      # JCR 标签
+      if jcr_data = journal.dig(:jcr, :data)
+        jcr_data = jcr_data.map { |d| d.is_a?(Hash) ? d.deep_symbolize_keys : d }
+        latest_jcr = jcr_data.first
+        if latest_jcr
+          # 从 category 提取索引类型和学科
+          # 例如: "ONCOLOGY(SCIE)" -> 索引类型 "SCIE", 学科 "ONCOLOGY"
+          if category = latest_jcr[:category]
+            category = category.to_s
+            # 提取括号内的索引类型
+            if match = category.match(/\(([^)]+)\)\s*$/)
+              index_type = match[1].strip
+              tags << "#{index_type}(JCR)" if index_type.present?
+            end
+            # 提取学科名称（去掉括号部分）
+            subject = category.gsub(/\([^)]*\)\s*$/, '').strip
+            tags << "#{subject}(JCR)" if subject.present?
+          end
+          # 分区: Q1 -> Q1(JCR)
+          if quartile = latest_jcr[:quartile]
+            tags << "#{quartile}(JCR)"
+          end
+        end
+      end
+      
+      # 中科院标签
+      if cas_data = journal.dig(:cas_partition, :data)
+        cas_data = cas_data.map { |d| d.is_a?(Hash) ? d.deep_symbolize_keys : d }
+        latest_cas = cas_data.first
+        if latest_cas
+          # WOS收录: SCIE -> SCIE(CAS)
+          if wos = latest_cas[:web_of_science]
+            tags << "#{wos}(CAS)"
+          end
+          # 分区: 提取数字 -> 1区(CAS)
+          if partition = latest_cas[:major_partition]
+            partition_str = partition.to_s
+            if partition_match = partition_str.match(/(\d+)/)
+              tags << "#{partition_match[1]}区(CAS)"
+            end
+          end
+          # 大类学科: 医学 -> 医学(CAS)
+          if major_category = latest_cas[:major_category]
+            tags << "#{major_category}(CAS)"
+          end
+        end
+      end
+      
+      # 去重并过滤空值
+      tags.compact.reject(&:blank?).uniq
     end
     
     def log_error(journal, error)

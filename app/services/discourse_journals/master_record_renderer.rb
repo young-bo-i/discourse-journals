@@ -75,15 +75,21 @@ module DiscourseJournals
     def render_details_section(title, content, open: false)
       return nil if content.blank?
 
+      # 使用 Markdown 标题，支持右侧时间线索引跳转
+      # 标题下方使用 details 保持折叠功能
       if open
         <<~MD
-          [details="#{title}" open]
+          ## #{title}
+
+          [details="查看详情" open]
           #{content}
           [/details]
         MD
       else
         <<~MD
-          [details="#{title}"]
+          ## #{title}
+
+          [details="查看详情"]
           #{content}
           [/details]
         MD
@@ -194,46 +200,42 @@ module DiscourseJournals
       out = +""
       data = jcr[:data]
 
-      # 最新年份的数据
+      # 最新年份摘要（一行展示）
       latest = data.first
       if latest
-        out << "| 指标 | 数值 |\n"
-        out << "|------|------|\n"
-        out << "| 影响因子 | **#{latest[:impact_factor]}** |\n" if latest[:impact_factor]
-        out << "| JCR 分区 | #{latest[:quartile]} |\n" if latest[:quartile]
-        out << "| 学科排名 | #{latest[:rank]} |\n" if latest[:rank]
-        out << "| 学科类别 | #{latest[:category]} |\n" if latest[:category]
-        out << "| 数据年份 | #{latest[:year]} |\n" if latest[:year]
-        out << "\n"
+        summary = []
+        summary << "**IF #{latest[:impact_factor]}**" if latest[:impact_factor]
+        summary << "#{latest[:quartile]}" if latest[:quartile]
+        summary << "#{latest[:rank]}" if latest[:rank]
+        summary << "#{latest[:category]}" if latest[:category]
+        out << "#{latest[:year]}年: #{summary.join(" · ")}\n\n" if summary.any?
       end
 
-      # 历年趋势图（使用 SVG 柱状图）
-      if data.size > 1
-        out << render_jcr_chart(data)
-        out << "\n"
-      end
+      # 历年影响因子柱状图（所有年份，年份大的在上）
+      out << render_jcr_chart(data)
 
       mark_used("jcr.total_years", "jcr.data")
       out.presence
     end
 
     def render_jcr_chart(data)
-      # 取最近 5 年数据，按年份正序排列
-      chart_data = data.first(5).reverse
-      return "" if chart_data.empty?
+      return "" if data.empty?
 
+      # 保持年份降序（大的在上面）
+      chart_data = data
       max_if = chart_data.map { |d| d[:impact_factor].to_f }.max
       max_if = 1 if max_if.zero?
 
-      out = +"**历年影响因子趋势**\n\n"
+      out = +"**历年影响因子**\n\n"
       out << "```\n"
       
       chart_data.each do |item|
         year = item[:year].to_s
         impact = item[:impact_factor].to_f
-        bar_length = (impact / max_if * 30).round
+        quartile = item[:quartile] || ""
+        bar_length = (impact / max_if * 20).round
         bar = "█" * bar_length
-        out << "#{year} │#{bar} #{impact}\n"
+        out << "#{year} │#{bar} #{impact} #{quartile}\n"
       end
       
       out << "```\n"
@@ -248,49 +250,57 @@ module DiscourseJournals
       out = +""
       data = cas[:data]
 
-      # 最新年份的数据
+      # 最新年份摘要（一行展示）
       latest = data.first
       if latest
-        out << "| 指标 | 数值 |\n"
-        out << "|------|------|\n"
-        out << "| 大类学科 | #{latest[:major_category]} |\n" if latest[:major_category]
-        out << "| 大类分区 | **#{latest[:major_partition]}区** |\n" if latest[:major_partition]
-        out << "| Top 期刊 | #{latest[:is_top_journal] ? '是' : '否'} |\n" unless latest[:is_top_journal].nil?
-        out << "| WOS 收录 | #{latest[:web_of_science]} |\n" if latest[:web_of_science]
-        out << "| 数据年份 | #{latest[:year]} |\n" if latest[:year]
-        out << "\n"
+        summary = []
+        summary << "**#{latest[:major_category]}#{latest[:major_partition]}区**" if latest[:major_partition]
+        summary << "Top期刊" if latest[:is_top_journal]
+        summary << latest[:web_of_science] if latest[:web_of_science]
+        out << "#{latest[:year]}年: #{summary.join(" · ")}\n\n" if summary.any?
 
         # 小类分区
         if latest[:minor_categories]&.any?
-          out << "**小类分区**\n\n"
-          out << "| 学科 | 分区 |\n"
-          out << "|------|------|\n"
-          latest[:minor_categories].each do |cat|
-            if cat.is_a?(Hash)
-              out << "| #{cat[:category]} | #{cat[:partition]} |\n"
-            end
-          end
-          out << "\n"
+          out << "**小类分区**: "
+          minor_items = latest[:minor_categories].map do |cat|
+            cat.is_a?(Hash) ? "#{cat[:category]} #{cat[:partition]}" : nil
+          end.compact
+          out << minor_items.join(" · ") + "\n\n"
         end
       end
 
-      # 历年分区变化
-      if data.size > 1
-        out << "**历年分区**\n\n"
-        out << "| 年份 | 大类 | 分区 | Top |\n"
-        out << "|------|------|------|-----|\n"
-        data.first(5).each do |item|
-          year = item[:year] || "—"
-          major = item[:major_category] || "—"
-          partition = item[:major_partition] ? "#{item[:major_partition]}区" : "—"
-          top = item[:is_top_journal] ? "是" : "否"
-          out << "| #{year} | #{major} | #{partition} | #{top} |\n"
-        end
-        out << "\n"
-      end
+      # 历年分区柱状图（所有年份，年份大的在上）
+      out << render_cas_chart(data)
 
       mark_used("cas_partition.total_years", "cas_partition.data")
       out.presence
+    end
+
+    def render_cas_chart(data)
+      return "" if data.empty?
+
+      out = +"**历年分区**\n\n"
+      out << "```\n"
+      
+      data.each do |item|
+        year = item[:year].to_s
+        partition = item[:major_partition] || "—"
+        top_mark = item[:is_top_journal] ? " ★" : ""
+        # 用分区数值画柱状图（1区最长，4区最短）
+        bar_length = case partition.to_s
+                     when "1" then 20
+                     when "2" then 15
+                     when "3" then 10
+                     when "4" then 5
+                     else 0
+                     end
+        bar = "█" * bar_length
+        out << "#{year} │#{bar} #{partition}区#{top_mark}\n"
+      end
+      
+      out << "```\n"
+      out << "*★ 表示 Top 期刊*\n" if data.any? { |d| d[:is_top_journal] }
+      out
     end
 
     # ==================== 开放获取与费用 ====================
@@ -408,7 +418,7 @@ module DiscourseJournals
 
       out = +""
 
-      # 标记字段为已使用（数据在顶部摘要卡片中展示）
+      # 标记字段为已使用
       mark_used("metrics.oa_works_count") if metrics[:oa_works_count]
       mark_used("metrics.two_year_mean_citedness") if metrics[:two_year_mean_citedness]
       mark_used("metrics.i10_index") if metrics[:i10_index]
@@ -416,23 +426,28 @@ module DiscourseJournals
 
       # 年度统计柱状图
       if metrics[:counts_by_year]&.any?
-        out << render_metrics_chart(metrics[:counts_by_year])
+        out << render_metrics_chart(metrics[:counts_by_year], metrics)
         mark_used("metrics.counts_by_year")
       end
 
       out.presence
     end
 
-    def render_metrics_chart(counts_by_year)
+    def render_metrics_chart(counts_by_year, metrics)
       # 取最近 8 年数据，保持年份降序（大的在上面）
       chart_data = counts_by_year.first(8)
       return "" if chart_data.empty?
+
+      out = +""
 
       # 发文量柱状图
       max_works = chart_data.map { |d| d[:works_count].to_i }.max
       max_works = 1 if max_works.zero?
 
-      out = +"**年度发文量**\n\n"
+      total_works = metrics[:works_count]
+      out << "**年度发文量**"
+      out << "（累计 #{format_number(total_works)} 篇）" if total_works
+      out << "\n\n"
       out << "```\n"
       
       chart_data.each do |item|
@@ -448,7 +463,10 @@ module DiscourseJournals
       # 被引量柱状图
       max_cited = chart_data.map { |d| d[:cited_by_count].to_i }.max
       if max_cited && max_cited > 0
-        out << "**年度被引量**\n\n"
+        total_cited = metrics[:cited_by_count]
+        out << "**年度被引量**"
+        out << "（累计 #{format_number(total_cited)} 次）" if total_cited
+        out << "\n\n"
         out << "```\n"
         
         chart_data.each do |item|
@@ -531,36 +549,36 @@ module DiscourseJournals
       return nil unless pres.values.any?(&:present?)
 
       out = +""
+      items = []
 
       if pres[:preservation_service]&.any?
-        out << "**长期保存服务**: #{pres[:preservation_service].join(", ")}\n\n"
+        items << "**保存服务**: #{pres[:preservation_service].join(" · ")}"
         mark_used("preservation.preservation_service")
       end
 
       if pres[:preservation_national_library]&.any?
-        out << "**国家图书馆**: #{pres[:preservation_national_library].join(", ")}\n\n"
+        items << "**国家图书馆**: #{pres[:preservation_national_library].join(" · ")}"
         mark_used("preservation.preservation_national_library")
       end
 
-      if pres[:preservation_url].present?
-        out << "#{link('保存政策说明', pres[:preservation_url])}\n\n"
-        mark_used("preservation.preservation_url")
+      if pres[:deposit_policy_service]&.any?
+        items << "**存储服务**: #{pres[:deposit_policy_service].join(" · ")}"
+        mark_used("preservation.deposit_policy_service")
       end
 
-      if pres[:has_deposit_policy].present?
-        out << "**存储政策**: #{pres[:has_deposit_policy] ? '有' : '无'}\n"
-        mark_used("preservation.has_deposit_policy")
-        
-        if pres[:deposit_policy_service]&.any?
-          out << "- 服务: #{pres[:deposit_policy_service].join(", ")}\n"
-          mark_used("preservation.deposit_policy_service")
-        end
-        
-        if pres[:deposit_policy_url].present?
-          out << "- #{link('政策详情', pres[:deposit_policy_url])}\n"
-          mark_used("preservation.deposit_policy_url")
-        end
+      out << items.join("\n\n") + "\n\n" if items.any?
+
+      # 相关链接
+      links = []
+      links << link("保存政策", pres[:preservation_url]) if pres[:preservation_url].present?
+      links << link("存储政策", pres[:deposit_policy_url]) if pres[:deposit_policy_url].present?
+      
+      if links.any?
+        out << links.join(" · ") + "\n"
+        mark_used("preservation.preservation_url", "preservation.deposit_policy_url")
       end
+
+      mark_used("preservation.has_deposit_policy") if pres[:has_deposit_policy].present?
 
       out.presence
     end
@@ -572,39 +590,36 @@ module DiscourseJournals
 
       out = +""
 
-      # 学科分类
+      # 学科分类（标签式展示）
       if subjects[:subject_list]&.any?
-        out << "**学科分类**\n\n"
-        subjects[:subject_list].each do |subj|
+        terms = subjects[:subject_list].map do |subj|
           if subj.is_a?(Hash)
-            code = subj[:code] || subj["code"]
-            term = subj[:term] || subj["term"]
-            scheme = subj[:scheme] || subj["scheme"]
-            out << "- #{term} (#{scheme}: #{code})\n"
+            subj[:term] || subj["term"] || subj[:code]
           else
-            out << "- #{subj}\n"
+            subj
           end
-        end
-        out << "\n"
+        end.compact
+        out << "**学科**: #{terms.join(" · ")}\n\n" if terms.any?
         mark_used("subjects_topics.subject_list")
       end
 
-      # 关键词
+      # 关键词（标签式展示）
       if subjects[:keywords]&.any?
-        out << "**关键词**: #{subjects[:keywords].join(", ")}\n\n"
+        out << "**关键词**: #{subjects[:keywords].first(10).join(" · ")}\n\n"
         mark_used("subjects_topics.keywords")
       end
 
-      # OpenAlex 主题
+      # OpenAlex 主题（简化展示）
       if subjects[:topics_top]&.any?
-        out << "**主要主题**\n\n"
-        out << "| 主题 | 领域 | 子领域 |\n"
-        out << "|------|------|--------|\n"
+        out << "**研究主题**\n\n"
         subjects[:topics_top].first(5).each do |topic|
           name = topic[:display_name] || "—"
-          field = topic.dig(:field, :display_name) || "—"
-          subfield = topic.dig(:subfield, :display_name) || "—"
-          out << "| #{name} | #{field} | #{subfield} |\n"
+          field = topic.dig(:field, :display_name)
+          if field
+            out << "- #{name} → #{field}\n"
+          else
+            out << "- #{name}\n"
+          end
         end
         out << "\n"
         mark_used("subjects_topics.topics_top")
@@ -620,40 +635,57 @@ module DiscourseJournals
 
       out = +""
 
-      # DOI 统计
+      # DOI 统计（简洁显示）
       if quality[:doi_counts]
         counts = quality[:doi_counts]
-        out << "**DOI 统计**\n\n"
-        out << "| 类型 | 数量 |\n"
-        out << "|------|------|\n"
         total = counts[:total_dois] || counts[:"total-dois"]
-        current = counts[:current_dois] || counts[:"current-dois"]
-        backfile = counts[:backfile_dois] || counts[:"backfile-dois"]
-        out << "| 总数 | #{format_number(total)} |\n" if total
-        out << "| 当前 | #{format_number(current)} |\n" if current
-        out << "| 存量 | #{format_number(backfile)} |\n" if backfile
-        out << "\n"
+        if total
+          out << "**DOI 总数**: #{format_number(total)}\n\n"
+        end
         mark_used("crossref_quality.doi_counts")
       end
 
-      # 元数据覆盖率
+      # 元数据覆盖率（柱状图）
       if quality[:metadata_coverage].present?
         coverage = quality[:metadata_coverage]
         if coverage.is_a?(Hash) && coverage.any?
           out << "**元数据覆盖率**\n\n"
-          out << "| 字段 | 覆盖率 |\n"
-          out << "|------|--------|\n"
-          coverage.first(8).each do |field, rate|
+          out << "```\n"
+          
+          # 选择主要字段展示
+          key_fields = %w[abstracts references orcids funders licenses affiliations]
+          coverage.each do |field, rate|
             next if rate.nil?
-            percentage = rate.is_a?(Numeric) ? "#{(rate * 100).round(1)}%" : rate
-            out << "| #{field} | #{percentage} |\n"
+            next unless key_fields.include?(field.to_s) || coverage.size <= 8
+            
+            percentage = rate.is_a?(Numeric) ? (rate * 100).round(0) : rate.to_i
+            bar_length = (percentage.to_f / 100 * 20).round
+            bar = "█" * bar_length
+            empty = "░" * (20 - bar_length)
+            field_name = format_field_name(field.to_s)
+            out << "#{field_name.ljust(12)} │#{bar}#{empty} #{percentage}%\n"
           end
-          out << "\n"
+          
+          out << "```\n"
         end
         mark_used("crossref_quality.metadata_coverage")
       end
 
       out.presence
+    end
+
+    def format_field_name(field)
+      names = {
+        "abstracts" => "摘要",
+        "references" => "参考文献",
+        "orcids" => "ORCID",
+        "funders" => "资助信息",
+        "licenses" => "许可证",
+        "affiliations" => "机构信息",
+        "award-numbers" => "基金号",
+        "resource-links" => "资源链接",
+      }
+      names[field] || field
     end
 
     # ==================== NLM 编目信息 ====================
@@ -663,36 +695,29 @@ module DiscourseJournals
 
       out = +""
       
-      rows = []
+      items = []
       if nlm[:medline_ta].present?
-        rows << "| MEDLINE 缩写 | #{nlm[:medline_ta]} |"
+        items << "**MEDLINE**: #{nlm[:medline_ta]}"
         mark_used("nlm_cataloging.medline_ta")
       end
       if nlm[:current_indexing_status].present?
-        status = nlm[:current_indexing_status] == "Y" ? "是" : "否"
-        rows << "| 当前索引 | #{status} |"
+        status = nlm[:current_indexing_status] == "Y" ? "已索引" : "未索引"
+        items << "**状态**: #{status}"
       end
       if nlm[:nlm_date_revised].present?
-        rows << "| 修订日期 | #{nlm[:nlm_date_revised]} |"
+        items << "**更新**: #{nlm[:nlm_date_revised]}"
         mark_used("nlm_cataloging.nlm_date_revised")
       end
 
-      if rows.any?
-        out << "| 项目 | 内容 |\n"
-        out << "|------|------|\n"
-        out << rows.join("\n") + "\n\n"
-      end
-
-      if nlm[:resource_type]&.any?
-        types = nlm[:resource_type].map { |r| r.is_a?(Hash) ? r[:resourceunit] : r }.compact
-        out << "**资源类型**: #{types.join(", ")}\n" if types.any?
-        mark_used("nlm_cataloging.resource_type")
-      end
+      out << items.join(" · ") + "\n\n" if items.any?
 
       if nlm[:broad_heading]&.any?
-        out << "**主题词**: #{nlm[:broad_heading].join(", ")}\n"
+        out << "**主题词**: #{nlm[:broad_heading].join(" · ")}\n"
         mark_used("nlm_cataloging.broad_heading")
       end
+
+      # 标记其他字段为已使用
+      mark_used("nlm_cataloging.resource_type") if nlm[:resource_type]&.any?
 
       out.presence
     end
