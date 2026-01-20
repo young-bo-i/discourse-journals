@@ -74,6 +74,11 @@ export default class JournalSearchBox extends Component {
 
   @action
   onKeyDown(event) {
+    // 如果正在使用输入法组合，不触发搜索
+    if (event.isComposing) {
+      return;
+    }
+
     if (event.key === "Enter" && this.searchQuery.trim()) {
       this.goToFullSearch();
     }

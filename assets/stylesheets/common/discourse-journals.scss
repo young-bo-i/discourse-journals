@@ -510,7 +510,12 @@ html.dark-theme .cooked {
 
 // ==================== 期刊搜索框样式 ====================
 .journal-search-box {
-  margin-bottom: 20px;
+  position: sticky;
+  top: var(--header-offset, 60px);
+  z-index: 100;
+  background: var(--secondary);
+  padding: 12px 0;
+  margin: -12px 0 20px 0;
 
   .journal-search-container {
     position: relative;
