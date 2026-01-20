@@ -161,17 +161,15 @@ module DiscourseJournals
     end
 
     def build_title(journal)
-      # 使用归一化后的标题，不捕获异常
+      # 只使用期刊名称作为标题
       normalizer = FieldNormalizer.new(journal)
       normalized = normalizer.normalize
       
       title = normalized.dig(:identity, :title_main)
-      issn = normalized.dig(:identity, :issn_l)
       
       raise ArgumentError, "Missing title" if title.blank?
-      raise ArgumentError, "Missing ISSN" if issn.blank?
       
-      "#{title} (#{issn})"
+      title
     end
 
     def build_raw(journal)
