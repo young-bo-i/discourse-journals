@@ -3,9 +3,10 @@ import { tracked } from "@glimmer/tracking";
 import { action } from "@ember/object";
 import { service } from "@ember/service";
 import { on } from "@ember/modifier";
+import { fn } from "@ember/helper";
+import { not } from "discourse/truth-helpers";
 import { ajax } from "discourse/lib/ajax";
 import icon from "discourse/helpers/d-icon";
-import concatClass from "discourse/helpers/concat-class";
 import discourseDebounce from "discourse/lib/debounce";
 import DiscourseURL from "discourse/lib/url";
 
@@ -31,7 +32,6 @@ export default class JournalSearchBox extends Component {
   }
 
   @service siteSettings;
-  @service router;
 
   @tracked searchQuery = "";
   @tracked results = [];
@@ -62,7 +62,6 @@ export default class JournalSearchBox extends Component {
 
   @action
   onBlur() {
-    // 延迟隐藏以允许点击结果
     setTimeout(() => {
       this.showResults = false;
     }, 200);
