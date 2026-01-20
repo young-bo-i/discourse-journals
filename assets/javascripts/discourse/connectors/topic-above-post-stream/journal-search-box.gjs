@@ -6,12 +6,12 @@ import { on } from "@ember/modifier";
 import { fn } from "@ember/helper";
 import { not } from "discourse/truth-helpers";
 import { htmlSafe } from "@ember/template";
-import { ajax } from "discourse/lib/ajax";
 import icon from "discourse/helpers/d-icon";
 import categoryLink from "discourse/helpers/category-link";
 import discourseTags from "discourse/helpers/discourse-tags";
 import ageWithTooltip from "discourse/helpers/age-with-tooltip";
 import discourseDebounce from "discourse/lib/debounce";
+import { searchForTerm } from "discourse/lib/search";
 import DiscourseURL from "discourse/lib/url";
 
 export default class JournalSearchBox extends Component {
@@ -91,14 +91,12 @@ export default class JournalSearchBox extends Component {
     this.showResults = true;
 
     try {
-      const response = await ajax("/search.json", {
-        data: {
-          q: `${this.searchQuery} category:${this.categoryId}`,
-        },
+      // 使用 searchForTerm 来正确处理数据，自动关联 topic 到 post
+      const results = await searchForTerm(`${this.searchQuery} category:${this.categoryId}`, {
+        typeFilter: "topic",
       });
 
-      // 使用 posts 数据源，包含 blurb 摘要信息
-      this.results = (response.posts || []).slice(0, 8);
+      this.results = (results?.posts || []).slice(0, 8);
     } catch (e) {
       this.results = [];
     } finally {
@@ -107,7 +105,8 @@ export default class JournalSearchBox extends Component {
   }
 
   @action
-  goToTopic(post) {
+  goToTopic(post, event) {
+    event.preventDefault();
     this.showResults = false;
     this.searchQuery = "";
     const topic = post.topic;
@@ -115,7 +114,10 @@ export default class JournalSearchBox extends Component {
   }
 
   @action
-  goToFullSearch() {
+  goToFullSearch(event) {
+    if (event) {
+      event.preventDefault();
+    }
     this.showResults = false;
     const query = `${this.searchQuery} category:${this.categoryId}`;
     DiscourseURL.routeTo(`/search?q=${encodeURIComponent(query)}`);
