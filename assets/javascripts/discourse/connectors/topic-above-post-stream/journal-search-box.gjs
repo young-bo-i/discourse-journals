@@ -5,8 +5,12 @@ import { service } from "@ember/service";
 import { on } from "@ember/modifier";
 import { fn } from "@ember/helper";
 import { not } from "discourse/truth-helpers";
+import { htmlSafe } from "@ember/template";
 import { ajax } from "discourse/lib/ajax";
 import icon from "discourse/helpers/d-icon";
+import categoryLink from "discourse/helpers/category-link";
+import discourseTags from "discourse/helpers/discourse-tags";
+import ageWithTooltip from "discourse/helpers/age-with-tooltip";
 import discourseDebounce from "discourse/lib/debounce";
 import DiscourseURL from "discourse/lib/url";
 
@@ -141,26 +145,44 @@ export default class JournalSearchBox extends Component {
         {{#if this.showResults}}
           <div class="journal-search-results">
             {{#if this.results.length}}
-              {{#each this.results as |post|}}
-                <div
-                  class="journal-search-result-item"
-                  role="button"
-                  {{on "click" (fn this.goToTopic post)}}
-                >
-                  <div class="result-title">{{post.topic.title}}</div>
-                  {{#if post.blurb}}
-                    <div class="result-blurb">{{post.blurb}}</div>
-                  {{/if}}
-                </div>
-              {{/each}}
-              <div
-                class="journal-search-more"
-                role="button"
+              <ul class="journal-search-list">
+                {{#each this.results as |post|}}
+                  <li class="journal-search-item">
+                    <a
+                      class="search-link"
+                      href="/t/{{post.topic.slug}}/{{post.topic.id}}"
+                      {{on "click" (fn this.goToTopic post)}}
+                    >
+                      <span class="topic">
+                        <span class="first-line">
+                          <span class="topic-title">{{post.topic.title}}</span>
+                        </span>
+                        <span class="second-line">
+                          {{categoryLink post.topic.category link=false}}
+                          {{#if this.siteSettings.tagging_enabled}}
+                            {{discourseTags post.topic tagName="span"}}
+                          {{/if}}
+                        </span>
+                      </span>
+                      {{#if post.blurb}}
+                        <span class="blurb">
+                          {{ageWithTooltip post.created_at}}
+                          <span class="blurb-separator"> - </span>
+                          <span class="blurb-text">{{htmlSafe post.blurb}}</span>
+                        </span>
+                      {{/if}}
+                    </a>
+                  </li>
+                {{/each}}
+              </ul>
+              <a
+                class="journal-search-more search-link"
+                href="/search?q={{this.searchQuery}} category:{{this.categoryId}}"
                 {{on "click" this.goToFullSearch}}
               >
                 {{icon "magnifying-glass"}}
-                <span>查看所有搜索结果</span>
-              </div>
+                <span>更多...</span>
+              </a>
             {{else if (not this.loading)}}
               <div class="journal-search-no-results">
                 没有找到相关期刊
