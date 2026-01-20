@@ -2,6 +2,9 @@ en:
   js:
     discourse_journals:
       title: "Journals"
+      search:
+        placeholder: "Search journals (name, ISSN, publisher...)"
+        button: "Search"
       admin:
         heading: "Journals"
         imports:

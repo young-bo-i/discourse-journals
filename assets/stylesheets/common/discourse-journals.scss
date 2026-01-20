@@ -507,3 +507,77 @@ html.dark-theme .cooked {
   color: var(--primary-medium);
   overflow-x: auto;
 }
+
+// ==================== 期刊搜索框样式 ====================
+.journal-search-box {
+  margin-bottom: 20px;
+  padding: 16px 20px;
+  background: var(--primary-very-low);
+  border-radius: 8px;
+  border: 1px solid var(--primary-low);
+
+  .journal-search-input-wrapper {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    max-width: 600px;
+
+    .search-icon {
+      color: var(--primary-medium);
+      font-size: 1.1em;
+      flex-shrink: 0;
+    }
+
+    .journal-search-input {
+      flex: 1;
+      padding: 10px 14px;
+      border: 1px solid var(--primary-low);
+      border-radius: 6px;
+      background: var(--secondary);
+      color: var(--primary);
+      font-size: 0.95em;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+
+      &:focus {
+        outline: none;
+        border-color: var(--tertiary);
+        box-shadow: 0 0 0 2px rgba(var(--tertiary-rgb), 0.2);
+      }
+
+      &::placeholder {
+        color: var(--primary-medium);
+      }
+    }
+
+    .journal-search-btn {
+      flex-shrink: 0;
+      padding: 10px 20px;
+      font-weight: 500;
+    }
+  }
+}
+
+// 移动端适配
+@media (max-width: 600px) {
+  .journal-search-box {
+    padding: 12px 16px;
+
+    .journal-search-input-wrapper {
+      flex-wrap: wrap;
+
+      .search-icon {
+        display: none;
+      }
+
+      .journal-search-input {
+        width: 100%;
+        flex: none;
+      }
+
+      .journal-search-btn {
+        width: 100%;
+        margin-top: 8px;
+      }
+    }
+  }
+}

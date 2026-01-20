@@ -2,6 +2,9 @@ zh_CN:
   js:
     discourse_journals:
       title: "期刊库"
+      search:
+        placeholder: "搜索期刊（输入名称、ISSN、出版商...）"
+        button: "搜索"
       admin:
         heading: "期刊库"
         imports:
