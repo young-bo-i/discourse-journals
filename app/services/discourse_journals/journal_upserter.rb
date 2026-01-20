@@ -205,7 +205,7 @@ module DiscourseJournals
     def build_tags(journal)
       tags = []
       
-      # JCR 标签
+      # JCR 标签（使用 jcr: 前缀区分）
       if jcr_data = journal.dig(:jcr, :data)
         jcr_data = jcr_data.map { |d| d.is_a?(Hash) ? d.deep_symbolize_keys : d }
         latest_jcr = jcr_data.first
@@ -214,41 +214,41 @@ module DiscourseJournals
           # 例如: "ONCOLOGY(SCIE)" -> 索引类型 "SCIE", 学科 "ONCOLOGY"
           if category = latest_jcr[:category]
             category = category.to_s
-            # 提取括号内的索引类型
+            # 提取括号内的索引类型: SCIE -> jcr:scie
             if match = category.match(/\(([^)]+)\)\s*$/)
-              index_type = match[1].strip
-              tags << "#{index_type}(JCR)" if index_type.present?
+              index_type = match[1].strip.downcase
+              tags << "jcr:#{index_type}" if index_type.present?
             end
-            # 提取学科名称（去掉括号部分）
-            subject = category.gsub(/\([^)]*\)\s*$/, '').strip
-            tags << "#{subject}(JCR)" if subject.present?
+            # 提取学科名称（去掉括号部分）: ONCOLOGY -> jcr:oncology
+            subject = category.gsub(/\([^)]*\)\s*$/, '').strip.downcase
+            tags << "jcr:#{subject}" if subject.present?
           end
-          # 分区: Q1 -> Q1(JCR)
+          # 分区: Q1 -> jcr:q1
           if quartile = latest_jcr[:quartile]
-            tags << "#{quartile}(JCR)"
+            tags << "jcr:#{quartile.to_s.downcase}"
           end
         end
       end
       
-      # 中科院标签
+      # 中科院标签（使用 cas: 前缀区分）
       if cas_data = journal.dig(:cas_partition, :data)
         cas_data = cas_data.map { |d| d.is_a?(Hash) ? d.deep_symbolize_keys : d }
         latest_cas = cas_data.first
         if latest_cas
-          # WOS收录: SCIE -> SCIE(CAS)
+          # WOS收录: SCIE -> cas:scie
           if wos = latest_cas[:web_of_science]
-            tags << "#{wos}(CAS)"
+            tags << "cas:#{wos.to_s.downcase}"
           end
-          # 分区: 提取数字 -> 1区(CAS)
+          # 分区: 提取数字 -> cas:1区
           if partition = latest_cas[:major_partition]
             partition_str = partition.to_s
             if partition_match = partition_str.match(/(\d+)/)
-              tags << "#{partition_match[1]}区(CAS)"
+              tags << "cas:#{partition_match[1]}区"
             end
           end
-          # 大类学科: 医学 -> 医学(CAS)
+          # 大类学科: 医学 -> cas:医学
           if major_category = latest_cas[:major_category]
-            tags << "#{major_category}(CAS)"
+            tags << "cas:#{major_category}"
           end
         end
       end
