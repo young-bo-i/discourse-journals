@@ -516,6 +516,8 @@ html.dark-theme .cooked {
   background: var(--secondary);
   padding: 12px 0;
   margin: -12px 0 20px 0;
+  // 留出右侧时间线空间
+  margin-right: 320px;
 
   .journal-search-container {
     position: relative;
@@ -716,6 +718,8 @@ html.dark-theme .cooked {
 // 移动端适配
 @media (max-width: 600px) {
   .journal-search-box {
+    margin-right: 0;  // 移动端不需要留空间
+
     .journal-search-input-wrapper {
       height: 40px;
       padding: 0 10px;
@@ -730,5 +734,18 @@ html.dark-theme .cooked {
     .search-link {
       padding: 0.5rem 0.75rem;
     }
+  }
+}
+
+// 中等屏幕适配（时间线可能较窄）
+@media (max-width: 1100px) {
+  .journal-search-box {
+    margin-right: 280px;
+  }
+}
+
+@media (max-width: 924px) {
+  .journal-search-box {
+    margin-right: 0;  // 时间线隐藏时不需要留空间
   }
 }
