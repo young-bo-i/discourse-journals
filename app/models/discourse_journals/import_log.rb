@@ -33,28 +33,15 @@ module DiscourseJournals
       # 删除所有旧记录，保持单例
       delete_all
 
-      begin
-        # 只设置必要的字段，其他使用数据库默认值
-        record = create!(
-          upload_id: 0,
-          user_id: user_id,
-          status: :pending,
-          started_at: Time.current,
-          api_url: api_url,
-          filters: filters.is_a?(Hash) ? filters : {},
-          import_mode: import_mode
-        )
-        record
-      rescue ActiveRecord::RecordInvalid => e
-        Rails.logger.error("[DiscourseJournals::ImportLog] Validation failed: #{e.message}")
-        raise StandardError, "验证失败: #{e.message}"
-      rescue ActiveRecord::StatementInvalid => e
-        Rails.logger.error("[DiscourseJournals::ImportLog] Database error: #{e.message}")
-        raise StandardError, "数据库错误: #{e.message}"
-      rescue StandardError => e
-        Rails.logger.error("[DiscourseJournals::ImportLog] Unknown error: #{e.class} - #{e.message}")
-        raise StandardError, "创建失败: #{e.class} - #{e.message}"
-      end
+      create!(
+        upload_id: 0,
+        user_id: user_id,
+        status: :pending,
+        started_at: Time.current,
+        api_url: api_url.to_s,
+        filters: filters.is_a?(Hash) ? filters : {},
+        import_mode: import_mode.to_s
+      )
     end
 
     # 删除导入记录（取消时调用）

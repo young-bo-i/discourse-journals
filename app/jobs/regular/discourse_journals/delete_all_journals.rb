@@ -35,8 +35,17 @@ module Jobs
 
         # ============ 第二步：删除分类下的所有话题 ============
         
-        # 获取分类下所有话题（包括已删除的）
+        # 获取分类信息
+        category = Category.find_by(id: category_id)
+        
+        # 获取分类下所有话题（排除分类的描述话题）
         topic_ids = Topic.with_deleted.where(category_id: category_id).pluck(:id)
+        
+        # 排除分类的 "About" 话题（这个话题不能删除）
+        if category&.topic_id
+          topic_ids = topic_ids - [category.topic_id]
+          Rails.logger.info("[DiscourseJournals::DeleteAll] Excluding category about topic: #{category.topic_id}")
+        end
         total = topic_ids.size
         deleted_count = 0
         error_count = 0
