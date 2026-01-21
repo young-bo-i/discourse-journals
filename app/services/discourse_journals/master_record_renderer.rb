@@ -26,7 +26,6 @@ module DiscourseJournals
         sections << render_details_section(t("sections.preservation"), render_preservation_content)
         sections << render_details_section(t("sections.crossref_quality"), render_crossref_content)
         sections << render_details_section(t("sections.nlm_cataloging"), render_nlm_content)
-        sections << render_details_section(t("sections.wikipedia"), render_wikipedia_content)
 
         # 记录未使用的字段
         @tracker.log_unused_fields
@@ -184,6 +183,16 @@ module DiscourseJournals
       end
 
       out << "\n"
+
+      # Wikipedia 简介（如有）
+      wiki = @data[:wikipedia] || {}
+      if wiki[:extract].present?
+        out << "---\n\n"
+        out << "**简介**: #{wiki[:extract]}\n\n"
+        mark_used("wikipedia.extract", "wikipedia.article_title", "wikipedia.description",
+                  "wikipedia.thumbnail", "wikipedia.categories", "wikipedia.infobox", "wikipedia.source_method")
+      end
+
       out
     end
 
@@ -725,61 +734,6 @@ module DiscourseJournals
 
       # 标记其他字段为已使用
       mark_used("nlm_cataloging.resource_type") if nlm[:resource_type]&.any?
-
-      out.presence
-    end
-
-    # ==================== Wikipedia 百科信息 ====================
-    def render_wikipedia_content
-      wiki = @data[:wikipedia] || {}
-      return nil unless wiki.values.any?(&:present?)
-
-      out = +""
-
-      # 文章标题和描述
-      if wiki[:article_title].present?
-        out << "**关联文章**: #{wiki[:article_title]}\n\n"
-        mark_used("wikipedia.article_title")
-      end
-
-      if wiki[:description].present?
-        out << "**简述**: #{wiki[:description]}\n\n"
-        mark_used("wikipedia.description")
-      end
-
-      # 摘要内容
-      if wiki[:extract].present?
-        out << "**摘要**:\n\n"
-        out << "> #{wiki[:extract].gsub("\n", "\n> ")}\n\n"
-        mark_used("wikipedia.extract")
-      end
-
-      # 缩略图
-      if wiki[:thumbnail].present?
-        out << "![缩略图](#{wiki[:thumbnail]})\n\n"
-        mark_used("wikipedia.thumbnail")
-      end
-
-      # 分类
-      if wiki[:categories].is_a?(Array) && wiki[:categories].any?
-        out << "**分类**: #{wiki[:categories].join(", ")}\n\n"
-        mark_used("wikipedia.categories")
-      end
-
-      # 信息框（如果有结构化数据）
-      if wiki[:infobox].is_a?(Hash) && wiki[:infobox].any?
-        out << "**信息框**:\n\n"
-        out << "| 属性 | 值 |\n"
-        out << "|------|----|\n"
-        wiki[:infobox].each do |key, value|
-          out << "| #{key} | #{value} |\n" if value.present?
-        end
-        out << "\n"
-        mark_used("wikipedia.infobox")
-      end
-
-      # 标记来源方法
-      mark_used("wikipedia.source_method") if wiki[:source_method]
 
       out.presence
     end
