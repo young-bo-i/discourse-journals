@@ -211,56 +211,68 @@ module DiscourseJournals
     def build_tags(journal)
       tags = []
       
-      # JCR 标签（使用 jcr- 前缀区分）
+      # JCR 标签（使用 jcr: 前缀区分）
       if jcr_data = journal.dig(:jcr, :data)
         jcr_data = jcr_data.map { |d| d.is_a?(Hash) ? d.deep_symbolize_keys : d }
         latest_jcr = jcr_data.first
         if latest_jcr
           # 从 category 提取索引类型和学科
-          # 例如: "ONCOLOGY(SCIE)" -> 索引类型 "SCIE", 学科 "ONCOLOGY"
+          # 例如: "ONCOLOGY(SCIE)" -> 索引类型 "SCIE", 学科 "Oncology"
           if category = latest_jcr[:category]
             category = category.to_s
-            # 提取括号内的索引类型: SCIE -> jcr-scie
+            # 提取括号内的索引类型: SCIE -> jcr:SCIE（保持大写）
             if match = category.match(/\(([^)]+)\)\s*$/)
-              index_type = match[1].strip.downcase
-              tags << "jcr-#{index_type}" if index_type.present?
+              index_type = match[1].strip
+              tags << "jcr:#{index_type}" if index_type.present?
             end
-            # 提取学科名称（去掉括号部分）: ONCOLOGY -> jcr-oncology
-            subject = category.gsub(/\([^)]*\)\s*$/, '').strip.downcase
-            tags << "jcr-#{subject}" if subject.present?
+            # 提取学科名称（去掉括号部分）: ONCOLOGY -> jcr:Oncology（首字母大写）
+            subject = category.gsub(/\([^)]*\)\s*$/, '').strip
+            tags << "jcr:#{titleize_subject(subject)}" if subject.present?
           end
-          # 分区: Q1 -> jcr-q1
+          # 分区: Q1 -> jcr:Q1（保持大写）
           if quartile = latest_jcr[:quartile]
-            tags << "jcr-#{quartile.to_s.downcase}"
+            tags << "jcr:#{quartile}"
           end
         end
       end
       
-      # 中科院标签（使用 cas- 前缀区分）
+      # 中科院标签（使用 cas: 前缀区分）
       if cas_data = journal.dig(:cas_partition, :data)
         cas_data = cas_data.map { |d| d.is_a?(Hash) ? d.deep_symbolize_keys : d }
         latest_cas = cas_data.first
         if latest_cas
-          # WOS收录: SCIE -> cas-scie
+          # WOS收录: SCIE -> cas:SCIE（保持大写）
           if wos = latest_cas[:web_of_science]
-            tags << "cas-#{wos.to_s.downcase}"
+            tags << "cas:#{wos}"
           end
-          # 分区: 提取数字 -> cas-1区
+          # 分区: 提取数字 -> cas:1区
           if partition = latest_cas[:major_partition]
             partition_str = partition.to_s
             if partition_match = partition_str.match(/(\d+)/)
-              tags << "cas-#{partition_match[1]}区"
+              tags << "cas:#{partition_match[1]}区"
             end
           end
-          # 大类学科: 医学 -> cas-医学
+          # 大类学科: 医学 -> cas:医学（中文保持原样）
           if major_category = latest_cas[:major_category]
-            tags << "cas-#{major_category}"
+            tags << "cas:#{major_category}"
           end
         end
       end
       
       # 去重并过滤空值
       tags.compact.reject(&:blank?).uniq
+    end
+
+    # 将学科名称转换为首字母大写格式
+    # 例如: "ONCOLOGY" -> "Oncology", "CELL BIOLOGY" -> "Cell Biology"
+    def titleize_subject(subject)
+      return subject if subject.blank?
+      
+      # 如果包含中文，保持原样
+      return subject if subject.match?(/[\u4e00-\u9fa5]/)
+      
+      # 英文学科名称：每个单词首字母大写
+      subject.split(/\s+/).map(&:capitalize).join(' ')
     end
     
     def log_error(journal, error)
