@@ -119,8 +119,8 @@ module DiscourseJournals
       def process_journal(journal_data, _index)
         @processed_count += 1
 
-        primary_issn = journal_data["primary_issn"]
-        if primary_issn.blank?
+        primary_id = journal_data["primary_issn"]
+        if primary_id.blank?
           skip_journal("缺少 primary_issn", nil, journal_data)
           return
         end
@@ -128,13 +128,19 @@ module DiscourseJournals
         unified_index = journal_data["unified_index"] || {}
         title = unified_index["title"]
         if title.blank?
-          skip_journal("缺少 title 字段", primary_issn, journal_data)
+          skip_journal("缺少 title 字段", primary_id, journal_data)
           return
         end
 
+        # 提取标识符类型和显示用 ISSN
+        identifier_type = journal_data["identifier_type"] || "issn"
+        display_issn = extract_display_issn(unified_index, primary_id, identifier_type)
+
         # 构建期刊参数
         journal_params = {
-          issn: primary_issn,
+          primary_id: primary_id,
+          identifier_type: identifier_type,
+          display_issn: display_issn,
           name: title,
           unified_index: unified_index,
           aliases: journal_data["aliases"] || [],
@@ -150,14 +156,46 @@ module DiscourseJournals
         case result
         when :created
           @created_count += 1
-          Rails.logger.info("[DiscourseJournals::ApiSync] ✓ Created: #{title} (#{primary_issn})")
+          Rails.logger.info("[DiscourseJournals::ApiSync] ✓ Created: #{title} (#{primary_id})")
         when :updated
           @updated_count += 1
-          Rails.logger.info("[DiscourseJournals::ApiSync] ✓ Updated: #{title} (#{primary_issn})")
+          Rails.logger.info("[DiscourseJournals::ApiSync] ✓ Updated: #{title} (#{primary_id})")
         end
       rescue StandardError => e
         # 数据处理失败，跳过该期刊
-        skip_journal(e.message, primary_issn, journal_data, e)
+        skip_journal(e.message, primary_id, journal_data, e)
+      end
+
+      # 提取用于显示的真实 ISSN
+      # 如果 identifier_type 是 issn，直接使用 primary_id
+      # 否则从 issn_info 中提取
+      def extract_display_issn(unified_index, primary_id, identifier_type)
+        # 如果主标识符本身就是 ISSN，直接返回
+        return primary_id if identifier_type == "issn" && valid_issn_format?(primary_id)
+
+        # 从 issn_info 中提取真实 ISSN
+        issn_info = unified_index["issn_info"] || {}
+
+        # 优先级: issn_l > issn > eissn > all_issns 中的第一个
+        return issn_info["issn_l"] if valid_issn_format?(issn_info["issn_l"])
+        return issn_info["issn"] if valid_issn_format?(issn_info["issn"])
+        return issn_info["eissn"] if valid_issn_format?(issn_info["eissn"])
+
+        # 从 all_issns 中提取
+        all_issns = issn_info["all_issns"]
+        if all_issns.is_a?(Array) && all_issns.any?
+          first_valid = all_issns.find { |entry| entry.is_a?(Hash) && valid_issn_format?(entry["issn"]) }
+          return first_valid["issn"] if first_valid
+        end
+
+        # 没有找到有效 ISSN
+        nil
+      end
+
+      # 验证 ISSN 格式
+      def valid_issn_format?(issn)
+        return false if issn.blank?
+        issn.to_s.match?(/^\d{4}-\d{3}[\dX]$/i)
       end
 
       def skip_journal(reason, issn, journal_data, exception = nil)

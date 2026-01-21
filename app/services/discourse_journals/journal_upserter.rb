@@ -9,14 +9,14 @@ module DiscourseJournals
     def upsert!(journal)
       journal = ensure_hash(journal).deep_symbolize_keys
       
-      # 验证必要字段
-      issn = journal[:issn] || journal.dig(:unified_index, :issn_l)
-      raise ArgumentError, "Missing ISSN" if issn.blank?
+      # 验证必要字段 - 使用 primary_id 作为主标识符
+      primary_id = journal[:primary_id] || journal[:issn] || journal.dig(:unified_index, :issn_l)
+      raise ArgumentError, "Missing primary_id" if primary_id.blank?
       
       # 预先验证数据是否可以正常处理
       validate_journal_data!(journal)
       
-      topic = find_topic_by_issn(issn)
+      topic = find_topic_by_primary_id(primary_id)
 
       if topic
         update_topic!(topic, journal)
@@ -50,9 +50,18 @@ module DiscourseJournals
         {}
       end
 
-    def find_topic_by_issn(issn)
+    # 通过主标识符查找话题（兼容新旧字段名）
+    def find_topic_by_primary_id(primary_id)
+      # 优先查找新字段名
       topic_id = TopicCustomField
-        .where(name: CUSTOM_FIELD_ISSN, value: issn)
+        .where(name: CUSTOM_FIELD_PRIMARY_ID, value: primary_id)
+        .limit(1)
+        .pluck(:topic_id)
+        .first
+
+      # 如果没找到，查找旧字段名（向后兼容）
+      topic_id ||= TopicCustomField
+        .where(name: CUSTOM_FIELD_ISSN, value: primary_id)
         .limit(1)
         .pluck(:topic_id)
         .first
@@ -64,8 +73,9 @@ module DiscourseJournals
       
       if topic.nil?
         # 话题已被永久删除，清理孤立的 custom field
-        Rails.logger.warn("[DiscourseJournals] Cleaning orphaned custom field for ISSN: #{issn}")
-        TopicCustomField.where(name: CUSTOM_FIELD_ISSN, value: issn).delete_all
+        Rails.logger.warn("[DiscourseJournals] Cleaning orphaned custom field for ID: #{primary_id}")
+        TopicCustomField.where(name: CUSTOM_FIELD_PRIMARY_ID, value: primary_id).delete_all
+        TopicCustomField.where(name: CUSTOM_FIELD_ISSN, value: primary_id).delete_all
         return nil
       end
       
@@ -73,11 +83,11 @@ module DiscourseJournals
       if topic.deleted_at.present?
         if SiteSetting.discourse_journals_auto_recover_deleted
           # 自动恢复（默认行为）
-          Rails.logger.info("[DiscourseJournals] Recovering deleted topic for ISSN: #{issn}")
+          Rails.logger.info("[DiscourseJournals] Recovering deleted topic for ID: #{primary_id}")
           topic.recover!(system_user)
         else
           # 尊重删除决定，跳过该期刊
-          Rails.logger.info("[DiscourseJournals] Skipping deleted topic for ISSN: #{issn}")
+          Rails.logger.info("[DiscourseJournals] Skipping deleted topic for ID: #{primary_id}")
           return nil
         end
       end
@@ -147,15 +157,16 @@ module DiscourseJournals
     end
 
     def update_custom_fields!(topic, journal)
-      topic.custom_fields[CUSTOM_FIELD_ISSN] = journal[:issn]
-      topic.custom_fields[CUSTOM_FIELD_NAME] = journal[:name]
-      topic.custom_fields[CUSTOM_FIELD_UNIFIED_INDEX] = journal[:unified_index].to_json
-      topic.custom_fields[CUSTOM_FIELD_ALIASES] = journal[:aliases].to_json
-      topic.custom_fields[CUSTOM_FIELD_CROSSREF] = journal.dig(:sources, :crossref).to_json
-      topic.custom_fields[CUSTOM_FIELD_DOAJ] = journal.dig(:sources, :doaj).to_json
-      topic.custom_fields[CUSTOM_FIELD_NLM] = journal.dig(:sources, :nlm).to_json
-      topic.custom_fields[CUSTOM_FIELD_OPENALEX] = journal.dig(:sources, :openalex).to_json
-      topic.custom_fields[CUSTOM_FIELD_WIKIDATA] = journal.dig(:sources, :wikidata).to_json
+      primary_id = journal[:primary_id] || journal[:issn]
+      
+      # 只保存必要的关联字段
+      topic.custom_fields[CUSTOM_FIELD_PRIMARY_ID] = primary_id
+      topic.custom_fields[CUSTOM_FIELD_ID_TYPE] = journal[:identifier_type] || "issn"
+      topic.custom_fields[CUSTOM_FIELD_DISPLAY_ISSN] = journal[:display_issn] if journal[:display_issn].present?
+      
+      # 保留旧字段用于向后兼容（与 PRIMARY_ID 相同）
+      topic.custom_fields[CUSTOM_FIELD_ISSN] = primary_id
+      
       topic.save_custom_fields(true)
     end
 
@@ -167,12 +178,9 @@ module DiscourseJournals
       renderer = MasterRecordRenderer.new(normalized_data)
       renderer.render
       
-      # 验证必要字段
+      # 验证必要字段（只验证标题，不再强制要求 ISSN）
       title = normalized_data.dig(:identity, :title_main)
-      issn = normalized_data.dig(:identity, :issn_l)
-      
       raise ArgumentError, "Missing title in normalized data" if title.blank?
-      raise ArgumentError, "Missing ISSN in normalized data" if issn.blank?
       
       true
     end
@@ -258,10 +266,10 @@ module DiscourseJournals
     end
     
     def log_error(journal, error)
-      issn = journal[:issn] || journal.dig(:unified_index, :issn_l) || "Unknown"
+      primary_id = journal[:primary_id] || journal[:issn] || journal.dig(:unified_index, :issn_l) || "Unknown"
       name = journal[:name] || journal.dig(:unified_index, :title_main) || "Unknown"
       
-      Rails.logger.error("[DiscourseJournals] Failed to upsert journal: #{name} (#{issn})")
+      Rails.logger.error("[DiscourseJournals] Failed to upsert journal: #{name} (#{primary_id})")
       Rails.logger.error("[DiscourseJournals] Error: #{error.class} - #{error.message}")
       Rails.logger.error("[DiscourseJournals] Backtrace:\n#{error.backtrace.first(5).join("\n")}")
       

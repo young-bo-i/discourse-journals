@@ -21,6 +21,18 @@ module Jobs
           mode ||= import_log.import_mode
         end
 
+        # 如果 api_url 仍然为空，尝试从设置中获取
+        api_url ||= SiteSetting.discourse_journals_api_url
+
+        # 验证 api_url
+        if api_url.blank?
+          raise ArgumentError, "缺少 API URL，请检查插件设置"
+        end
+
+        unless api_url.start_with?("http://", "https://")
+          raise ArgumentError, "无效的 API URL: #{api_url}，必须以 http:// 或 https:// 开头"
+        end
+
         import_log.update!(
           status: :processing, 
           started_at: import_log.started_at || Time.current,

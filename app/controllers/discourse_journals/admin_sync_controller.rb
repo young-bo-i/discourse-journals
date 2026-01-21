@@ -23,12 +23,15 @@ module DiscourseJournals
 
       Rails.logger.info("[DiscourseJournals::Sync] Starting sync: mode=#{mode}, api_url=#{api_url}, filters=#{filters}")
 
-      # 创建导入日志
+      # 创建导入日志（包含 api_url 和 filters，以支持恢复）
       import_log = ImportLog.create!(
         upload_id: 0, # API 同步不需要 upload
         user_id: current_user.id,
         status: :pending,
-        started_at: Time.current
+        started_at: Time.current,
+        api_url: api_url,
+        filters: filters,
+        import_mode: mode
       )
 
       # 后台任务
@@ -67,9 +70,9 @@ module DiscourseJournals
         return render_json_error("请先在设置中配置期刊分类")
       end
 
-      # 查找所有期刊话题数量
+      # 查找所有期刊话题数量（兼容新旧字段名）
       topic_count = TopicCustomField
-        .where(name: DiscourseJournals::CUSTOM_FIELD_ISSN)
+        .where(name: [DiscourseJournals::CUSTOM_FIELD_PRIMARY_ID, DiscourseJournals::CUSTOM_FIELD_ISSN])
         .distinct
         .count(:topic_id)
 
@@ -207,10 +210,21 @@ module DiscourseJournals
         return render_json_error("该任务不可恢复，状态: #{import_log.status}")
       end
 
+      # 检查 api_url 是否有效
+      api_url = import_log.api_url.presence || SiteSetting.discourse_journals_api_url
+      if api_url.blank?
+        return render_json_error("无法恢复：缺少 API URL，请检查插件设置")
+      end
+
+      # 如果 import_log 中没有保存 api_url，更新它
+      if import_log.api_url.blank?
+        import_log.update!(api_url: api_url)
+      end
+
       # 标记为处理中（Job 会从断点继续）
       import_log.resume!
 
-      Rails.logger.info("[DiscourseJournals::Sync] Resume requested for import_log #{import_log_id}, starting from page #{import_log.resume_from_page}")
+      Rails.logger.info("[DiscourseJournals::Sync] Resume requested for import_log #{import_log_id}, starting from page #{import_log.resume_from_page}, api_url=#{api_url}")
 
       # 重新排队任务
       Jobs.enqueue(

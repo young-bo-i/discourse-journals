@@ -10,9 +10,9 @@ module Jobs
 
         Rails.logger.warn("[DiscourseJournals::DeleteAll] Starting bulk delete by user #{user_id}")
 
-        # 查找所有期刊话题
+        # 查找所有期刊话题（兼容新旧字段名）
         topic_ids = TopicCustomField
-          .where(name: ::DiscourseJournals::CUSTOM_FIELD_ISSN)
+          .where(name: [::DiscourseJournals::CUSTOM_FIELD_PRIMARY_ID, ::DiscourseJournals::CUSTOM_FIELD_ISSN])
           .pluck(:topic_id)
           .uniq
 
