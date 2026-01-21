@@ -27,6 +27,7 @@ en:
         metrics: "Output & Impact"
         crossref_quality: "Crossref Metadata Quality"
         nlm_cataloging: "NLM Cataloging"
+        wikipedia: "Wikipedia Information"
         external_links: "External Links"
       fields:
         # 身份类

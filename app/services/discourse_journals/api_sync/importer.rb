@@ -141,7 +141,8 @@ module DiscourseJournals
           doaj: sources_by_provider["doaj"]&.dig("data"),
           nlm: sources_by_provider["nlm"]&.dig("data"),
           openalex: sources_by_provider["openalex"]&.dig("data"),
-          wikidata: sources_by_provider["wikidata"]&.dig("data")
+          wikidata: sources_by_provider["wikidata"]&.dig("data"),
+          wikipedia: sources_by_provider["wikipedia"]&.dig("data"),
         }
       end
 

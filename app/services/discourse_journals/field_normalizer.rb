@@ -20,6 +20,7 @@ module DiscourseJournals
         metrics: build_metrics,
         crossref_quality: build_crossref_quality,
         nlm_cataloging: build_nlm_cataloging,
+        wikipedia: build_wikipedia,
         jcr: build_jcr,
         cas_partition: build_cas_partition,
       }
@@ -248,7 +249,23 @@ module DiscourseJournals
       }
     end
 
-    # J. JCR 影响因子数据
+    # J. Wikipedia 百科信息
+    def build_wikipedia
+      wikipedia = ensure_hash(sources[:wikipedia])
+      return nil if wikipedia.empty?
+
+      {
+        article_title: wikipedia[:article_title],
+        extract: wikipedia[:extract],
+        description: wikipedia[:description],
+        thumbnail: wikipedia[:thumbnail],
+        categories: wikipedia[:categories],
+        infobox: wikipedia[:infobox],
+        source_method: wikipedia[:source_method],
+      }
+    end
+
+    # L. JCR 影响因子数据
     def build_jcr
       jcr = ensure_hash(journal_data[:jcr])
       return nil if jcr.empty?
@@ -259,7 +276,7 @@ module DiscourseJournals
       }
     end
 
-    # K. 中科院分区数据
+    # M. 中科院分区数据
     def build_cas_partition
       cas = ensure_hash(journal_data[:cas_partition])
       return nil if cas.empty?

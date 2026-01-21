@@ -32,6 +32,7 @@ zh_CN:
         metrics: "学术指标与产出"
         crossref_quality: "Crossref 元数据质量"
         nlm_cataloging: "NLM 编目信息"
+        wikipedia: "Wikipedia 百科信息"
         external_links: "外部链接"
       fields:
         # 身份与链接
