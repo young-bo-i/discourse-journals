@@ -128,13 +128,13 @@ module DiscourseJournals
     # 检查是否应该取消
     def should_cancel?
       safe_reload
-      cancelled? || destroyed?
+      cancelled? || record_deleted?
     end
 
     # 检查是否应该停止（暂停或取消）
     def should_stop?
       safe_reload
-      paused? || cancelled? || destroyed?
+      paused? || cancelled? || record_deleted?
     end
 
     # 安全地重新加载记录（处理记录被删除的情况）
@@ -142,12 +142,14 @@ module DiscourseJournals
       reload
     rescue ActiveRecord::RecordNotFound
       # 记录已被删除，标记为已销毁
-      @destroyed = true
+      @record_deleted = true
     end
 
-    # 检查记录是否已被销毁
-    def destroyed?
-      @destroyed || !self.class.exists?(id)
+    # 检查记录是否已被外部删除（不要覆盖 ActiveRecord 的 destroyed? 方法）
+    def record_deleted?
+      return true if @record_deleted
+      return false if id.nil?  # 新记录
+      !self.class.exists?(id)
     end
 
     # 是否可以恢复

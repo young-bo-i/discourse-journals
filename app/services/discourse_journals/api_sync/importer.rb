@@ -226,7 +226,7 @@ module DiscourseJournals
         return false unless @import_log
         
         if @import_log.should_stop?
-          if @import_log.destroyed? || @import_log.cancelled?
+          if @import_log.record_deleted? || @import_log.cancelled?
             @cancelled = true
             Rails.logger.info("[DiscourseJournals::ApiSync] Cancel requested, stopping at page #{@current_page}")
           else
