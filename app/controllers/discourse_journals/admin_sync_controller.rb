@@ -59,7 +59,7 @@ module DiscourseJournals
     end
 
     # DELETE /admin/journals/delete_all
-    # 删除所有期刊话题（真删除）
+    # 删除所有期刊话题（后台任务）
     def delete_all
       category_id = SiteSetting.discourse_journals_category_id
 
@@ -67,60 +67,28 @@ module DiscourseJournals
         return render_json_error("请先在设置中配置期刊分类")
       end
 
-      # 查找所有期刊话题（通过自定义字段）
-      topic_ids = TopicCustomField
+      # 查找所有期刊话题数量
+      topic_count = TopicCustomField
         .where(name: DiscourseJournals::CUSTOM_FIELD_ISSN)
-        .pluck(:topic_id)
-        .uniq
+        .distinct
+        .count(:topic_id)
 
-      if topic_ids.empty?
-        return render_json_dump({ success: true, deleted: 0, message: "没有找到期刊话题" })
+      if topic_count == 0
+        return render_json_dump({ success: true, total: 0, message: "没有找到期刊话题" })
       end
 
-      Rails.logger.warn("[DiscourseJournals::DeleteAll] User #{current_user.id} is deleting #{topic_ids.count} journal topics")
+      Rails.logger.warn("[DiscourseJournals::DeleteAll] User #{current_user.id} queued deletion of #{topic_count} journal topics")
 
-      deleted_count = 0
-      errors = []
-
-      topic_ids.each do |topic_id|
-        begin
-          topic = Topic.with_deleted.find_by(id: topic_id)
-          next unless topic
-
-          # 先删除关联的自定义字段
-          TopicCustomField.where(topic_id: topic_id).delete_all
-
-          # 永久删除话题（包括所有帖子）
-          PostDestroyer.new(current_user, topic.first_post, force_destroy: true).destroy if topic.first_post
-          topic.destroy!
-          
-          deleted_count += 1
-        rescue StandardError => e
-          errors << "Topic #{topic_id}: #{e.message}"
-          Rails.logger.error("[DiscourseJournals::DeleteAll] Failed to delete topic #{topic_id}: #{e.message}")
-        end
-      end
-
-      # 更新分类统计缓存
-      if category_id.present?
-        category = Category.find_by(id: category_id)
-        if category
-          Category.update_stats
-          category.reload
-          Rails.logger.info("[DiscourseJournals::DeleteAll] Updated category stats for category #{category_id}")
-        end
-      end
-
-      message = "已删除 #{deleted_count} 个期刊话题"
-      message += "，#{errors.count} 个删除失败" if errors.any?
-
-      Rails.logger.info("[DiscourseJournals::DeleteAll] Deleted #{deleted_count} topics, #{errors.count} errors")
+      # 后台任务执行删除
+      Jobs.enqueue(
+        Jobs::DiscourseJournals::DeleteAllJournals,
+        user_id: current_user.id
+      )
 
       render_json_dump({
         success: true,
-        deleted: deleted_count,
-        errors: errors.first(10),
-        message: message
+        total: topic_count,
+        message: "已开始后台删除 #{topic_count} 个期刊，请勿关闭页面..."
       })
     rescue StandardError => e
       Rails.logger.error("[DiscourseJournals::DeleteAll] Fatal error: #{e.message}\n#{e.backtrace.join("\n")}")

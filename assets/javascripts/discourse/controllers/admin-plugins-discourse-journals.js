@@ -448,18 +448,34 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
         type: "DELETE",
       });
 
-      this.deleteSuccess = true;
       this.deleteMessage = result.message;
 
-      if (result.errors && result.errors.length > 0) {
-        this.deleteMessage += `\n\n部分错误：\n${result.errors.join("\n")}`;
-      }
+      // 订阅删除进度
+      this.subscribeToDeleteProgress();
     } catch (e) {
+      this.deleting = false;
       this.deleteSuccess = false;
       this.deleteMessage = e.jqXHR?.responseJSON?.errors?.[0] || "删除失败";
       popupAjaxError(e);
-    } finally {
-      this.deleting = false;
     }
+  }
+
+  subscribeToDeleteProgress() {
+    const channel = "/journals/delete";
+
+    this.messageBus.subscribe(channel, (data) => {
+      this.deleteMessage = data.message;
+
+      if (data.completed) {
+        this.deleting = false;
+        this.deleteSuccess = data.errors === 0;
+
+        if (data.errors > 0) {
+          this.deleteMessage = `${data.message}（${data.errors} 个删除失败）`;
+        }
+
+        this.messageBus.unsubscribe(channel);
+      }
+    });
   }
 }
