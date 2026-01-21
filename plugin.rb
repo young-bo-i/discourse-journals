@@ -13,13 +13,11 @@ register_asset "stylesheets/common/discourse-journals-admin.scss"
 module ::DiscourseJournals
   PLUGIN_NAME = "discourse-journals"
 
-  # 关联字段（用于与外部 API 关联）
-  CUSTOM_FIELD_PRIMARY_ID = "discourse_journals_primary_id"       # 主标识符（ISSN 或 OpenAlex ID）
-  CUSTOM_FIELD_ID_TYPE = "discourse_journals_id_type"             # 标识符类型（issn 或 openalex_id）
-  CUSTOM_FIELD_DISPLAY_ISSN = "discourse_journals_display_issn"   # 用于显示的真实 ISSN（如果有）
+  # 话题关联字段（唯一，用于与外部 API 关联）
+  CUSTOM_FIELD_PRIMARY_ID = "discourse_journals_primary_id"
 
-  # 兼容旧版（逐步废弃）
-  CUSTOM_FIELD_ISSN = "discourse_journals_issn"  # 保留用于兼容，等同于 PRIMARY_ID
+  # 兼容旧版（查找时使用）
+  CUSTOM_FIELD_ISSN = "discourse_journals_issn"
 end
 
 require_relative "lib/discourse_journals/engine"

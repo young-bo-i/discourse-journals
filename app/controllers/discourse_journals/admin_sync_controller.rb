@@ -21,14 +21,17 @@ module DiscourseJournals
         return render_json_error("无效的模式，必须是 first_page 或 all_pages")
       end
 
+      # 检查是否有正在进行的任务
+      current = ImportLog.current
+      if current&.processing?
+        return render_json_error("已有导入任务正在进行中，请等待完成或先取消当前任务")
+      end
+
       Rails.logger.info("[DiscourseJournals::Sync] Starting sync: mode=#{mode}, api_url=#{api_url}, filters=#{filters}")
 
-      # 创建导入日志（包含 api_url 和 filters，以支持恢复）
-      import_log = ImportLog.create!(
-        upload_id: 0, # API 同步不需要 upload
+      # 开始新任务（自动清除旧记录，保持单例）
+      import_log = ImportLog.start_new!(
         user_id: current_user.id,
-        status: :pending,
-        started_at: Time.current,
         api_url: api_url,
         filters: filters,
         import_mode: mode
@@ -134,7 +137,7 @@ module DiscourseJournals
     end
 
     # POST /admin/journals/sync/cancel
-    # 取消导入（清除断点数据）
+    # 取消导入（删除记录）
     def cancel
       import_log_id = params[:import_log_id]
       
@@ -145,45 +148,51 @@ module DiscourseJournals
       import_log = ImportLog.find_by(id: import_log_id)
       
       if import_log.nil?
-        return render_json_error("找不到导入任务")
+        # 如果记录不存在，直接返回成功
+        return render_json_dump({ success: true, message: "任务已取消" })
       end
 
-      if import_log.completed? || import_log.cancelled?
-        return render_json_error("该任务已结束，无法取消")
+      if import_log.completed?
+        return render_json_error("该任务已完成，无法取消")
       end
 
-      # 记录取消前的状态
+      # 记录取消前的状态和统计
       was_paused = import_log.paused?
-
-      # 取消任务（清除断点数据）
-      import_log.cancel!
+      stats = {
+        progress: import_log.progress_percent,
+        processed: import_log.processed_records,
+        total: import_log.total_records,
+        created: import_log.created_count,
+        updated: import_log.updated_count,
+        skipped: import_log.skipped_count,
+        errors: import_log.error_count
+      }
+      log_id = import_log.id
 
       Rails.logger.info("[DiscourseJournals::Sync] Cancel requested for import_log #{import_log_id}")
 
-      # 如果任务已暂停（没有后台 Job 在运行），需要直接发送 MessageBus 消息通知前端
       if was_paused
+        # 任务已暂停（没有 Job 在运行），直接删除记录
+        import_log.destroy!
+        
+        # 发送 MessageBus 消息通知前端
         MessageBus.publish(
-          "/journals/import/#{import_log.id}",
-          {
-            import_log_id: import_log.id,
+          "/journals/import/#{log_id}",
+          stats.merge(
+            import_log_id: log_id,
             status: "cancelled",
-            progress: import_log.progress_percent,
-            processed: import_log.processed_records,
-            total: import_log.total_records,
-            created: import_log.created_count,
-            updated: import_log.updated_count,
-            skipped: import_log.skipped_count,
-            errors: import_log.error_count,
             message: "任务已取消"
-          },
+          ),
           user_ids: [current_user.id]
         )
+      else
+        # 任务正在运行，标记为取消（Job 会在检测到后停止并删除记录）
+        import_log.cancel!
       end
 
       render_json_dump({
         success: true,
-        import_log_id: import_log.id,
-        status: import_log.status,
+        status: "cancelled",
         message: "任务已取消"
       })
     rescue StandardError => e
@@ -248,10 +257,9 @@ module DiscourseJournals
     end
 
     # GET /admin/journals/sync/status
-    # 获取当前导入状态
+    # 获取当前导入状态（单例）
     def status
-      # 获取最近的导入任务
-      import_log = ImportLog.order(created_at: :desc).first
+      import_log = ImportLog.current
       
       if import_log.nil?
         return render_json_dump({ 
@@ -262,8 +270,8 @@ module DiscourseJournals
       end
 
       render_json_dump({
-        has_active: ImportLog.active.exists?,
-        has_resumable: ImportLog.resumable.exists?,
+        has_active: ImportLog.has_active?,
+        has_resumable: ImportLog.has_resumable?,
         has_incomplete: ImportLog.incomplete.exists?,
         current: {
           id: import_log.id,

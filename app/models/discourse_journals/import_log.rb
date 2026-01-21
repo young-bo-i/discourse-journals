@@ -15,6 +15,69 @@ module DiscourseJournals
     scope :active, -> { where(status: [:pending, :processing]) }
     scope :incomplete, -> { where(status: [:pending, :processing, :paused]) }
 
+    # ============ 单例模式方法 ============
+
+    # 获取当前导入记录（单例）
+    def self.current
+      order(created_at: :desc).first
+    end
+
+    # 获取或创建导入记录（单例）
+    def self.find_or_initialize_current(user_id:)
+      current || new(upload_id: 0, user_id: user_id, status: :pending)
+    end
+
+    # 开始新的导入任务（重置现有记录或创建新记录）
+    def self.start_new!(user_id:, api_url:, filters: {}, import_mode: "all_pages")
+      # 删除所有旧记录，保持单例
+      delete_all
+
+      create!(
+        upload_id: 0,
+        user_id: user_id,
+        status: :pending,
+        started_at: Time.current,
+        api_url: api_url,
+        filters: filters,
+        import_mode: import_mode,
+        # 重置所有计数
+        total_records: 0,
+        processed_records: 0,
+        created_count: 0,
+        updated_count: 0,
+        skipped_count: 0,
+        error_count: 0,
+        errors_data: [],
+        current_page: 1,
+        last_processed_issn: nil,
+        result_message: nil,
+        completed_at: nil,
+        paused_at: nil
+      )
+    end
+
+    # 删除导入记录（取消时调用）
+    def self.clear!
+      delete_all
+    end
+
+    # 是否有活动的导入任务
+    def self.has_active?
+      active.exists?
+    end
+
+    # 是否有可恢复的任务
+    def self.has_resumable?
+      resumable.exists?
+    end
+
+    # 是否有未完成的任务
+    def self.has_incomplete?
+      incomplete.exists?
+    end
+
+    # ============ 实例方法 ============
+
     def add_error(message, details = nil)
       self.errors_data ||= []
       self.errors_data << {
@@ -37,35 +100,48 @@ module DiscourseJournals
       update!(status: :paused, paused_at: Time.current)
     end
 
-    # 取消导入（清除断点数据）
+    # 取消导入（删除记录）
     def cancel!
       return if completed?
-      update!(
-        status: :cancelled,
-        completed_at: Time.current,
-        current_page: nil,
-        last_processed_issn: nil,
-        result_message: "任务已取消"
-      )
+      # 先标记为取消（让正在运行的 Job 知道要停止）
+      update!(status: :cancelled, completed_at: Time.current, result_message: "任务已取消")
+    end
+
+    # 取消后删除记录
+    def cancel_and_delete!
+      cancel!
+      destroy!
     end
 
     # 检查是否应该暂停（被外部请求暂停）
     def should_pause?
-      # 重新加载以获取最新状态
-      reload
+      safe_reload
       paused?
     end
 
     # 检查是否应该取消
     def should_cancel?
-      reload
-      cancelled?
+      safe_reload
+      cancelled? || destroyed?
     end
 
     # 检查是否应该停止（暂停或取消）
     def should_stop?
+      safe_reload
+      paused? || cancelled? || destroyed?
+    end
+
+    # 安全地重新加载记录（处理记录被删除的情况）
+    def safe_reload
       reload
-      paused? || cancelled?
+    rescue ActiveRecord::RecordNotFound
+      # 记录已被删除，标记为已销毁
+      @destroyed = true
+    end
+
+    # 检查记录是否已被销毁
+    def destroyed?
+      @destroyed || !self.class.exists?(id)
     end
 
     # 是否可以恢复

@@ -159,12 +159,10 @@ module DiscourseJournals
     def update_custom_fields!(topic, journal)
       primary_id = journal[:primary_id] || journal[:issn]
       
-      # 只保存必要的关联字段
+      # 只保存唯一关联字段
       topic.custom_fields[CUSTOM_FIELD_PRIMARY_ID] = primary_id
-      topic.custom_fields[CUSTOM_FIELD_ID_TYPE] = journal[:identifier_type] || "issn"
-      topic.custom_fields[CUSTOM_FIELD_DISPLAY_ISSN] = journal[:display_issn] if journal[:display_issn].present?
       
-      # 保留旧字段用于向后兼容（与 PRIMARY_ID 相同）
+      # 保留旧字段名用于向后兼容
       topic.custom_fields[CUSTOM_FIELD_ISSN] = primary_id
       
       topic.save_custom_fields(true)

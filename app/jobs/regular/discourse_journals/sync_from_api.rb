@@ -12,7 +12,31 @@ module Jobs
         resume = args[:resume] || false
 
         import_log = ::DiscourseJournals::ImportLog.find_by(id: import_log_id)
-        return unless import_log
+        
+        # 检查 import_log 是否存在
+        unless import_log
+          Rails.logger.warn("[DiscourseJournals::Sync] Job skipped: import_log #{import_log_id} not found (may have been cancelled)")
+          return
+        end
+
+        # 检查状态是否允许执行
+        if import_log.completed?
+          Rails.logger.warn("[DiscourseJournals::Sync] Job skipped: import_log #{import_log_id} already completed")
+          return
+        end
+
+        if import_log.cancelled?
+          Rails.logger.warn("[DiscourseJournals::Sync] Job skipped: import_log #{import_log_id} was cancelled")
+          # 清理已取消的记录
+          import_log.destroy!
+          return
+        end
+
+        # 检查是否已经在处理中（防止重复执行）
+        if import_log.processing? && !resume
+          Rails.logger.warn("[DiscourseJournals::Sync] Job skipped: import_log #{import_log_id} already processing")
+          return
+        end
 
         # 如果是恢复模式，从保存的配置中读取
         if resume && import_log.resumable?
@@ -67,7 +91,7 @@ module Jobs
 
         # 根据状态决定最终处理
         if importer.cancelled
-          # 取消状态（断点数据已在 model 中清除）
+          # 取消状态 - 先更新统计，发送消息，然后删除记录
           import_log.update!(
             created_count: import_log.created_count.to_i + importer.created_count,
             updated_count: import_log.updated_count.to_i + importer.updated_count,
@@ -76,12 +100,16 @@ module Jobs
             result_message: "已取消：本次导入 #{importer.created_count} 新建，#{importer.updated_count} 更新"
           )
           
+          # 发送取消消息
           publish_progress(user_id, import_log, "导入已取消")
           
           Rails.logger.info(
             "[DiscourseJournals::Sync] Cancelled at page #{importer.current_page}: " \
             "#{importer.processed_count} processed this session"
           )
+
+          # 删除记录（保持单例，清理状态）
+          import_log.destroy!
         elsif importer.paused
           # 暂停状态，保持 paused 状态（已在 model 中设置）
           import_log.update!(
