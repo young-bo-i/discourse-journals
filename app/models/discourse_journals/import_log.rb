@@ -5,6 +5,7 @@ module DiscourseJournals
     self.table_name = "discourse_journals_import_logs"
 
     validates :upload_id, presence: true
+    validates :user_id, presence: true
     validates :status, presence: true
 
     # 状态: pending(等待), processing(进行中), completed(完成), failed(失败), paused(已暂停), cancelled(已取消)
@@ -32,28 +33,24 @@ module DiscourseJournals
       # 删除所有旧记录，保持单例
       delete_all
 
-      create!(
+      # 只设置必要的字段，其他使用数据库默认值
+      record = new(
         upload_id: 0,
         user_id: user_id,
         status: :pending,
         started_at: Time.current,
         api_url: api_url,
-        filters: filters,
-        import_mode: import_mode,
-        # 重置所有计数
-        total_records: 0,
-        processed_records: 0,
-        created_count: 0,
-        updated_count: 0,
-        skipped_count: 0,
-        error_count: 0,
-        errors_data: [],
-        current_page: 1,
-        last_processed_issn: nil,
-        result_message: nil,
-        completed_at: nil,
-        paused_at: nil
+        filters: filters.is_a?(Hash) ? filters : {},
+        import_mode: import_mode
       )
+
+      if record.save
+        record
+      else
+        error_msg = record.errors.full_messages.join(', ')
+        Rails.logger.error("[DiscourseJournals::ImportLog] Failed to create: #{error_msg}")
+        raise StandardError, "无法创建导入记录: #{error_msg}"
+      end
     end
 
     # 删除导入记录（取消时调用）
