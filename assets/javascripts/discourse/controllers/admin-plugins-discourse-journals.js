@@ -20,6 +20,8 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
   @tracked currentImportId = null;
   @tracked showProgress = false;
   @tracked importStats = null;
+  @tracked importStartTime = null;
+  @tracked importEta = null;
   @tracked errors = [];
   @tracked showErrors = false;
   @tracked importMessage = null;
@@ -39,6 +41,8 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
   @tracked deleteProgress = 0;
   @tracked deleteStats = null;
   @tracked showDeleteProgress = false;
+  @tracked deleteStartTime = null;
+  @tracked deleteEta = null;
 
   // 筛选条件
   @tracked showFilters = false;
@@ -94,6 +98,39 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
       count++;
     }
     return count;
+  }
+
+  // 格式化剩余时间
+  formatEta(seconds) {
+    if (!seconds || seconds <= 0 || !isFinite(seconds)) {
+      return null;
+    }
+
+    if (seconds < 60) {
+      return `${Math.round(seconds)}秒`;
+    } else if (seconds < 3600) {
+      const minutes = Math.floor(seconds / 60);
+      const secs = Math.round(seconds % 60);
+      return secs > 0 ? `${minutes}分${secs}秒` : `${minutes}分钟`;
+    } else {
+      const hours = Math.floor(seconds / 3600);
+      const minutes = Math.round((seconds % 3600) / 60);
+      return minutes > 0 ? `${hours}小时${minutes}分` : `${hours}小时`;
+    }
+  }
+
+  // 计算预估剩余时间
+  calculateEta(startTime, processed, total) {
+    if (!startTime || processed <= 0 || total <= 0) {
+      return null;
+    }
+
+    const elapsed = (Date.now() - startTime) / 1000; // 已用时间（秒）
+    const speed = processed / elapsed; // 每秒处理数量
+    const remaining = total - processed; // 剩余数量
+    const etaSeconds = remaining / speed; // 预估剩余秒数
+
+    return this.formatEta(etaSeconds);
   }
 
   get filtersData() {
@@ -232,6 +269,8 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
     this.errors = [];
     this.showErrors = false;
     this.importMessage = null;
+    this.importStartTime = Date.now();
+    this.importEta = null;
 
     try {
       const data = {
@@ -279,6 +318,15 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
         errors: data.errors || 0,
       };
 
+      // 计算预估剩余时间
+      if (data.status === "processing" && this.importStartTime) {
+        this.importEta = this.calculateEta(
+          this.importStartTime,
+          data.processed,
+          data.total
+        );
+      }
+
       // 更新暂停/恢复/取消状态
       this.canPause = data.status === "processing";
       this.canResume = data.status === "paused" || data.status === "failed";
@@ -298,6 +346,7 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
         this.syncing = false;
         this.pausing = false;
         this.cancelling = false;
+        this.importEta = null;
 
         if (data.status === "completed") {
           this.importSuccess = true;
@@ -397,6 +446,8 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
     this.syncing = true;
     this.canResume = false;
     this.importMessage = null;
+    this.importStartTime = Date.now();
+    this.importEta = null;
 
     try {
       const result = await ajax("/admin/journals/sync/resume", {
@@ -514,6 +565,8 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
     this.deleteProgress = 0;
     this.deleteStats = null;
     this.showDeleteProgress = true;
+    this.deleteStartTime = Date.now();
+    this.deleteEta = null;
 
     try {
       const result = await ajax("/admin/journals/delete_all", {
@@ -547,9 +600,19 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
         errors: data.errors || 0,
       };
 
+      // 计算预估剩余时间
+      if (!data.completed && this.deleteStartTime && data.deleted > 0) {
+        this.deleteEta = this.calculateEta(
+          this.deleteStartTime,
+          data.deleted,
+          data.total
+        );
+      }
+
       if (data.completed) {
         this.deleting = false;
         this.deleteSuccess = data.errors === 0;
+        this.deleteEta = null;
 
         if (data.errors > 0) {
           this.deleteMessage = `${data.message}（${data.errors} 个删除失败）`;

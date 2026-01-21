@@ -198,6 +198,9 @@
               <div class="progress-fill" style="width: {{this.progress}}%"></div>
             </div>
             <span class="progress-percent">{{this.progress}}%</span>
+            {{#if this.importEta}}
+              <span class="progress-eta">预计剩余 {{this.importEta}}</span>
+            {{/if}}
           </div>
           
           <p class="progress-status">{{this.progressMessage}}</p>
@@ -326,6 +329,9 @@
                 <div class="progress-fill progress-danger" style="width: {{this.deleteProgress}}%"></div>
               </div>
               <span class="progress-percent">{{this.deleteProgress}}%</span>
+              {{#if this.deleteEta}}
+                <span class="progress-eta">预计剩余 {{this.deleteEta}}</span>
+              {{/if}}
             </div>
 
             <p class="progress-status">{{this.deleteMessage}}</p>
