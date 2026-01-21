@@ -9,16 +9,20 @@ module DiscourseJournals
       # 暂停检查间隔（每处理多少条检查一次）
       PAUSE_CHECK_INTERVAL = 50
 
-      def initialize(api_url:, filters: {}, progress_callback: nil, import_log: nil)
+      def initialize(api_url:, filters: {}, progress_callback: nil, import_log: nil, 
+                     initial_counts: nil)
         @api_url = api_url
         @filters = filters
         @progress_callback = progress_callback
         @import_log = import_log
         @client = Client.new(api_url)
-        @processed_count = 0
-        @created_count = 0
-        @updated_count = 0
-        @skipped_count = 0
+        
+        # 支持从之前的计数恢复（用于断点续传）
+        counts = initial_counts || {}
+        @processed_count = counts[:processed] || 0
+        @created_count = counts[:created] || 0
+        @updated_count = counts[:updated] || 0
+        @skipped_count = counts[:skipped] || 0
         @errors = []
         @current_page = 1
         @last_processed_issn = nil
@@ -51,7 +55,7 @@ module DiscourseJournals
       end
 
       # 导入所有页（支持断点续传）
-      def import_all_pages!(page_size: 100, start_page: 1, skip_count: 0)
+      def import_all_pages!(page_size: 100, start_page: 1)
         Rails.logger.info("[DiscourseJournals::ApiSync] Importing all pages from page #{start_page} with filters: #{@filters}")
 
         # 先获取总数
@@ -59,11 +63,10 @@ module DiscourseJournals
         total = first_result.dig(:pagination, "total") || 0
         total_pages = first_result.dig(:pagination, "totalPages") || 1
 
-        # 如果是续传，恢复已处理的计数
-        @processed_count = skip_count
+        # processed_count 已在 initialize 时设置（通过 initial_counts）
 
         if start_page > 1
-          report_progress(@processed_count, total, "从第 #{start_page} 页恢复导入，已处理 #{@processed_count} 条...")
+          report_progress(@processed_count, total, "从第 #{start_page} 页恢复导入，已处理 #{@processed_count} 条（#{@created_count} 新建，#{@updated_count} 更新，#{@skipped_count} 跳过）...")
         else
           report_progress(0, total, "准备导入所有数据：共 #{total} 个期刊...")
         end
@@ -239,15 +242,20 @@ module DiscourseJournals
         end
       end
 
-      # 保存当前进度到数据库
+      # 保存当前进度到数据库（包括所有计数）
       def save_progress(total)
         return unless @import_log
         
-        @import_log.update_progress!(
-          page: @current_page,
-          processed: @processed_count,
-          total: total,
-          last_issn: @last_processed_issn
+        @import_log.update!(
+          current_page: @current_page,
+          processed_records: @processed_count,
+          total_records: total,
+          last_processed_issn: @last_processed_issn,
+          # 实时更新计数（用于进度显示）
+          created_count: @created_count,
+          updated_count: @updated_count,
+          skipped_count: @skipped_count,
+          error_count: @errors.size
         )
       end
     end

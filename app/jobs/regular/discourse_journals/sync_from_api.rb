@@ -68,11 +68,23 @@ module Jobs
         start_message = resume ? "恢复导入..." : "开始同步..."
         publish_progress(user_id, import_log, start_message)
 
+        # 恢复时获取之前的计数
+        initial_counts = nil
+        if resume
+          initial_counts = {
+            processed: import_log.processed_records || 0,
+            created: import_log.created_count || 0,
+            updated: import_log.updated_count || 0,
+            skipped: import_log.skipped_count || 0
+          }
+        end
+
         # 创建导入器（传入 import_log 以支持暂停检查）
         importer = ::DiscourseJournals::ApiSync::Importer.new(
           api_url: api_url,
           filters: filters,
           import_log: import_log,
+          initial_counts: initial_counts,
           progress_callback: ->(current, total, message) {
             update_progress(import_log, user_id, current, total, message)
           }
@@ -83,21 +95,21 @@ module Jobs
         if mode == "first_page"
           importer.import_first_page!(page_size: page_size)
         else
-          # 支持断点续传
+          # 支持断点续传（不需要 skip_count，因为 processed_count 已在 initial_counts 中）
           start_page = resume ? import_log.resume_from_page : 1
-          skip_count = resume ? (import_log.processed_records || 0) : 0
-          importer.import_all_pages!(page_size: page_size, start_page: start_page, skip_count: skip_count)
+          importer.import_all_pages!(page_size: page_size, start_page: start_page)
         end
 
         # 根据状态决定最终处理
+        # 注意：importer 的计数现在是累计值（恢复时从之前的值开始），所以直接设置而不累加
         if importer.cancelled
           # 取消状态 - 先更新统计，发送消息，然后删除记录
           import_log.update!(
-            created_count: import_log.created_count.to_i + importer.created_count,
-            updated_count: import_log.updated_count.to_i + importer.updated_count,
-            skipped_count: import_log.skipped_count.to_i + importer.skipped_count,
-            error_count: import_log.error_count.to_i + importer.errors.size,
-            result_message: "已取消：本次导入 #{importer.created_count} 新建，#{importer.updated_count} 更新"
+            created_count: importer.created_count,
+            updated_count: importer.updated_count,
+            skipped_count: importer.skipped_count,
+            error_count: importer.errors.size,
+            result_message: "已取消：共 #{importer.created_count} 新建，#{importer.updated_count} 更新"
           )
           
           # 发送取消消息
@@ -105,7 +117,7 @@ module Jobs
           
           Rails.logger.info(
             "[DiscourseJournals::Sync] Cancelled at page #{importer.current_page}: " \
-            "#{importer.processed_count} processed this session"
+            "#{importer.processed_count} total processed"
           )
 
           # 删除记录（保持单例，清理状态）
@@ -113,10 +125,10 @@ module Jobs
         elsif importer.paused
           # 暂停状态，保持 paused 状态（已在 model 中设置）
           import_log.update!(
-            created_count: import_log.created_count.to_i + importer.created_count,
-            updated_count: import_log.updated_count.to_i + importer.updated_count,
-            skipped_count: import_log.skipped_count.to_i + importer.skipped_count,
-            error_count: import_log.error_count.to_i + importer.errors.size,
+            created_count: importer.created_count,
+            updated_count: importer.updated_count,
+            skipped_count: importer.skipped_count,
+            error_count: importer.errors.size,
             result_message: "已暂停：#{import_log.processed_records}/#{import_log.total_records} (可恢复)"
           )
           
@@ -124,18 +136,18 @@ module Jobs
           
           Rails.logger.info(
             "[DiscourseJournals::Sync] Paused at page #{importer.current_page}: " \
-            "#{import_log.processed_records} processed"
+            "#{import_log.processed_records} total processed"
           )
         else
           # 完成状态
           import_log.update!(
             status: :completed,
-            created_count: import_log.created_count.to_i + importer.created_count,
-            updated_count: import_log.updated_count.to_i + importer.updated_count,
-            skipped_count: import_log.skipped_count.to_i + importer.skipped_count,
-            error_count: import_log.error_count.to_i + importer.errors.size,
+            created_count: importer.created_count,
+            updated_count: importer.updated_count,
+            skipped_count: importer.skipped_count,
+            error_count: importer.errors.size,
             completed_at: Time.current,
-            result_message: "同步完成：#{import_log.created_count} 新建，#{import_log.updated_count} 更新"
+            result_message: "同步完成：#{importer.created_count} 新建，#{importer.updated_count} 更新，#{importer.skipped_count} 跳过"
           )
 
           # 记录错误（只记录前100个，避免日志过大）
