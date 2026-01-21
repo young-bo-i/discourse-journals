@@ -65,25 +65,26 @@ module DiscourseJournals
     end
 
     # DELETE /admin/journals/delete_all
-    # 删除所有期刊话题（后台任务）
+    # 删除所有期刊数据（后台任务）
     def delete_all
-      category_id = SiteSetting.discourse_journals_category_id
+      category_id = SiteSetting.discourse_journals_category_id.to_i
 
-      if category_id.blank?
+      if category_id.zero?
         return render_json_error("请先在设置中配置期刊分类")
       end
 
-      # 查找所有期刊话题数量（兼容新旧字段名）
-      topic_count = TopicCustomField
-        .where(name: [DiscourseJournals::CUSTOM_FIELD_PRIMARY_ID, DiscourseJournals::CUSTOM_FIELD_ISSN])
-        .distinct
-        .count(:topic_id)
+      # 统计分类下的话题数量
+      topic_count = Topic.with_deleted.where(category_id: category_id).count
+      
+      # 统计关联数据数量
+      custom_field_count = TopicCustomField.where("name LIKE ?", "discourse_journals_%").count
+      import_log_count = ImportLog.count
 
-      if topic_count == 0
-        return render_json_dump({ success: true, total: 0, message: "没有找到期刊话题" })
+      if topic_count == 0 && custom_field_count == 0 && import_log_count == 0
+        return render_json_dump({ success: true, total: 0, message: "没有找到需要删除的数据" })
       end
 
-      Rails.logger.warn("[DiscourseJournals::DeleteAll] User #{current_user.id} queued deletion of #{topic_count} journal topics")
+      Rails.logger.warn("[DiscourseJournals::DeleteAll] User #{current_user.id} queued deletion: #{topic_count} topics, #{custom_field_count} custom fields, #{import_log_count} import logs")
 
       # 后台任务执行删除
       Jobs.enqueue(
@@ -94,7 +95,9 @@ module DiscourseJournals
       render_json_dump({
         success: true,
         total: topic_count,
-        message: "已开始后台删除 #{topic_count} 个期刊，请勿关闭页面..."
+        custom_fields: custom_field_count,
+        import_logs: import_log_count,
+        message: "已开始后台删除：#{topic_count} 个话题、#{custom_field_count} 条关联数据..."
       })
     rescue StandardError => e
       Rails.logger.error("[DiscourseJournals::DeleteAll] Fatal error: #{e.message}\n#{e.backtrace.join("\n")}")
