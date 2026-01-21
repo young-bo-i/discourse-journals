@@ -127,6 +127,116 @@ module DiscourseJournals
       render_json_error("删除失败: #{e.message}")
     end
 
+    # POST /admin/journals/sync/pause
+    # 暂停导入
+    def pause
+      import_log_id = params[:import_log_id]
+      
+      if import_log_id.blank?
+        return render_json_error("缺少 import_log_id")
+      end
+
+      import_log = ImportLog.find_by(id: import_log_id)
+      
+      if import_log.nil?
+        return render_json_error("找不到导入任务")
+      end
+
+      unless import_log.processing?
+        return render_json_error("只能暂停正在进行的导入任务")
+      end
+
+      # 设置暂停状态（Job 会在下次检查时停止）
+      import_log.pause!
+
+      Rails.logger.info("[DiscourseJournals::Sync] Pause requested for import_log #{import_log_id}")
+
+      render_json_dump({
+        success: true,
+        import_log_id: import_log.id,
+        status: import_log.status,
+        message: "正在暂停导入..."
+      })
+    rescue StandardError => e
+      Rails.logger.error("[DiscourseJournals::Sync] Pause failed: #{e.message}")
+      render_json_error("暂停失败: #{e.message}")
+    end
+
+    # POST /admin/journals/sync/resume
+    # 恢复导入
+    def resume
+      import_log_id = params[:import_log_id]
+      
+      if import_log_id.blank?
+        return render_json_error("缺少 import_log_id")
+      end
+
+      import_log = ImportLog.find_by(id: import_log_id)
+      
+      if import_log.nil?
+        return render_json_error("找不到导入任务")
+      end
+
+      unless import_log.resumable?
+        return render_json_error("该任务不可恢复，状态: #{import_log.status}")
+      end
+
+      # 标记为处理中（Job 会从断点继续）
+      import_log.resume!
+
+      Rails.logger.info("[DiscourseJournals::Sync] Resume requested for import_log #{import_log_id}, starting from page #{import_log.resume_from_page}")
+
+      # 重新排队任务
+      Jobs.enqueue(
+        Jobs::DiscourseJournals::SyncFromApi,
+        import_log_id: import_log.id,
+        user_id: current_user.id,
+        resume: true
+      )
+
+      render_json_dump({
+        success: true,
+        import_log_id: import_log.id,
+        status: import_log.status,
+        resume_from_page: import_log.resume_from_page,
+        processed_records: import_log.processed_records,
+        message: "正在从第 #{import_log.resume_from_page} 页恢复导入..."
+      })
+    rescue StandardError => e
+      Rails.logger.error("[DiscourseJournals::Sync] Resume failed: #{e.message}")
+      render_json_error("恢复失败: #{e.message}")
+    end
+
+    # GET /admin/journals/sync/status
+    # 获取当前导入状态
+    def status
+      # 获取最近的导入任务
+      import_log = ImportLog.order(created_at: :desc).first
+      
+      if import_log.nil?
+        return render_json_dump({ has_active: false, has_resumable: false })
+      end
+
+      render_json_dump({
+        has_active: ImportLog.active.exists?,
+        has_resumable: ImportLog.resumable.exists?,
+        current: {
+          id: import_log.id,
+          status: import_log.status,
+          progress: import_log.progress_percent,
+          processed: import_log.processed_records,
+          total: import_log.total_records,
+          created: import_log.created_count,
+          updated: import_log.updated_count,
+          skipped: import_log.skipped_count,
+          errors: import_log.error_count,
+          current_page: import_log.current_page,
+          resumable: import_log.resumable?,
+          message: import_log.result_message
+        }
+      })
+    end
+
     # POST /admin/journals/sync/test
     # 测试 API 连接
     def test_connection

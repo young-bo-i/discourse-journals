@@ -22,6 +22,8 @@ zh_CN:
           sync_all: "导入所有数据"
           start_test: "开始测试"
           start_import: "开始导入"
+          pause: "暂停"
+          resume: "恢复"
           api_url: "API URL"
           filters: "筛选条件"
           show_filters: "显示筛选"

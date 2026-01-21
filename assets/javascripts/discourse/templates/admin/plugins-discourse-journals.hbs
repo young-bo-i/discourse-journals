@@ -162,6 +162,26 @@
       <section class="journals-section progress-section">
         <div class="section-header">
           <h3>导入进度</h3>
+          <div class="header-actions">
+            {{#if this.canPause}}
+              <DButton
+                @class="btn-default"
+                @action={{action "pauseImport"}}
+                @label="discourse_journals.admin.sync.pause"
+                @icon="pause"
+                @isLoading={{this.pausing}}
+              />
+            {{/if}}
+            {{#if this.canResume}}
+              <DButton
+                @class="btn-primary"
+                @action={{action "resumeImport"}}
+                @label="discourse_journals.admin.sync.resume"
+                @icon="play"
+                @isLoading={{this.resuming}}
+              />
+            {{/if}}
+          </div>
         </div>
         <div class="section-content">
           <div class="progress-container">

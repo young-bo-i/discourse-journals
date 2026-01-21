@@ -22,6 +22,8 @@ en:
           sync_all: "Import All Data"
           start_test: "Start Test"
           start_import: "Start Import"
+          pause: "Pause"
+          resume: "Resume"
           api_url: "API URL"
           filters: "Filters"
           show_filters: "Show Filters"

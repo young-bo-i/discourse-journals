@@ -92,6 +92,12 @@ after_initialize do
          :constraints => AdminConstraint.new
     post "/admin/journals/sync/test" => "discourse_journals/admin_sync#test_connection",
          :constraints => AdminConstraint.new
+    post "/admin/journals/sync/pause" => "discourse_journals/admin_sync#pause",
+         :constraints => AdminConstraint.new
+    post "/admin/journals/sync/resume" => "discourse_journals/admin_sync#resume",
+         :constraints => AdminConstraint.new
+    get "/admin/journals/sync/status" => "discourse_journals/admin_sync#status",
+        :constraints => AdminConstraint.new
     
     # 删除所有期刊
     delete "/admin/journals/delete_all" => "discourse_journals/admin_sync#delete_all",

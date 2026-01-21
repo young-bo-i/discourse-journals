@@ -4,17 +4,25 @@ module DiscourseJournals
   module ApiSync
     class Importer
       attr_reader :processed_count, :created_count, :updated_count, :skipped_count, :errors
+      attr_reader :current_page, :last_processed_issn, :paused
 
-      def initialize(api_url:, filters: {}, progress_callback: nil)
+      # 暂停检查间隔（每处理多少条检查一次）
+      PAUSE_CHECK_INTERVAL = 50
+
+      def initialize(api_url:, filters: {}, progress_callback: nil, import_log: nil)
         @api_url = api_url
         @filters = filters
         @progress_callback = progress_callback
+        @import_log = import_log
         @client = Client.new(api_url)
         @processed_count = 0
         @created_count = 0
         @updated_count = 0
         @skipped_count = 0
         @errors = []
+        @current_page = 1
+        @last_processed_issn = nil
+        @paused = false
       end
 
       # 导入第一页（测试用）
@@ -28,38 +36,79 @@ module DiscourseJournals
         report_progress(0, total, "开始导入第一页：#{total} 个期刊...")
 
         journals.each_with_index do |journal, index|
+          break if check_pause_requested?
+          
           process_journal(journal, index)
           report_progress(index + 1, total, "已处理 #{index + 1}/#{total}")
         end
 
-        report_progress(total, total, "第一页导入完成！")
+        if @paused
+          report_progress(@processed_count, total, "导入已暂停")
+        else
+          report_progress(total, total, "第一页导入完成！")
+        end
       end
 
-      # 导入所有页
-      def import_all_pages!(page_size: 100)
-        Rails.logger.info("[DiscourseJournals::ApiSync] Importing all pages with filters: #{@filters}")
+      # 导入所有页（支持断点续传）
+      def import_all_pages!(page_size: 100, start_page: 1, skip_count: 0)
+        Rails.logger.info("[DiscourseJournals::ApiSync] Importing all pages from page #{start_page} with filters: #{@filters}")
 
         # 先获取总数
         first_result = @client.fetch_page(page: 1, page_size: 1, filters: @filters)
         total = first_result.dig(:pagination, "total") || 0
+        total_pages = first_result.dig(:pagination, "totalPages") || 1
 
-        report_progress(0, total, "准备导入所有数据：共 #{total} 个期刊...")
+        # 如果是续传，恢复已处理的计数
+        @processed_count = skip_count
 
-        # 流式处理所有页
-        @client.fetch_all_pages(page_size: page_size, filters: @filters) do |journal, index|
-          process_journal(journal, index)
-
-          # 每处理 100 个报告一次进度
-          if (@processed_count % 100).zero?
-            report_progress(
-              @processed_count,
-              total,
-              "已处理 #{@processed_count}/#{total} (#{@created_count} 新建, #{@updated_count} 更新, #{@errors.size} 错误)"
-            )
-          end
+        if start_page > 1
+          report_progress(@processed_count, total, "从第 #{start_page} 页恢复导入，已处理 #{@processed_count} 条...")
+        else
+          report_progress(0, total, "准备导入所有数据：共 #{total} 个期刊...")
         end
 
-        report_progress(total, total, "全部导入完成！")
+        # 从指定页开始处理
+        @current_page = start_page
+        while @current_page <= total_pages
+          break if check_pause_requested?
+
+          result = @client.fetch_page(page: @current_page, page_size: page_size, filters: @filters)
+          journals = result[:journals]
+
+          journals.each_with_index do |journal, index|
+            break if check_pause_requested?
+            
+            process_journal(journal, index)
+            
+            # 记录最后处理的 ISSN
+            @last_processed_issn = journal["primary_issn"]
+
+            # 每处理 PAUSE_CHECK_INTERVAL 个检查一次暂停
+            if (@processed_count % PAUSE_CHECK_INTERVAL).zero?
+              # 更新进度到数据库
+              save_progress(total)
+              
+              report_progress(
+                @processed_count,
+                total,
+                "已处理 #{@processed_count}/#{total} (#{@created_count} 新建, #{@updated_count} 更新, #{@errors.size} 错误)"
+              )
+            end
+          end
+
+          break if @paused
+
+          @current_page += 1
+        end
+
+        # 最终保存进度
+        save_progress(total)
+
+        if @paused
+          report_progress(@processed_count, total, "导入已暂停，可随时恢复")
+        else
+          report_progress(total, total, "全部导入完成！")
+        end
       end
 
       private
@@ -166,6 +215,31 @@ module DiscourseJournals
 
       def report_progress(current, total, message)
         @progress_callback&.call(current, total, message)
+      end
+
+      # 检查是否收到暂停请求
+      def check_pause_requested?
+        return false unless @import_log
+        
+        if @import_log.should_pause?
+          @paused = true
+          Rails.logger.info("[DiscourseJournals::ApiSync] Pause requested, stopping at page #{@current_page}")
+          true
+        else
+          false
+        end
+      end
+
+      # 保存当前进度到数据库
+      def save_progress(total)
+        return unless @import_log
+        
+        @import_log.update_progress!(
+          page: @current_page,
+          processed: @processed_count,
+          total: total,
+          last_issn: @last_processed_issn
+        )
       end
     end
   end
