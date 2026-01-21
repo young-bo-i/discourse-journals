@@ -81,12 +81,16 @@ module DiscourseJournals
       nlm_journal = ensure_hash(nlm_result.values.find { |v| v.is_a?(Hash) && v[:uid] })
       wikidata_bindings = safe_dig(wikidata, :results, :bindings) || []
 
+      # 从 unified_index.issn_info 中提取 ISSN 信息（优先级最高）
+      issn_info = ensure_hash(unified_index[:issn_info])
+
       {
         title_main: extract_title,
         title_alternate: extract_alternate_titles(nlm_journal, openalex),
-        issn_l: openalex[:issn_l] || journal_data[:issn],
-        issn_list: extract_issn_list(crossref_msg, nlm_journal, openalex, doaj_bibjson),
-        issn_type_detail: extract_issn_type_detail(crossref_msg, nlm_journal),
+        issn_l: extract_issn_l(issn_info, openalex),
+        issn_list: extract_issn_list(crossref_msg, nlm_journal, openalex, doaj_bibjson, issn_info),
+        issn_type_detail: extract_issn_type_detail(crossref_msg, nlm_journal, issn_info),
+        issn_info: issn_info.presence,
         homepage_url: extract_homepage(openalex, doaj_bibjson, wikidata_bindings),
         official_website_list: extract_official_websites(wikidata_bindings, doaj_bibjson),
         external_ids: {
@@ -354,45 +358,102 @@ module DiscourseJournals
       titles.compact.uniq
     end
 
-    def extract_issn_list(crossref_msg, nlm_journal, openalex, doaj_bibjson)
+    # 提取主 ISSN-L（链接 ISSN）
+    # 优先从 issn_info 提取，其次从 openalex，最后从 journal_data
+    def extract_issn_l(issn_info, openalex)
+      # 1. 优先使用 issn_info 中的 issn_l
+      return issn_info[:issn_l] if valid_issn_format?(issn_info[:issn_l])
+
+      # 2. 使用 issn_info 中的 issn
+      return issn_info[:issn] if valid_issn_format?(issn_info[:issn])
+
+      # 3. 使用 issn_info 中的 eissn
+      return issn_info[:eissn] if valid_issn_format?(issn_info[:eissn])
+
+      # 4. 从 all_issns 中提取第一个有效 ISSN
+      all_issns = issn_info[:all_issns]
+      if all_issns.is_a?(Array) && all_issns.any?
+        first_valid = all_issns.find { |entry| entry.is_a?(Hash) && valid_issn_format?(entry[:issn]) }
+        return first_valid[:issn] if first_valid
+      end
+
+      # 5. 使用 openalex 的 issn_l
+      return openalex[:issn_l] if valid_issn_format?(openalex[:issn_l])
+
+      # 6. 回退到 journal_data 的 issn（可能是 OpenAlex ID，但作为最后手段）
+      journal_data[:issn]
+    end
+
+    # 验证 ISSN 格式（标准 ISSN 格式: XXXX-XXXX）
+    def valid_issn_format?(issn)
+      return false if issn.blank?
+      issn.to_s.match?(/^\d{4}-\d{3}[\dX]$/i)
+    end
+
+    def extract_issn_list(crossref_msg, nlm_journal, openalex, doaj_bibjson, issn_info = {})
       issns = []
-      
+
+      # 优先添加 issn_info 中的 ISSN（这些是最准确的）
+      issns << issn_info[:issn_l] if valid_issn_format?(issn_info[:issn_l])
+      issns << issn_info[:issn] if valid_issn_format?(issn_info[:issn])
+      issns << issn_info[:eissn] if valid_issn_format?(issn_info[:eissn])
+
+      # 从 all_issns 中添加
+      all_issns = issn_info[:all_issns]
+      if all_issns.is_a?(Array)
+        all_issns.each do |entry|
+          issns << entry[:issn] if entry.is_a?(Hash) && valid_issn_format?(entry[:issn])
+        end
+      end
+
       # Crossref ISSN（可能是数组或字符串）
       crossref_issn = crossref_msg[:ISSN]
       if crossref_issn.is_a?(Array)
-        issns.concat(crossref_issn)
-      elsif crossref_issn.is_a?(String)
+        issns.concat(crossref_issn.select { |i| valid_issn_format?(i) })
+      elsif valid_issn_format?(crossref_issn)
         issns << crossref_issn
       end
-      
+
       # NLM ISSN list
       if nlm_journal[:issnlist].is_a?(Array)
-        issns.concat(nlm_journal[:issnlist].map { |i| i.is_a?(Hash) ? i[:issn] : nil }.compact)
+        nlm_journal[:issnlist].each do |i|
+          issns << i[:issn] if i.is_a?(Hash) && valid_issn_format?(i[:issn])
+        end
       end
-      
+
       # OpenAlex ISSN（可能是数组或字符串）
       openalex_issn = openalex[:issn]
       if openalex_issn.is_a?(Array)
-        issns.concat(openalex_issn)
-      elsif openalex_issn.is_a?(String)
+        issns.concat(openalex_issn.select { |i| valid_issn_format?(i) })
+      elsif valid_issn_format?(openalex_issn)
         issns << openalex_issn
       end
-      
+
       # DOAJ ISSN
-      issns << doaj_bibjson[:eissn] if doaj_bibjson[:eissn].is_a?(String)
-      issns << doaj_bibjson[:pissn] if doaj_bibjson[:pissn].is_a?(String)
-      
+      issns << doaj_bibjson[:eissn] if valid_issn_format?(doaj_bibjson[:eissn])
+      issns << doaj_bibjson[:pissn] if valid_issn_format?(doaj_bibjson[:pissn])
+
       issns.compact.uniq
     end
 
-    def extract_issn_type_detail(crossref_msg, nlm_journal)
+    def extract_issn_type_detail(crossref_msg, nlm_journal, issn_info = {})
       details = []
+
+      # 优先添加 issn_info 中的详细信息
+      all_issns = issn_info[:all_issns]
+      if all_issns.is_a?(Array)
+        all_issns.each do |entry|
+          if entry.is_a?(Hash) && valid_issn_format?(entry[:issn])
+            details << { issn: entry[:issn], type: entry[:type], source: "unified_index" }
+          end
+        end
+      end
 
       # Crossref ISSN types
       crossref_issn_types = crossref_msg[:"issn-type"]
       if crossref_issn_types.is_a?(Array)
         crossref_issn_types.each do |item|
-          if item.is_a?(Hash)
+          if item.is_a?(Hash) && valid_issn_format?(item[:value])
             details << { issn: item[:value], type: item[:type], source: "Crossref" }
           end
         end
@@ -402,13 +463,14 @@ module DiscourseJournals
       nlm_issn_list = nlm_journal[:issnlist]
       if nlm_issn_list.is_a?(Array)
         nlm_issn_list.each do |item|
-          if item.is_a?(Hash)
+          if item.is_a?(Hash) && valid_issn_format?(item[:issn])
             details << { issn: item[:issn], type: item[:issntype], source: "NLM" }
           end
         end
       end
 
-      details
+      # 去重（基于 ISSN）
+      details.uniq { |d| d[:issn] }
     end
 
     def extract_homepage(openalex, doaj_bibjson, wikidata_bindings)

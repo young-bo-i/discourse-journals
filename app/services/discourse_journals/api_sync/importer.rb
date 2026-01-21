@@ -159,7 +159,7 @@ module DiscourseJournals
         # 数据处理失败，跳过该期刊
         skip_journal(e.message, primary_issn, journal_data, e)
       end
-      
+
       def skip_journal(reason, issn, journal_data, exception = nil)
         @skipped_count += 1
         

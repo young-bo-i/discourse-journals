@@ -484,13 +484,32 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
     }
 
     this.cancelling = true;
+    this.progressMessage = "正在取消...";
 
     try {
-      await ajax("/admin/journals/sync/cancel", {
+      const result = await ajax("/admin/journals/sync/cancel", {
         type: "POST",
         data: { import_log_id: this.currentImportId },
       });
-      this.progressMessage = "正在取消...";
+
+      // 如果返回成功且状态已是 cancelled，直接更新 UI
+      if (result.success && result.status === "cancelled") {
+        this.cancelling = false;
+        this.syncing = false;
+        this.pausing = false;
+        this.canResume = false;
+        this.canCancel = false;
+        this.canPause = false;
+        this.hasIncompleteImport = false;
+        this.importEta = null;
+        this.importSuccess = false;
+        this.importMessage = `🚫 已取消：本次导入 ${this.importStats?.created || 0} 新建，${this.importStats?.updated || 0} 更新`;
+
+        // 取消订阅 MessageBus
+        if (this.currentImportId) {
+          this.messageBus.unsubscribe(`/journals/import/${this.currentImportId}`);
+        }
+      }
     } catch (e) {
       this.cancelling = false;
       popupAjaxError(e);

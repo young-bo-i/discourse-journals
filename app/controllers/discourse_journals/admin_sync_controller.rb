@@ -149,10 +149,33 @@ module DiscourseJournals
         return render_json_error("该任务已结束，无法取消")
       end
 
+      # 记录取消前的状态
+      was_paused = import_log.paused?
+
       # 取消任务（清除断点数据）
       import_log.cancel!
 
       Rails.logger.info("[DiscourseJournals::Sync] Cancel requested for import_log #{import_log_id}")
+
+      # 如果任务已暂停（没有后台 Job 在运行），需要直接发送 MessageBus 消息通知前端
+      if was_paused
+        MessageBus.publish(
+          "/journals/import/#{import_log.id}",
+          {
+            import_log_id: import_log.id,
+            status: "cancelled",
+            progress: import_log.progress_percent,
+            processed: import_log.processed_records,
+            total: import_log.total_records,
+            created: import_log.created_count,
+            updated: import_log.updated_count,
+            skipped: import_log.skipped_count,
+            errors: import_log.error_count,
+            message: "任务已取消"
+          },
+          user_ids: [current_user.id]
+        )
+      end
 
       render_json_dump({
         success: true,

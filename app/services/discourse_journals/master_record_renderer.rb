@@ -95,7 +95,9 @@ module DiscourseJournals
       cas = @data[:cas_partition] || {}
 
       title = identity[:title_main] || "未知期刊"
-      issn = identity[:issn_l] || "—"
+      issn = identity[:issn_l]
+      # 只有有效的 ISSN 格式才显示（XXXX-XXXX）
+      issn = nil unless issn.present? && issn.to_s.match?(/^\d{4}-\d{3}[\dX]$/i)
       publisher = publication[:publisher_name] || "—"
       country = publication[:publisher_country]&.dig(:name) || publication[:publisher_country]&.dig(:code) || "—"
       homepage = identity[:homepage_url]
@@ -157,7 +159,7 @@ module DiscourseJournals
       # 基本信息表格
       out << "| | |\n"
       out << "|:--|:--|\n"
-      out << "| **ISSN** | `#{issn}` |\n"
+      out << "| **ISSN** | `#{issn}` |\n" if issn.present?
       out << "| **出版商** | #{publisher} |\n"
       out << "| **国家** | #{country} |\n"
       
