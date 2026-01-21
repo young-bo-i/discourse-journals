@@ -36,6 +36,9 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
   @tracked deleting = false;
   @tracked deleteMessage = null;
   @tracked deleteSuccess = false;
+  @tracked deleteProgress = 0;
+  @tracked deleteStats = null;
+  @tracked showDeleteProgress = false;
 
   // 筛选条件
   @tracked showFilters = false;
@@ -508,6 +511,9 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
 
     this.deleting = true;
     this.deleteMessage = null;
+    this.deleteProgress = 0;
+    this.deleteStats = null;
+    this.showDeleteProgress = true;
 
     try {
       const result = await ajax("/admin/journals/delete_all", {
@@ -515,11 +521,13 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
       });
 
       this.deleteMessage = result.message;
+      this.deleteStats = { total: result.total, deleted: 0, errors: 0 };
 
       // 订阅删除进度
       this.subscribeToDeleteProgress();
     } catch (e) {
       this.deleting = false;
+      this.showDeleteProgress = false;
       this.deleteSuccess = false;
       this.deleteMessage = e.jqXHR?.responseJSON?.errors?.[0] || "删除失败";
       popupAjaxError(e);
@@ -530,7 +538,14 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
     const channel = "/journals/delete";
 
     this.messageBus.subscribe(channel, (data) => {
+      this.deleteProgress = data.progress || 0;
       this.deleteMessage = data.message;
+
+      this.deleteStats = {
+        total: data.total || 0,
+        deleted: data.deleted || 0,
+        errors: data.errors || 0,
+      };
 
       if (data.completed) {
         this.deleting = false;

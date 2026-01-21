@@ -318,7 +318,34 @@
           />
         </div>
 
-        {{#if this.deleteMessage}}
+        {{! 删除进度显示 }}
+        {{#if this.showDeleteProgress}}
+          <div class="delete-progress-section">
+            <div class="progress-container">
+              <div class="progress-track">
+                <div class="progress-fill progress-danger" style="width: {{this.deleteProgress}}%"></div>
+              </div>
+              <span class="progress-percent">{{this.deleteProgress}}%</span>
+            </div>
+
+            <p class="progress-status">{{this.deleteMessage}}</p>
+
+            {{#if this.deleteStats}}
+              <div class="stats-grid">
+                <div class="stat-item">
+                  <span class="stat-value">{{this.deleteStats.deleted}}</span>
+                  <span class="stat-label">已删除 / {{this.deleteStats.total}}</span>
+                </div>
+                {{#if (gt this.deleteStats.errors 0)}}
+                  <div class="stat-item stat-error">
+                    <span class="stat-value">{{this.deleteStats.errors}}</span>
+                    <span class="stat-label">失败</span>
+                  </div>
+                {{/if}}
+              </div>
+            {{/if}}
+          </div>
+        {{else if this.deleteMessage}}
           <div class="message-box {{if this.deleteSuccess 'message-success' 'message-error'}}">
             {{this.deleteMessage}}
           </div>

@@ -256,6 +256,10 @@
       background: linear-gradient(90deg, var(--tertiary), var(--success));
       border-radius: 4px;
       transition: width 0.3s ease;
+
+      &.progress-danger {
+        background: linear-gradient(90deg, var(--danger), #c0392b);
+      }
     }
 
     .progress-percent {
@@ -492,6 +496,12 @@
     .danger-desc {
       font-size: 0.85em;
       color: var(--primary-medium);
+    }
+
+    .delete-progress-section {
+      margin-top: 16px;
+      padding-top: 16px;
+      border-top: 1px solid var(--primary-low);
     }
   }
 
