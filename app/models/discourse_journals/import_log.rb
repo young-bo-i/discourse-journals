@@ -33,7 +33,7 @@ module DiscourseJournals
       # 删除所有旧记录，保持单例
       delete_all
 
-      create!(
+      record = new(
         upload_id: 0,
         user_id: user_id,
         status: :pending,
@@ -42,6 +42,18 @@ module DiscourseJournals
         filters: filters.is_a?(Hash) ? filters : {},
         import_mode: import_mode.to_s
       )
+      
+      Rails.logger.info("[ImportLog] Attempting to save: #{record.attributes.inspect}")
+      Rails.logger.info("[ImportLog] Valid? #{record.valid?}, Errors: #{record.errors.full_messages}")
+      
+      if record.save
+        Rails.logger.info("[ImportLog] Created successfully with id=#{record.id}")
+        record
+      else
+        Rails.logger.error("[ImportLog] Save failed. Errors: #{record.errors.full_messages}")
+        Rails.logger.error("[ImportLog] Attributes: #{record.attributes.inspect}")
+        raise ActiveRecord::RecordNotSaved.new("保存失败: #{record.errors.full_messages.join(', ')}", record)
+      end
     end
 
     # 删除导入记录（取消时调用）
