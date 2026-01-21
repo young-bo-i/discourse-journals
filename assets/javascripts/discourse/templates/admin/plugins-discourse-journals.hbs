@@ -24,7 +24,7 @@
             <DButton
               @class="btn-default"
               @action={{action "testConnection"}}
-              @label="测试连接"
+              @label="discourse_journals.admin.sync.test_connection"
               @icon="link"
               @isLoading={{this.testing}}
               @disabled={{this.syncing}}
@@ -103,12 +103,12 @@
           <div class="filter-footer">
             {{#if this.hasActiveFilters}}
               <span class="filter-badge">已应用 {{this.activeFiltersCount}} 个筛选</span>
-              <DButton
-                @class="btn-flat"
-                @action={{action "clearFilters"}}
-                @label="清除"
-                @icon="times"
-              />
+            <DButton
+              @class="btn-flat"
+              @action={{action "clearFilters"}}
+              @label="discourse_journals.admin.sync.clear"
+              @icon="times"
+            />
             {{else}}
               <span class="filter-hint">未设置筛选条件</span>
             {{/if}}
@@ -132,7 +132,7 @@
             <DButton
               @class="btn-primary"
               @action={{action "syncFirstPage"}}
-              @label="开始测试"
+              @label="discourse_journals.admin.sync.start_test"
               @icon="flask"
               @isLoading={{this.syncing}}
               @disabled={{this.syncing}}
@@ -147,7 +147,7 @@
             <DButton
               @class="btn-primary"
               @action={{action "syncAllPages"}}
-              @label="开始导入"
+              @label="discourse_journals.admin.sync.start_import"
               @icon="database"
               @isLoading={{this.syncing}}
               @disabled={{this.syncing}}
@@ -221,13 +221,13 @@
             <DButton
               @class="btn-flat"
               @action={{action "toggleErrors"}}
-              @label={{if this.showErrors "收起" "展开"}}
+              @label={{if this.showErrors "discourse_journals.admin.errors.collapse" "discourse_journals.admin.errors.expand"}}
               @icon={{if this.showErrors "angle-up" "angle-down"}}
             />
             <DButton
               @class="btn-flat"
               @action={{action "copyErrors"}}
-              @label="复制"
+              @label="discourse_journals.admin.errors.copy"
               @icon="copy"
             />
           </div>
@@ -282,7 +282,7 @@
           <DButton
             @class="btn-danger"
             @action={{action "deleteAllJournals"}}
-            @label="删除全部"
+            @label="discourse_journals.admin.danger.delete_all"
             @icon="trash-alt"
             @isLoading={{this.deleting}}
             @disabled={{this.syncing}}
