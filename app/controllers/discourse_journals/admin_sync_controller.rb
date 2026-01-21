@@ -130,6 +130,41 @@ module DiscourseJournals
       render_json_error("暂停失败: #{e.message}")
     end
 
+    # POST /admin/journals/sync/cancel
+    # 取消导入（清除断点数据）
+    def cancel
+      import_log_id = params[:import_log_id]
+      
+      if import_log_id.blank?
+        return render_json_error("缺少 import_log_id")
+      end
+
+      import_log = ImportLog.find_by(id: import_log_id)
+      
+      if import_log.nil?
+        return render_json_error("找不到导入任务")
+      end
+
+      if import_log.completed? || import_log.cancelled?
+        return render_json_error("该任务已结束，无法取消")
+      end
+
+      # 取消任务（清除断点数据）
+      import_log.cancel!
+
+      Rails.logger.info("[DiscourseJournals::Sync] Cancel requested for import_log #{import_log_id}")
+
+      render_json_dump({
+        success: true,
+        import_log_id: import_log.id,
+        status: import_log.status,
+        message: "任务已取消"
+      })
+    rescue StandardError => e
+      Rails.logger.error("[DiscourseJournals::Sync] Cancel failed: #{e.message}")
+      render_json_error("取消失败: #{e.message}")
+    end
+
     # POST /admin/journals/sync/resume
     # 恢复导入
     def resume
@@ -182,12 +217,17 @@ module DiscourseJournals
       import_log = ImportLog.order(created_at: :desc).first
       
       if import_log.nil?
-        return render_json_dump({ has_active: false, has_resumable: false })
+        return render_json_dump({ 
+          has_active: false, 
+          has_resumable: false,
+          has_incomplete: false 
+        })
       end
 
       render_json_dump({
         has_active: ImportLog.active.exists?,
         has_resumable: ImportLog.resumable.exists?,
+        has_incomplete: ImportLog.incomplete.exists?,
         current: {
           id: import_log.id,
           status: import_log.status,
@@ -200,6 +240,7 @@ module DiscourseJournals
           errors: import_log.error_count,
           current_page: import_log.current_page,
           resumable: import_log.resumable?,
+          cancellable: !import_log.completed? && !import_log.cancelled?,
           message: import_log.result_message
         }
       })

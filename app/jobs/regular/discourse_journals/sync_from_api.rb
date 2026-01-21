@@ -53,8 +53,24 @@ module Jobs
           importer.import_all_pages!(page_size: page_size, start_page: start_page, skip_count: skip_count)
         end
 
-        # 根据是否暂停决定最终状态
-        if importer.paused
+        # 根据状态决定最终处理
+        if importer.cancelled
+          # 取消状态（断点数据已在 model 中清除）
+          import_log.update!(
+            created_count: import_log.created_count.to_i + importer.created_count,
+            updated_count: import_log.updated_count.to_i + importer.updated_count,
+            skipped_count: import_log.skipped_count.to_i + importer.skipped_count,
+            error_count: import_log.error_count.to_i + importer.errors.size,
+            result_message: "已取消：本次导入 #{importer.created_count} 新建，#{importer.updated_count} 更新"
+          )
+          
+          publish_progress(user_id, import_log, "导入已取消")
+          
+          Rails.logger.info(
+            "[DiscourseJournals::Sync] Cancelled at page #{importer.current_page}: " \
+            "#{importer.processed_count} processed this session"
+          )
+        elsif importer.paused
           # 暂停状态，保持 paused 状态（已在 model 中设置）
           import_log.update!(
             created_count: import_log.created_count.to_i + importer.created_count,

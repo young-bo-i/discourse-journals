@@ -96,6 +96,8 @@ after_initialize do
          :constraints => AdminConstraint.new
     post "/admin/journals/sync/resume" => "discourse_journals/admin_sync#resume",
          :constraints => AdminConstraint.new
+    post "/admin/journals/sync/cancel" => "discourse_journals/admin_sync#cancel",
+         :constraints => AdminConstraint.new
     get "/admin/journals/sync/status" => "discourse_journals/admin_sync#status",
         :constraints => AdminConstraint.new
     

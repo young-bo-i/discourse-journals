@@ -24,6 +24,7 @@ zh_CN:
           start_import: "开始导入"
           pause: "暂停"
           resume: "恢复"
+          cancel: "取消任务"
           api_url: "API URL"
           filters: "筛选条件"
           show_filters: "显示筛选"

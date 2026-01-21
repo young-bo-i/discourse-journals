@@ -26,8 +26,11 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
   @tracked importSuccess = false;
   @tracked canPause = false;
   @tracked canResume = false;
+  @tracked canCancel = false;
   @tracked pausing = false;
   @tracked resuming = false;
+  @tracked cancelling = false;
+  @tracked hasIncompleteImport = false;
 
   // 删除相关
   @tracked deleting = false;
@@ -58,6 +61,16 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
       this.filterHasWikidata ||
       this.filterIsOpenAccess
     );
+  }
+
+  // 导入按钮禁用状态：正在同步、正在删除
+  get importDisabled() {
+    return this.syncing || this.deleting;
+  }
+
+  // 删除按钮禁用状态：正在同步、有未完成任务、正在删除
+  get deleteDisabled() {
+    return this.syncing || this.hasIncompleteImport || this.deleting;
   }
 
   get activeFiltersCount() {
@@ -263,33 +276,53 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
         errors: data.errors || 0,
       };
 
-      // 更新暂停/恢复状态
+      // 更新暂停/恢复/取消状态
       this.canPause = data.status === "processing";
       this.canResume = data.status === "paused" || data.status === "failed";
+      this.canCancel = data.status === "processing" || data.status === "paused";
+      this.hasIncompleteImport =
+        data.status === "processing" ||
+        data.status === "paused" ||
+        data.status === "pending";
 
-      // 完成、失败或暂停
+      // 完成、失败、暂停或取消
       if (
         data.status === "completed" ||
         data.status === "failed" ||
-        data.status === "paused"
+        data.status === "paused" ||
+        data.status === "cancelled"
       ) {
         this.syncing = false;
         this.pausing = false;
+        this.cancelling = false;
 
         if (data.status === "completed") {
           this.importSuccess = true;
           this.canResume = false;
+          this.canCancel = false;
+          this.hasIncompleteImport = false;
           const skippedMsg =
             data.skipped > 0 ? `，跳过 ${data.skipped} 个` : "";
           this.importMessage = `✅ 同步完成！新建 ${data.created} 个，更新 ${data.updated} 个${skippedMsg}`;
           this.messageBus.unsubscribe(channel);
+        } else if (data.status === "cancelled") {
+          this.importSuccess = false;
+          this.canResume = false;
+          this.canCancel = false;
+          this.hasIncompleteImport = false;
+          this.importMessage = `🚫 已取消：本次导入 ${data.created} 新建，${data.updated} 更新`;
+          this.messageBus.unsubscribe(channel);
         } else if (data.status === "paused") {
           this.importSuccess = false;
           this.canResume = true;
+          this.canCancel = true;
+          this.hasIncompleteImport = true;
           this.importMessage = `⏸️ 已暂停：已处理 ${data.processed}/${data.total}，可点击"恢复"继续`;
         } else {
           this.importSuccess = false;
           this.canResume = true;
+          this.canCancel = true;
+          this.hasIncompleteImport = true;
           this.importMessage = `❌ 同步失败（可尝试恢复）`;
         }
 
@@ -382,18 +415,51 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
   }
 
   @action
+  async cancelImport() {
+    if (!this.currentImportId) {
+      return;
+    }
+
+    const confirmed = await this.dialog.yesNoConfirm({
+      message:
+        "确定要取消本次导入吗？\n\n取消后断点数据将被清除，下次需要重新开始。\n（已导入的期刊数据会保留）",
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    this.cancelling = true;
+
+    try {
+      await ajax("/admin/journals/sync/cancel", {
+        type: "POST",
+        data: { import_log_id: this.currentImportId },
+      });
+      this.progressMessage = "正在取消...";
+    } catch (e) {
+      this.cancelling = false;
+      popupAjaxError(e);
+    }
+  }
+
+  @action
   async checkResumableImport() {
     try {
       const result = await ajax("/admin/journals/sync/status", {
         type: "GET",
       });
 
-      if (result.has_resumable && result.current) {
+      // 设置是否有未完成的导入任务
+      this.hasIncompleteImport = result.has_incomplete || false;
+
+      if ((result.has_resumable || result.has_active) && result.current) {
         this.currentImportId = result.current.id;
         this.showProgress = true;
         this.progress = Math.round(result.current.progress || 0);
         this.canResume = result.current.resumable;
         this.canPause = result.current.status === "processing";
+        this.canCancel = result.current.cancellable;
         this.syncing = result.current.status === "processing";
 
         this.importStats = {
@@ -406,9 +472,9 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
         };
 
         if (result.current.status === "paused") {
-          this.importMessage = `⏸️ 上次导入已暂停：已处理 ${result.current.processed}/${result.current.total}，可点击"恢复"继续`;
+          this.importMessage = `⏸️ 上次导入已暂停：已处理 ${result.current.processed}/${result.current.total}，可点击"恢复"继续或"取消"重新开始`;
         } else if (result.current.status === "failed") {
-          this.importMessage = `❌ 上次导入失败，可点击"恢复"重试`;
+          this.importMessage = `❌ 上次导入失败，可点击"恢复"重试或"取消"重新开始`;
         } else if (result.current.status === "processing") {
           this.progressMessage = "导入进行中...";
           this.subscribeToProgress(result.current.id);

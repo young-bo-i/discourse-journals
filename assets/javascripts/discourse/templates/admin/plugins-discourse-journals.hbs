@@ -135,7 +135,7 @@
               @label="discourse_journals.admin.sync.start_test"
               @icon="flask"
               @isLoading={{this.syncing}}
-              @disabled={{this.syncing}}
+              @disabled={{this.importDisabled}}
             />
           </div>
 
@@ -150,7 +150,7 @@
               @label="discourse_journals.admin.sync.start_import"
               @icon="database"
               @isLoading={{this.syncing}}
-              @disabled={{this.syncing}}
+              @disabled={{this.importDisabled}}
             />
           </div>
         </div>
@@ -179,6 +179,15 @@
                 @label="discourse_journals.admin.sync.resume"
                 @icon="play"
                 @isLoading={{this.resuming}}
+              />
+            {{/if}}
+            {{#if this.canCancel}}
+              <DButton
+                @class="btn-danger"
+                @action={{action "cancelImport"}}
+                @label="discourse_journals.admin.sync.cancel"
+                @icon="times"
+                @isLoading={{this.cancelling}}
               />
             {{/if}}
           </div>
@@ -305,7 +314,7 @@
             @label="discourse_journals.admin.danger.delete_all"
             @icon="trash-alt"
             @isLoading={{this.deleting}}
-            @disabled={{this.syncing}}
+            @disabled={{this.deleteDisabled}}
           />
         </div>
 

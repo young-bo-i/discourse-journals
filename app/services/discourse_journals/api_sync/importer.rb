@@ -4,7 +4,7 @@ module DiscourseJournals
   module ApiSync
     class Importer
       attr_reader :processed_count, :created_count, :updated_count, :skipped_count, :errors
-      attr_reader :current_page, :last_processed_issn, :paused
+      attr_reader :current_page, :last_processed_issn, :paused, :cancelled
 
       # 暂停检查间隔（每处理多少条检查一次）
       PAUSE_CHECK_INTERVAL = 50
@@ -23,6 +23,7 @@ module DiscourseJournals
         @current_page = 1
         @last_processed_issn = nil
         @paused = false
+        @cancelled = false
       end
 
       # 导入第一页（测试用）
@@ -101,10 +102,12 @@ module DiscourseJournals
           @current_page += 1
         end
 
-        # 最终保存进度
-        save_progress(total)
+        # 最终保存进度（取消时不保存）
+        save_progress(total) unless @cancelled
 
-        if @paused
+        if @cancelled
+          report_progress(@processed_count, total, "导入已取消")
+        elsif @paused
           report_progress(@processed_count, total, "导入已暂停，可随时恢复")
         else
           report_progress(total, total, "全部导入完成！")
@@ -217,13 +220,18 @@ module DiscourseJournals
         @progress_callback&.call(current, total, message)
       end
 
-      # 检查是否收到暂停请求
+      # 检查是否收到暂停或取消请求
       def check_pause_requested?
         return false unless @import_log
         
-        if @import_log.should_pause?
-          @paused = true
-          Rails.logger.info("[DiscourseJournals::ApiSync] Pause requested, stopping at page #{@current_page}")
+        if @import_log.should_stop?
+          if @import_log.cancelled?
+            @cancelled = true
+            Rails.logger.info("[DiscourseJournals::ApiSync] Cancel requested, stopping at page #{@current_page}")
+          else
+            @paused = true
+            Rails.logger.info("[DiscourseJournals::ApiSync] Pause requested, stopping at page #{@current_page}")
+          end
           true
         else
           false

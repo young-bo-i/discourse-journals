@@ -24,6 +24,7 @@ en:
           start_import: "Start Import"
           pause: "Pause"
           resume: "Resume"
+          cancel: "Cancel Task"
           api_url: "API URL"
           filters: "Filters"
           show_filters: "Show Filters"

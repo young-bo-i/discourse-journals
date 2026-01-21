@@ -7,12 +7,13 @@ module DiscourseJournals
     validates :upload_id, presence: true
     validates :status, presence: true
 
-    # 状态: pending(等待), processing(进行中), completed(完成), failed(失败), paused(已暂停)
-    enum :status, { pending: 0, processing: 1, completed: 2, failed: 3, paused: 4 }
+    # 状态: pending(等待), processing(进行中), completed(完成), failed(失败), paused(已暂停), cancelled(已取消)
+    enum :status, { pending: 0, processing: 1, completed: 2, failed: 3, paused: 4, cancelled: 5 }
 
     # 查找可恢复的导入任务
     scope :resumable, -> { where(status: [:paused, :failed]) }
     scope :active, -> { where(status: [:pending, :processing]) }
+    scope :incomplete, -> { where(status: [:pending, :processing, :paused]) }
 
     def add_error(message, details = nil)
       self.errors_data ||= []
@@ -36,11 +37,35 @@ module DiscourseJournals
       update!(status: :paused, paused_at: Time.current)
     end
 
+    # 取消导入（清除断点数据）
+    def cancel!
+      return if completed?
+      update!(
+        status: :cancelled,
+        completed_at: Time.current,
+        current_page: nil,
+        last_processed_issn: nil,
+        result_message: "任务已取消"
+      )
+    end
+
     # 检查是否应该暂停（被外部请求暂停）
     def should_pause?
       # 重新加载以获取最新状态
       reload
       paused?
+    end
+
+    # 检查是否应该取消
+    def should_cancel?
+      reload
+      cancelled?
+    end
+
+    # 检查是否应该停止（暂停或取消）
+    def should_stop?
+      reload
+      paused? || cancelled?
     end
 
     # 是否可以恢复
