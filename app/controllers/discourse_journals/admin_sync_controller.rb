@@ -27,6 +27,11 @@ module DiscourseJournals
         return render_json_error("已有导入任务正在进行中，请等待完成或先取消当前任务")
       end
 
+      # 检查数据库表是否存在
+      unless ActiveRecord::Base.connection.table_exists?('discourse_journals_import_logs')
+        return render_json_error("数据库表不存在，请运行迁移: bin/rake db:migrate")
+      end
+
       Rails.logger.info("[DiscourseJournals::Sync] Starting sync: mode=#{mode}, api_url=#{api_url}, filters=#{filters}")
 
       # 开始新任务（自动清除旧记录，保持单例）
