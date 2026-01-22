@@ -40,10 +40,15 @@ module DiscourseJournals
 
         report_progress(0, total, "开始导入第一页：#{total} 个期刊...")
 
+        # 批量预查询该页所有 primary_id 是否已存在
+        existing_map = batch_find_existing_topics(journals)
+
         journals.each_with_index do |journal, index|
           break if check_pause_requested?
           
-          process_journal(journal, index)
+          primary_id = journal["primary_issn"]
+          existing_topic_id = existing_map[primary_id]
+          process_journal(journal, index, existing_topic_id: existing_topic_id)
           report_progress(index + 1, total, "已处理 #{index + 1}/#{total}")
         end
 
@@ -79,13 +84,18 @@ module DiscourseJournals
           result = @client.fetch_page(page: @current_page, page_size: page_size, filters: @filters)
           journals = result[:journals]
 
+          # 批量预查询该页所有 primary_id 是否已存在（性能优化）
+          existing_map = batch_find_existing_topics(journals)
+
           journals.each_with_index do |journal, index|
             break if check_pause_requested?
             
-            process_journal(journal, index)
+            primary_id = journal["primary_issn"]
+            existing_topic_id = existing_map[primary_id]
+            process_journal(journal, index, existing_topic_id: existing_topic_id)
             
             # 记录最后处理的 ISSN
-            @last_processed_issn = journal["primary_issn"]
+            @last_processed_issn = primary_id
 
             # 每处理 PAUSE_CHECK_INTERVAL 个检查一次暂停
             if (@processed_count % PAUSE_CHECK_INTERVAL).zero?
@@ -120,7 +130,7 @@ module DiscourseJournals
 
       private
 
-      def process_journal(journal_data, _index)
+      def process_journal(journal_data, _index, existing_topic_id: nil)
         @processed_count += 1
 
         primary_id = journal_data["primary_issn"]
@@ -147,9 +157,9 @@ module DiscourseJournals
           cas_partition: extract_cas_partition(journal_data["cas_partition"]),
         }
 
-        # 尝试创建/更新帖子
+        # 尝试创建/更新帖子（传入预查询的 topic_id 以避免重复查询）
         upserter = JournalUpserter.new(system_user: Discourse.system_user)
-        result = upserter.upsert!(journal_params)
+        result = upserter.upsert!(journal_params, existing_topic_id: existing_topic_id)
 
         case result
         when :created
@@ -189,6 +199,18 @@ module DiscourseJournals
         end
         
         @errors << error_info
+      end
+
+      # 批量查询 primary_id 对应的 topic_id（性能优化：避免逐条查询）
+      def batch_find_existing_topics(journals)
+        primary_ids = journals.map { |j| j["primary_issn"] }.compact
+        return {} if primary_ids.empty?
+
+        TopicCustomField
+          .where(name: DiscourseJournals::CUSTOM_FIELD_PRIMARY_ID)
+          .where(value: primary_ids)
+          .pluck(:value, :topic_id)
+          .to_h
       end
 
       def extract_sources(sources_by_provider)

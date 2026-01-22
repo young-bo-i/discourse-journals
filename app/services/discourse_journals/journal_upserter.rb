@@ -6,23 +6,28 @@ module DiscourseJournals
       @system_user = system_user
     end
 
-    def upsert!(journal)
+    def upsert!(journal, existing_topic_id: nil)
       journal = ensure_hash(journal).deep_symbolize_keys
       
       # 验证必要字段 - 使用 primary_id 作为主标识符
       primary_id = journal[:primary_id] || journal[:issn] || journal.dig(:unified_index, :issn_l)
       raise ArgumentError, "Missing primary_id" if primary_id.blank?
       
-      # 预先验证数据是否可以正常处理
-      validate_journal_data!(journal)
+      # 归一化数据并缓存（避免重复计算，性能优化）
+      normalized_data = normalize_and_validate!(journal)
       
-      topic = find_topic_by_primary_id(primary_id)
+      # 使用传入的 topic_id 或查找（批量预查询时 existing_topic_id 已知）
+      topic = if existing_topic_id
+        find_topic_by_id(existing_topic_id, primary_id)
+      else
+        find_topic_by_primary_id(primary_id)
+      end
 
       if topic
-        update_topic!(topic, journal)
+        update_topic!(topic, journal, normalized_data)
         :updated
       else
-        create_topic!(journal)
+        create_topic!(journal, normalized_data)
         :created
       end
     rescue StandardError => e
@@ -50,7 +55,35 @@ module DiscourseJournals
         {}
       end
 
-    # 通过主标识符查找话题（兼容新旧字段名）
+    # 通过已知的 topic_id 查找话题（批量预查询优化）
+    def find_topic_by_id(topic_id, primary_id)
+      return nil unless topic_id
+      
+      topic = Topic.with_deleted.find_by(id: topic_id)
+      
+      if topic.nil?
+        # 话题已被永久删除，清理孤立的 custom field
+        Rails.logger.warn("[DiscourseJournals] Cleaning orphaned custom field for ID: #{primary_id}")
+        TopicCustomField.where(name: CUSTOM_FIELD_PRIMARY_ID, value: primary_id).delete_all
+        TopicCustomField.where(name: CUSTOM_FIELD_ISSN, value: primary_id).delete_all
+        return nil
+      end
+      
+      # 如果话题被软删除
+      if topic.deleted_at.present?
+        if SiteSetting.discourse_journals_auto_recover_deleted
+          Rails.logger.info("[DiscourseJournals] Recovering deleted topic for ID: #{primary_id}")
+          topic.recover!(system_user)
+        else
+          Rails.logger.info("[DiscourseJournals] Skipping deleted topic for ID: #{primary_id}")
+          return nil
+        end
+      end
+      
+      topic
+    end
+
+    # 通过主标识符查找话题（兼容新旧字段名，无批量预查询时使用）
     def find_topic_by_primary_id(primary_id)
       # 优先查找新字段名
       topic_id = TopicCustomField
@@ -95,18 +128,20 @@ module DiscourseJournals
       topic
     end
 
-    def create_topic!(journal)
+    def create_topic!(journal, normalized_data)
       category_id = SiteSetting.discourse_journals_category_id.to_i
       category = Category.find_by(id: category_id)
       raise Discourse::InvalidParameters.new(:discourse_journals_category_id) if category.blank?
 
       tags = build_tags(journal)
+      title = build_title(normalized_data)
+      raw = build_raw(normalized_data)
 
       creator =
         PostCreator.new(
           system_user,
-          title: build_title(journal),
-          raw: build_raw(journal),
+          title: title,
+          raw: raw,
           category: category.id,
           tags: tags,
           skip_validations: true,
@@ -120,17 +155,20 @@ module DiscourseJournals
       topic
     end
 
-    def update_topic!(topic, journal)
+    def update_topic!(topic, journal, normalized_data)
+      title = build_title(normalized_data)
+      raw = build_raw(normalized_data)
+      
       first_post = topic.first_post
       revisor = PostRevisor.new(first_post, topic)
       revisor.revise!(
         system_user,
-        { raw: build_raw(journal) },
+        { raw: raw },
         bypass_bump: SiteSetting.discourse_journals_bypass_bump,
         skip_validations: true,
       )
 
-      topic.update!(title: build_title(journal)) if topic.title != build_title(journal)
+      topic.update!(title: title) if topic.title != title
 
       # 更新标签
       update_tags!(topic, journal)
@@ -168,11 +206,13 @@ module DiscourseJournals
       topic.save_custom_fields(true)
     end
 
-    def validate_journal_data!(journal)
-      # 尝试归一化和渲染，如果失败会抛出异常
+    # 归一化数据并验证（返回缓存的 normalized_data，避免重复计算）
+    def normalize_and_validate!(journal)
+      # 归一化数据（只计算一次）
       normalizer = FieldNormalizer.new(journal)
       normalized_data = normalizer.normalize
       
+      # 验证渲染是否成功
       renderer = MasterRecordRenderer.new(normalized_data)
       renderer.render
       
@@ -180,31 +220,21 @@ module DiscourseJournals
       title = normalized_data.dig(:identity, :title_main)
       raise ArgumentError, "Missing title in normalized data" if title.blank?
       
-      true
+      normalized_data
     end
 
-    def build_title(journal)
-      # 只使用期刊名称作为标题
-      normalizer = FieldNormalizer.new(journal)
-      normalized = normalizer.normalize
-      
-      title = normalized.dig(:identity, :title_main)
-      
+    # 从缓存的 normalized_data 中提取标题
+    def build_title(normalized_data)
+      title = normalized_data.dig(:identity, :title_main)
       raise ArgumentError, "Missing title" if title.blank?
-      
       title
     end
 
-    def build_raw(journal)
-      # 使用归一化器和渲染器生成内容，不捕获异常
-      normalizer = FieldNormalizer.new(journal)
-      normalized_data = normalizer.normalize
-
+    # 从缓存的 normalized_data 中渲染内容
+    def build_raw(normalized_data)
       renderer = MasterRecordRenderer.new(normalized_data)
       content = renderer.render
-      
       raise ArgumentError, "Empty content generated" if content.blank?
-      
       content
     end
 
