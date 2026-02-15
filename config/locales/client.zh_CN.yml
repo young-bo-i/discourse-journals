@@ -60,7 +60,7 @@ zh_CN:
           confirm_start: "确定要开始映射分析吗？\n\n这将遍历所有论坛话题和 API 数据进行标题匹配，可能需要 5-15 分钟。"
           analysis_failed: "分析失败"
           analysis_error_title: "分析过程遇到异常，已停止"
-          analysis_error_hint: "你可以点击"开始分析"重新尝试，分析将从头开始。"
+          analysis_error_hint: "你可以点击「开始分析」重新尝试，分析将从头开始。"
           start_failed: "启动分析失败"
         errors:
           collapse: "收起"
