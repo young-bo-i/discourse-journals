@@ -2,6 +2,7 @@
 
 require "net/http"
 require "json"
+require "cgi"
 
 module DiscourseJournals
   class TitleMatcher
@@ -29,16 +30,19 @@ module DiscourseJournals
       }
     end
 
-    def self.normalize_title(title)
+    # 论坛标题规范化：HTML 反转义 + 小写（标题已经过 Discourse TextCleaner 处理）
+    def self.normalize_forum_title(title)
       return "" if title.blank?
 
-      title
-        .strip
-        .downcase
-        .gsub(/\s+/, " ")
-        .gsub(/[^\p{L}\p{N}\s]/, "")
-        .gsub(/\s+/, " ")
-        .strip
+      CGI.unescapeHTML(title).strip.downcase
+    end
+
+    # API 标题规范化：模拟 Discourse 保存标题时的清洗逻辑 + 小写
+    def self.normalize_api_title(title)
+      return "" if title.blank?
+
+      cleaned = TextCleaner.clean_title(TextSentinel.title_sentinel(title).text)
+      cleaned.strip.downcase
     end
 
     def run!
@@ -72,7 +76,7 @@ module DiscourseJournals
       publish_progress(:forum, 0, total, "正在建立论坛标题索引 (#{total} 个话题)...")
 
       topics.find_each.with_index do |topic, idx|
-        normalized = self.class.normalize_title(topic.title)
+        normalized = self.class.normalize_forum_title(topic.title)
         next if normalized.blank?
 
         @forum_index[normalized] ||= []
@@ -285,7 +289,7 @@ module DiscourseJournals
         canonical_name = unified["canonical_name"]
         next if canonical_name.blank?
 
-        normalized = self.class.normalize_title(canonical_name)
+        normalized = self.class.normalize_api_title(canonical_name)
         next if normalized.blank?
 
         @api_index[normalized] ||= []
