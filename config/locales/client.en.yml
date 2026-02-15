@@ -59,6 +59,8 @@ en:
           col_issn_l: "ISSN-L"
           confirm_start: "Are you sure you want to start mapping analysis?\n\nThis will traverse all forum topics and API data for title matching, which may take 5-15 minutes."
           analysis_failed: "Analysis failed"
+          analysis_error_title: "Analysis encountered an error and has stopped"
+          analysis_error_hint: "You can click 'Start Analysis' to retry. The analysis will start fresh."
           start_failed: "Failed to start analysis"
         errors:
           collapse: "Collapse"

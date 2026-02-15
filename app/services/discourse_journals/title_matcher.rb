@@ -137,23 +137,44 @@ module DiscourseJournals
       url = "#{API_BASE_URL}?page=#{page}&pageSize=#{page_size}"
       uri = URI(url)
 
-      response = Net::HTTP.get_response(uri)
-      unless response.is_a?(Net::HTTPSuccess)
-        raise "API 请求失败: #{response.code} #{response.message}"
-      end
+      retries = 0
+      max_retries = 3
 
-      data = JSON.parse(response.body)
-      unless data["success"]
-        raise "API 返回错误: #{data["error"] || "Unknown"}"
-      end
+      begin
+        http = Net::HTTP.new(uri.host, uri.port)
+        http.use_ssl = (uri.scheme == "https")
+        http.open_timeout = 30
+        http.read_timeout = 60
+        http.ssl_timeout = 30
 
-      payload = data["data"] || {}
-      {
-        rows: payload["rows"] || [],
-        total: payload["total"].to_i,
-        page: payload["page"].to_i,
-        total_pages: payload["totalPages"].to_i,
-      }
+        response = http.get(uri.request_uri)
+        unless response.is_a?(Net::HTTPSuccess)
+          raise "API 请求失败: #{response.code} #{response.message}"
+        end
+
+        data = JSON.parse(response.body)
+        unless data["success"]
+          raise "API 返回错误: #{data["error"] || "Unknown"}"
+        end
+
+        payload = data["data"] || {}
+        {
+          rows: payload["rows"] || [],
+          total: payload["total"].to_i,
+          page: payload["page"].to_i,
+          total_pages: payload["totalPages"].to_i,
+        }
+      rescue Net::OpenTimeout, Net::ReadTimeout, OpenSSL::SSL::SSLError, Errno::ECONNRESET, EOFError => e
+        retries += 1
+        if retries <= max_retries
+          wait = retries * 5
+          Rails.logger.warn("[DiscourseJournals::TitleMatcher] Page #{page} retry #{retries}/#{max_retries} after #{e.class}: #{e.message}, waiting #{wait}s")
+          publish_progress(:api, 0, 0, "第 #{page} 页请求失败 (#{e.class.name.split('::').last})，#{wait}s 后第 #{retries} 次重试...")
+          sleep wait
+          retry
+        end
+        raise "API 第 #{page} 页请求失败 (重试 #{max_retries} 次后): #{e.message}"
+      end
     end
 
     def cross_match

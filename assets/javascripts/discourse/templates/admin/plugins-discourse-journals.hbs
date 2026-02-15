@@ -31,12 +31,19 @@
             />
           </div>
           <p class="form-hint">
-            可在 <a href="/admin/site_settings/category/plugins?filter=journals">站点设置</a> 中配置默认地址
+            可在
+            <a
+              href="/admin/site_settings/category/plugins?filter=journals"
+            >站点设置</a>
+            中配置默认地址
           </p>
         </div>
 
         {{#if this.testMessage}}
-          <div class="message-box {{if this.testSuccess 'message-success' 'message-error'}}">
+          <div
+            class="message-box
+              {{if this.testSuccess 'message-success' 'message-error'}}"
+          >
             {{this.testMessage}}
           </div>
         {{/if}}
@@ -45,11 +52,15 @@
 
     {{! 筛选条件 }}
     <section class="journals-section collapsible">
-      <div class="section-header clickable" role="button" {{on "click" this.toggleFilters}}>
+      <div
+        class="section-header clickable"
+        role="button"
+        {{on "click" this.toggleFilters}}
+      >
         <h3>筛选条件</h3>
         <span class="toggle-icon">{{if this.showFilters "−" "+"}}</span>
       </div>
-      
+
       {{#if this.showFilters}}
         <div class="section-content">
           <div class="filters-grid">
@@ -65,7 +76,10 @@
 
             <div class="form-field">
               <label>DOAJ 收录</label>
-              <select {{on "change" this.updateFilterInDoaj}} value={{this.filterInDoaj}}>
+              <select
+                {{on "change" this.updateFilterInDoaj}}
+                value={{this.filterInDoaj}}
+              >
                 <option value="">全部</option>
                 <option value="true">是</option>
                 <option value="false">否</option>
@@ -74,7 +88,10 @@
 
             <div class="form-field">
               <label>NLM 收录</label>
-              <select {{on "change" this.updateFilterInNlm}} value={{this.filterInNlm}}>
+              <select
+                {{on "change" this.updateFilterInNlm}}
+                value={{this.filterInNlm}}
+              >
                 <option value="">全部</option>
                 <option value="true">是</option>
                 <option value="false">否</option>
@@ -83,7 +100,10 @@
 
             <div class="form-field">
               <label>Wikidata 记录</label>
-              <select {{on "change" this.updateFilterHasWikidata}} value={{this.filterHasWikidata}}>
+              <select
+                {{on "change" this.updateFilterHasWikidata}}
+                value={{this.filterHasWikidata}}
+              >
                 <option value="">全部</option>
                 <option value="true">有</option>
                 <option value="false">无</option>
@@ -92,7 +112,10 @@
 
             <div class="form-field">
               <label>开放获取</label>
-              <select {{on "change" this.updateFilterIsOpenAccess}} value={{this.filterIsOpenAccess}}>
+              <select
+                {{on "change" this.updateFilterIsOpenAccess}}
+                value={{this.filterIsOpenAccess}}
+              >
                 <option value="">全部</option>
                 <option value="true">是</option>
                 <option value="false">否</option>
@@ -102,13 +125,15 @@
 
           <div class="filter-footer">
             {{#if this.hasActiveFilters}}
-              <span class="filter-badge">已应用 {{this.activeFiltersCount}} 个筛选</span>
-            <DButton
-              @class="btn-flat"
-              @action={{action "clearFilters"}}
-              @label="discourse_journals.admin.sync.clear"
-              @icon="times"
-            />
+              <span class="filter-badge">已应用
+                {{this.activeFiltersCount}}
+                个筛选</span>
+              <DButton
+                @class="btn-flat"
+                @action={{action "clearFilters"}}
+                @label="discourse_journals.admin.sync.clear"
+                @icon="times"
+              />
             {{else}}
               <span class="filter-hint">未设置筛选条件</span>
             {{/if}}
@@ -127,7 +152,8 @@
           <div class="import-action-card">
             <div class="action-info">
               <span class="action-title">测试导入</span>
-              <span class="action-desc">导入第一页数据（约 100 条），用于验证配置</span>
+              <span class="action-desc">导入第一页数据（约 100
+                条），用于验证配置</span>
             </div>
             <DButton
               @class="btn-primary"
@@ -142,7 +168,9 @@
           <div class="import-action-card">
             <div class="action-info">
               <span class="action-title">完整导入</span>
-              <span class="action-desc">导入所有期刊数据，可能需要较长时间</span>
+              <span
+                class="action-desc"
+              >导入所有期刊数据，可能需要较长时间</span>
             </div>
             <DButton
               @class="btn-primary"
@@ -195,21 +223,25 @@
         <div class="section-content">
           <div class="progress-container">
             <div class="progress-track">
-              <div class="progress-fill" style="width: {{this.progress}}%"></div>
+              <div
+                class="progress-fill"
+                style="width: {{this.progress}}%"
+              ></div>
             </div>
             <span class="progress-percent">{{this.progress}}%</span>
             {{#if this.importEta}}
               <span class="progress-eta">预计剩余 {{this.importEta}}</span>
             {{/if}}
           </div>
-          
+
           <p class="progress-status">{{this.progressMessage}}</p>
 
           {{#if this.importStats}}
             <div class="stats-grid">
               <div class="stat-item">
                 <span class="stat-value">{{this.importStats.processed}}</span>
-                <span class="stat-label">已处理 / {{this.importStats.total}}</span>
+                <span class="stat-label">已处理 /
+                  {{this.importStats.total}}</span>
               </div>
               <div class="stat-item stat-success">
                 <span class="stat-value">{{this.importStats.created}}</span>
@@ -239,7 +271,10 @@
 
     {{! 结果消息 }}
     {{#if this.importMessage}}
-      <div class="message-box {{if this.importSuccess 'message-success' 'message-error'}}">
+      <div
+        class="message-box
+          {{if this.importSuccess 'message-success' 'message-error'}}"
+      >
         {{this.importMessage}}
       </div>
     {{/if}}
@@ -248,12 +283,17 @@
     {{#if (gt this.errors.length 0)}}
       <section class="journals-section error-section">
         <div class="section-header">
-          <h3>错误日志 <span class="error-count">({{this.errors.length}})</span></h3>
+          <h3>错误日志
+            <span class="error-count">({{this.errors.length}})</span></h3>
           <div class="header-actions">
             <DButton
               @class="btn-flat"
               @action={{action "toggleErrors"}}
-              @label={{if this.showErrors "discourse_journals.admin.errors.collapse" "discourse_journals.admin.errors.expand"}}
+              @label={{if
+                this.showErrors
+                "discourse_journals.admin.errors.collapse"
+                "discourse_journals.admin.errors.expand"
+              }}
               @icon={{if this.showErrors "angle-up" "angle-down"}}
             />
             <DButton
@@ -301,13 +341,18 @@
         </div>
       </div>
       <div class="section-content">
-        <p class="mapping-desc">{{i18n "discourse_journals.admin.mapping.description"}}</p>
+        <p class="mapping-desc">{{i18n
+            "discourse_journals.admin.mapping.description"
+          }}</p>
 
         {{#if this.analyzing}}
           <div class="mapping-progress">
             <div class="progress-container">
               <div class="progress-track">
-                <div class="progress-fill" style="width: {{this.analysisProgress}}%"></div>
+                <div
+                  class="progress-fill"
+                  style="width: {{this.analysisProgress}}%"
+                ></div>
               </div>
               <span class="progress-percent">{{this.analysisProgress}}%</span>
             </div>
@@ -315,12 +360,42 @@
           </div>
         {{/if}}
 
+        {{#if this.analysisFailed}}
+          <div class="mapping-failed-panel">
+            <div class="mapping-progress">
+              <div class="progress-container">
+                <div class="progress-track">
+                  <div
+                    class="progress-fill progress-fill-error"
+                    style="width: {{this.analysisProgress}}%"
+                  ></div>
+                </div>
+                <span class="progress-percent">{{this.analysisProgress}}%</span>
+              </div>
+            </div>
+            <div class="message-box message-error">
+              <span class="error-icon">&#x26A0;</span>
+              <div class="error-content">
+                <strong>{{i18n
+                    "discourse_journals.admin.mapping.analysis_error_title"
+                  }}</strong>
+                <p>{{this.analysisMessage}}</p>
+              </div>
+            </div>
+            <p class="mapping-failed-hint">{{i18n
+                "discourse_journals.admin.mapping.analysis_error_hint"
+              }}</p>
+          </div>
+        {{/if}}
+
         {{#if this.analysisMessage}}
           {{#unless this.analyzing}}
             {{#unless this.analysisResult}}
-              <div class="message-box message-error">
-                {{this.analysisMessage}}
-              </div>
+              {{#unless this.analysisFailed}}
+                <div class="message-box message-error">
+                  {{this.analysisMessage}}
+                </div>
+              {{/unless}}
             {{/unless}}
           {{/unless}}
         {{/if}}
@@ -329,73 +404,148 @@
           <div class="mapping-summary">
             <div class="mapping-totals">
               <div class="mapping-total-item">
-                <span class="total-value">{{this.analysisResult.total_forum_topics}}</span>
-                <span class="total-label">{{i18n "discourse_journals.admin.mapping.forum_topics"}}</span>
+                <span
+                  class="total-value"
+                >{{this.analysisResult.total_forum_topics}}</span>
+                <span class="total-label">{{i18n
+                    "discourse_journals.admin.mapping.forum_topics"
+                  }}</span>
               </div>
               <div class="mapping-total-item">
-                <span class="total-value">{{this.analysisResult.total_api_records}}</span>
-                <span class="total-label">{{i18n "discourse_journals.admin.mapping.api_records"}}</span>
+                <span
+                  class="total-value"
+                >{{this.analysisResult.total_api_records}}</span>
+                <span class="total-label">{{i18n
+                    "discourse_journals.admin.mapping.api_records"
+                  }}</span>
               </div>
             </div>
 
             <div class="mapping-categories">
-              <div class="mapping-cat-row clickable" role="button" {{on "click" (fn this.loadMappingDetails "exact_1to1")}}>
+              <div
+                class="mapping-cat-row clickable"
+                role="button"
+                {{on "click" (fn this.loadMappingDetails "exact_1to1")}}
+              >
                 <span class="cat-color cat-success"></span>
-                <span class="cat-label">{{i18n "discourse_journals.admin.mapping.exact_1to1"}}</span>
-                <span class="cat-count">{{this.analysisResult.exact_1to1}}</span>
+                <span class="cat-label">{{i18n
+                    "discourse_journals.admin.mapping.exact_1to1"
+                  }}</span>
+                <span
+                  class="cat-count"
+                >{{this.analysisResult.exact_1to1}}</span>
                 <div class="cat-bar-track">
-                  <div class="cat-bar-fill cat-bar-success" style="width: {{this.mappingBarWidths.exact_1to1}}%"></div>
+                  <div
+                    class="cat-bar-fill cat-bar-success"
+                    style="width: {{this.mappingBarWidths.exact_1to1}}%"
+                  ></div>
                 </div>
               </div>
 
-              <div class="mapping-cat-row clickable" role="button" {{on "click" (fn this.loadMappingDetails "forum_1_to_api_n")}}>
+              <div
+                class="mapping-cat-row clickable"
+                role="button"
+                {{on "click" (fn this.loadMappingDetails "forum_1_to_api_n")}}
+              >
                 <span class="cat-color cat-warning"></span>
-                <span class="cat-label">{{i18n "discourse_journals.admin.mapping.forum_1_to_api_n"}}</span>
-                <span class="cat-count">{{this.analysisResult.forum_1_to_api_n}}</span>
+                <span class="cat-label">{{i18n
+                    "discourse_journals.admin.mapping.forum_1_to_api_n"
+                  }}</span>
+                <span
+                  class="cat-count"
+                >{{this.analysisResult.forum_1_to_api_n}}</span>
                 <div class="cat-bar-track">
-                  <div class="cat-bar-fill cat-bar-warning" style="width: {{this.mappingBarWidths.forum_1_to_api_n}}%"></div>
+                  <div
+                    class="cat-bar-fill cat-bar-warning"
+                    style="width: {{this.mappingBarWidths.forum_1_to_api_n}}%"
+                  ></div>
                 </div>
               </div>
 
-              <div class="mapping-cat-row clickable" role="button" {{on "click" (fn this.loadMappingDetails "forum_n_to_api_1")}}>
+              <div
+                class="mapping-cat-row clickable"
+                role="button"
+                {{on "click" (fn this.loadMappingDetails "forum_n_to_api_1")}}
+              >
                 <span class="cat-color cat-warning"></span>
-                <span class="cat-label">{{i18n "discourse_journals.admin.mapping.forum_n_to_api_1"}}</span>
-                <span class="cat-count">{{this.analysisResult.forum_n_to_api_1}}</span>
+                <span class="cat-label">{{i18n
+                    "discourse_journals.admin.mapping.forum_n_to_api_1"
+                  }}</span>
+                <span
+                  class="cat-count"
+                >{{this.analysisResult.forum_n_to_api_1}}</span>
                 <div class="cat-bar-track">
-                  <div class="cat-bar-fill cat-bar-warning" style="width: {{this.mappingBarWidths.forum_n_to_api_1}}%"></div>
+                  <div
+                    class="cat-bar-fill cat-bar-warning"
+                    style="width: {{this.mappingBarWidths.forum_n_to_api_1}}%"
+                  ></div>
                 </div>
               </div>
 
-              <div class="mapping-cat-row clickable" role="button" {{on "click" (fn this.loadMappingDetails "forum_n_to_api_m")}}>
+              <div
+                class="mapping-cat-row clickable"
+                role="button"
+                {{on "click" (fn this.loadMappingDetails "forum_n_to_api_m")}}
+              >
                 <span class="cat-color cat-danger"></span>
-                <span class="cat-label">{{i18n "discourse_journals.admin.mapping.forum_n_to_api_m"}}</span>
-                <span class="cat-count">{{this.analysisResult.forum_n_to_api_m}}</span>
+                <span class="cat-label">{{i18n
+                    "discourse_journals.admin.mapping.forum_n_to_api_m"
+                  }}</span>
+                <span
+                  class="cat-count"
+                >{{this.analysisResult.forum_n_to_api_m}}</span>
                 <div class="cat-bar-track">
-                  <div class="cat-bar-fill cat-bar-danger" style="width: {{this.mappingBarWidths.forum_n_to_api_m}}%"></div>
+                  <div
+                    class="cat-bar-fill cat-bar-danger"
+                    style="width: {{this.mappingBarWidths.forum_n_to_api_m}}%"
+                  ></div>
                 </div>
               </div>
 
-              <div class="mapping-cat-row clickable" role="button" {{on "click" (fn this.loadMappingDetails "forum_only")}}>
+              <div
+                class="mapping-cat-row clickable"
+                role="button"
+                {{on "click" (fn this.loadMappingDetails "forum_only")}}
+              >
                 <span class="cat-color cat-orphan"></span>
-                <span class="cat-label">{{i18n "discourse_journals.admin.mapping.forum_only"}}</span>
-                <span class="cat-count">{{this.analysisResult.forum_only}}</span>
+                <span class="cat-label">{{i18n
+                    "discourse_journals.admin.mapping.forum_only"
+                  }}</span>
+                <span
+                  class="cat-count"
+                >{{this.analysisResult.forum_only}}</span>
                 <div class="cat-bar-track">
-                  <div class="cat-bar-fill cat-bar-orphan" style="width: {{this.mappingBarWidths.forum_only}}%"></div>
+                  <div
+                    class="cat-bar-fill cat-bar-orphan"
+                    style="width: {{this.mappingBarWidths.forum_only}}%"
+                  ></div>
                 </div>
               </div>
 
-              <div class="mapping-cat-row clickable" role="button" {{on "click" (fn this.loadMappingDetails "api_only")}}>
+              <div
+                class="mapping-cat-row clickable"
+                role="button"
+                {{on "click" (fn this.loadMappingDetails "api_only")}}
+              >
                 <span class="cat-color cat-new"></span>
-                <span class="cat-label">{{i18n "discourse_journals.admin.mapping.api_only"}}</span>
+                <span class="cat-label">{{i18n
+                    "discourse_journals.admin.mapping.api_only"
+                  }}</span>
                 <span class="cat-count">{{this.analysisResult.api_only}}</span>
                 <div class="cat-bar-track">
-                  <div class="cat-bar-fill cat-bar-new" style="width: {{this.mappingBarWidths.api_only}}%"></div>
+                  <div
+                    class="cat-bar-fill cat-bar-new"
+                    style="width: {{this.mappingBarWidths.api_only}}%"
+                  ></div>
                 </div>
               </div>
             </div>
 
             {{#if this.analysisResult.completed_at}}
-              <p class="mapping-time">{{i18n "discourse_journals.admin.mapping.completed_at"}} {{this.analysisResult.completed_at}}</p>
+              <p class="mapping-time">{{i18n
+                  "discourse_journals.admin.mapping.completed_at"
+                }}
+                {{this.analysisResult.completed_at}}</p>
             {{/if}}
           </div>
         {{/if}}
@@ -404,7 +554,8 @@
         {{#if this.showAnalysisDetails}}
           <div class="mapping-details-panel">
             <div class="details-header">
-              <h4>{{this.analysisCategoryLabel}} ({{this.analysisDetailsTotal}})</h4>
+              <h4>{{this.analysisCategoryLabel}}
+                ({{this.analysisDetailsTotal}})</h4>
               <DButton
                 @class="btn-flat"
                 @action={{action "closeMappingDetails"}}
@@ -413,24 +564,40 @@
             </div>
 
             {{#if this.loadingDetails}}
-              <div class="details-loading">{{i18n "discourse_journals.admin.mapping.loading"}}</div>
+              <div class="details-loading">{{i18n
+                  "discourse_journals.admin.mapping.loading"
+                }}</div>
             {{else}}
               <div class="details-table-wrap">
                 <table class="mapping-details-table">
                   <thead>
                     <tr>
-                      <th>{{i18n "discourse_journals.admin.mapping.col_title"}}</th>
+                      <th>{{i18n
+                          "discourse_journals.admin.mapping.col_title"
+                        }}</th>
                       {{#if this.isDetailsCategoryMatched}}
-                        <th>{{i18n "discourse_journals.admin.mapping.col_topic_id"}}</th>
-                        <th>{{i18n "discourse_journals.admin.mapping.col_api_id"}}</th>
-                        <th>{{i18n "discourse_journals.admin.mapping.col_issn_l"}}</th>
+                        <th>{{i18n
+                            "discourse_journals.admin.mapping.col_topic_id"
+                          }}</th>
+                        <th>{{i18n
+                            "discourse_journals.admin.mapping.col_api_id"
+                          }}</th>
+                        <th>{{i18n
+                            "discourse_journals.admin.mapping.col_issn_l"
+                          }}</th>
                       {{/if}}
                       {{#if this.isDetailsCategoryForumOnly}}
-                        <th>{{i18n "discourse_journals.admin.mapping.col_topic_id"}}</th>
+                        <th>{{i18n
+                            "discourse_journals.admin.mapping.col_topic_id"
+                          }}</th>
                       {{/if}}
                       {{#if this.isDetailsCategoryApiOnly}}
-                        <th>{{i18n "discourse_journals.admin.mapping.col_api_id"}}</th>
-                        <th>{{i18n "discourse_journals.admin.mapping.col_issn_l"}}</th>
+                        <th>{{i18n
+                            "discourse_journals.admin.mapping.col_api_id"
+                          }}</th>
+                        <th>{{i18n
+                            "discourse_journals.admin.mapping.col_issn_l"
+                          }}</th>
                       {{/if}}
                     </tr>
                   </thead>
@@ -441,7 +608,10 @@
                         {{#if item.forum}}
                           <td>
                             {{#each item.forum as |f|}}
-                              <a href="/t/{{f.topic_id}}" target="_blank">{{f.topic_id}}</a>
+                              <a
+                                href="/t/{{f.topic_id}}"
+                                target="_blank"
+                              >{{f.topic_id}}</a>
                             {{/each}}
                           </td>
                         {{/if}}
@@ -471,7 +641,9 @@
                     @icon="chevron-left"
                     @disabled={{this.prevDetailsPageDisabled}}
                   />
-                  <span class="page-info">{{this.analysisDetailsPage}} / {{this.analysisDetailsTotalPages}}</span>
+                  <span class="page-info">{{this.analysisDetailsPage}}
+                    /
+                    {{this.analysisDetailsTotalPages}}</span>
                   <DButton
                     @class="btn-default btn-small"
                     @action={{action "nextDetailsPage"}}
@@ -510,7 +682,9 @@
         <div class="danger-action">
           <div class="danger-info">
             <span class="danger-title">删除所有期刊</span>
-            <span class="danger-desc">永久删除所有导入的期刊帖子，此操作不可撤销</span>
+            <span
+              class="danger-desc"
+            >永久删除所有导入的期刊帖子，此操作不可撤销</span>
           </div>
           <DButton
             @class="btn-danger"
@@ -527,7 +701,10 @@
           <div class="delete-progress-section">
             <div class="progress-container">
               <div class="progress-track">
-                <div class="progress-fill progress-danger" style="width: {{this.deleteProgress}}%"></div>
+                <div
+                  class="progress-fill progress-danger"
+                  style="width: {{this.deleteProgress}}%"
+                ></div>
               </div>
               <span class="progress-percent">{{this.deleteProgress}}%</span>
               {{#if this.deleteEta}}
@@ -541,7 +718,8 @@
               <div class="stats-grid">
                 <div class="stat-item">
                   <span class="stat-value">{{this.deleteStats.deleted}}</span>
-                  <span class="stat-label">已删除 / {{this.deleteStats.total}}</span>
+                  <span class="stat-label">已删除 /
+                    {{this.deleteStats.total}}</span>
                 </div>
                 {{#if (gt this.deleteStats.errors 0)}}
                   <div class="stat-item stat-error">
@@ -553,7 +731,10 @@
             {{/if}}
           </div>
         {{else if this.deleteMessage}}
-          <div class="message-box {{if this.deleteSuccess 'message-success' 'message-error'}}">
+          <div
+            class="message-box
+              {{if this.deleteSuccess 'message-success' 'message-error'}}"
+          >
             {{this.deleteMessage}}
           </div>
         {{/if}}

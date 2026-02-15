@@ -47,6 +47,7 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
   @tracked analysisDetailsTotalPages = 1;
   @tracked analysisDetailsTotal = 0;
   @tracked loadingDetails = false;
+  @tracked analysisFailed = false;
 
   // 删除相关
   @tracked deleting = false;
@@ -523,7 +524,9 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
 
         // 取消订阅 MessageBus
         if (this.currentImportId) {
-          this.messageBus.unsubscribe(`/journals/import/${this.currentImportId}`);
+          this.messageBus.unsubscribe(
+            `/journals/import/${this.currentImportId}`
+          );
         }
       }
     } catch (e) {
@@ -638,6 +641,7 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
     this.analysisProgress = 0;
     this.analysisMessage = "正在启动分析...";
     this.analysisResult = null;
+    this.analysisFailed = false;
     this.showAnalysisDetails = false;
 
     try {
@@ -666,11 +670,12 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
       if (data.status === "completed") {
         this.analyzing = false;
         this.analysisProgress = 100;
+        this.analysisMessage = null;
         this.loadMappingStatus();
         this.messageBus.unsubscribe(channel);
       } else if (data.status === "failed") {
         this.analyzing = false;
-        this.analysisProgress = 0;
+        this.analysisFailed = true;
         this.messageBus.unsubscribe(channel);
       }
     });
@@ -692,7 +697,9 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
         } else if (a.status === "completed") {
           this.analysisResult = a;
         } else if (a.status === "failed") {
+          this.analysisFailed = true;
           this.analysisMessage = `${I18n.t("discourse_journals.admin.mapping.analysis_failed")}: ${a.error_message || ""}`;
+          this.analysisProgress = a.progress || 0;
         }
       }
     } catch {
