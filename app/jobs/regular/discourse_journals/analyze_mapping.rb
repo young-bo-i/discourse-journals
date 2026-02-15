@@ -13,8 +13,14 @@ module Jobs
           return
         end
 
-        if analysis.completed?
-          Rails.logger.warn("[DiscourseJournals::Mapping] Job skipped: analysis #{analysis_id} already completed")
+        if analysis.completed? || analysis.failed?
+          Rails.logger.warn("[DiscourseJournals::Mapping] Job skipped: analysis #{analysis_id} status=#{analysis.status}")
+          return
+        end
+
+        latest = ::DiscourseJournals::MappingAnalysis.current
+        if latest && latest.id != analysis.id
+          Rails.logger.warn("[DiscourseJournals::Mapping] Job skipped: analysis #{analysis_id} is not the latest (latest=#{latest.id})")
           return
         end
 
@@ -66,8 +72,6 @@ module Jobs
           )
           publish_progress(user_id, analysis, "failed", 0, "分析失败: #{e.message}")
         end
-
-        raise e
       end
 
       private

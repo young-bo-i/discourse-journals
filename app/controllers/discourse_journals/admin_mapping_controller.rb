@@ -10,6 +10,8 @@ module DiscourseJournals
         return render_json_error("已有映射分析任务正在进行中")
       end
 
+      MappingAnalysis.where.not(status: %i[pending processing]).delete_all
+
       analysis = MappingAnalysis.create!(
         user_id: current_user.id,
         status: :pending,
