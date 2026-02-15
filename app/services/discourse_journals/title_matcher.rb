@@ -9,7 +9,8 @@ module DiscourseJournals
 
     API_BASE_URL = "https://journal.scholay.com/api/open/journals"
     API_PAGE_SIZE = 1000
-    PROGRESS_INTERVAL = 10
+    API_CONCURRENCY = 5
+    PROGRESS_BATCH_INTERVAL = 5
 
     attr_reader :forum_index, :api_index, :results
 
@@ -93,78 +94,148 @@ module DiscourseJournals
     def build_api_index
       publish_progress(:api, 0, 0, "正在获取 API 数据...")
 
-      first_result = fetch_api_page(1, API_PAGE_SIZE)
+      first_result = fetch_api_page_oneoff(1, API_PAGE_SIZE)
       total_records = first_result[:total]
       total_pages = first_result[:total_pages]
       actual_page_size = first_result[:rows].size
 
-      publish_progress(:api, 0, total_records, "API 共 #{total_records} 条记录，每页 #{actual_page_size} 条，共 #{total_pages} 页")
+      publish_progress(
+        :api,
+        0,
+        total_records,
+        "API 共 #{total_records} 条记录，每页 #{actual_page_size} 条，共 #{total_pages} 页 (#{API_CONCURRENCY} 线程并发)",
+      )
 
-      # 处理第一页数据
-      fetched = 0
-      first_result[:rows].each do |row|
-        unified = row["unified"] || {}
-        canonical_name = unified["canonical_name"]
-        next if canonical_name.blank?
+      fetched = process_api_rows(first_result[:rows])
 
-        normalized = self.class.normalize_title(canonical_name)
-        next if normalized.blank?
-
-        @api_index[normalized] ||= []
-        @api_index[normalized] << {
-          api_id: unified["id"],
-          canonical_name: canonical_name,
-          issn_l: unified["issn_l"],
-        }
-
-        fetched += 1
+      if total_pages <= 1
+        publish_progress(:api, fetched, total_records, "API 索引构建完成：#{fetched} 条记录，#{@api_index.size} 个唯一标题")
+        return
       end
 
-      publish_progress(:api, fetched, total_records, "API 数据获取中... 第 1/#{total_pages} 页 (#{fetched} 条)")
+      connections = API_CONCURRENCY.times.map { create_persistent_connection }
+      start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
-      page = 2
+      begin
+        remaining_pages = (2..total_pages).to_a
+        batch_count = 0
 
-      while page <= total_pages
-        check_cancelled!
-        result = fetch_api_page(page, API_PAGE_SIZE)
-        rows = result[:rows]
-        break if rows.empty?
+        remaining_pages.each_slice(API_CONCURRENCY) do |batch|
+          check_cancelled!
 
-        rows.each do |row|
-          unified = row["unified"] || {}
-          canonical_name = unified["canonical_name"]
-          next if canonical_name.blank?
+          batch_results = fetch_batch_concurrent(connections, batch)
 
-          normalized = self.class.normalize_title(canonical_name)
-          next if normalized.blank?
+          batch_results.each do |result|
+            fetched += process_api_rows(result[:rows])
+          end
 
-          @api_index[normalized] ||= []
-          @api_index[normalized] << {
-            api_id: unified["id"],
-            canonical_name: canonical_name,
-            issn_l: unified["issn_l"],
-          }
+          batch_count += 1
+          last_page = batch.last
 
-          fetched += 1
+          if batch_count % PROGRESS_BATCH_INTERVAL == 0 || last_page == total_pages
+            elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start_time
+            speed = (fetched.to_f / elapsed).round(0)
+            eta = elapsed > 0 && fetched > 0 ? ((total_records - fetched).to_f / speed).round(0) : 0
+            eta_str = format_eta(eta)
+
+            publish_progress(
+              :api,
+              fetched,
+              total_records,
+              "API 获取中... #{last_page}/#{total_pages} 页 (#{fetched} 条, #{speed} 条/秒#{eta_str})",
+            )
+          end
         end
-
-        if page % PROGRESS_INTERVAL == 0 || page == total_pages
-          publish_progress(
-            :api,
-            fetched,
-            total_records,
-            "API 数据获取中... 第 #{page}/#{total_pages} 页 (#{fetched} 条)"
-          )
+      ensure
+        connections.each do |conn|
+          conn.finish
+        rescue StandardError
+          nil
         end
-
-        page += 1
-        sleep 0.05
       end
 
-      publish_progress(:api, fetched, total_records, "API 索引构建完成：#{fetched} 条记录，#{@api_index.size} 个唯一标题")
+      elapsed = (Process.clock_gettime(Process::CLOCK_MONOTONIC) - start_time).round(1)
+      publish_progress(
+        :api,
+        fetched,
+        total_records,
+        "API 索引构建完成：#{fetched} 条记录，#{@api_index.size} 个唯一标题 (耗时 #{elapsed}s)",
+      )
     end
 
-    def fetch_api_page(page, page_size)
+    def create_persistent_connection
+      uri = URI(API_BASE_URL)
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = true
+      http.open_timeout = 30
+      http.read_timeout = 60
+      http.keep_alive_timeout = 120
+      http.start
+      http
+    end
+
+    def reconnect!(http)
+      http.finish
+    rescue StandardError
+      nil
+    ensure
+      http.start
+    end
+
+    def fetch_batch_concurrent(connections, pages)
+      threads = pages.each_with_index.map do |page, idx|
+        conn = connections[idx % connections.size]
+        Thread.new { fetch_api_page_persistent(conn, page) }
+      end
+
+      threads.map(&:value)
+    end
+
+    def fetch_api_page_persistent(http, page)
+      path = "/api/open/journals?page=#{page}&pageSize=#{API_PAGE_SIZE}"
+      retries = 0
+      max_retries = 3
+
+      begin
+        request = Net::HTTP::Get.new(path)
+        response = http.request(request)
+
+        unless response.is_a?(Net::HTTPSuccess)
+          raise "API 请求失败: #{response.code} #{response.message}"
+        end
+
+        data = JSON.parse(response.body)
+        unless data["success"]
+          raise "API 返回错误: #{data["error"] || "Unknown"}"
+        end
+
+        payload = data["data"] || {}
+        {
+          rows: payload["rows"] || [],
+          total: payload["total"].to_i,
+          page: payload["page"].to_i,
+          total_pages: payload["totalPages"].to_i,
+        }
+      rescue Net::OpenTimeout, Net::ReadTimeout, OpenSSL::SSL::SSLError, Errno::ECONNRESET, EOFError, IOError => e
+        retries += 1
+        if retries <= max_retries
+          wait = retries * 2
+          Rails.logger.warn(
+            "[DiscourseJournals::TitleMatcher] Page #{page} retry #{retries}/#{max_retries} after #{e.class}: #{e.message}, waiting #{wait}s",
+          )
+          begin
+            reconnect!(http)
+          rescue StandardError => re
+            Rails.logger.warn("[DiscourseJournals::TitleMatcher] Reconnect failed: #{re.message}")
+          end
+          sleep wait
+          retry
+        end
+        raise "API 第 #{page} 页请求失败 (重试 #{max_retries} 次后): #{e.message}"
+      end
+    end
+
+    def fetch_api_page_oneoff(page, page_size)
       url = "#{API_BASE_URL}?page=#{page}&pageSize=#{page_size}"
       uri = URI(url)
 
@@ -176,7 +247,6 @@ module DiscourseJournals
         http.use_ssl = (uri.scheme == "https")
         http.open_timeout = 30
         http.read_timeout = 60
-        http.ssl_timeout = 30
 
         response = http.get(uri.request_uri)
         unless response.is_a?(Net::HTTPSuccess)
@@ -199,12 +269,51 @@ module DiscourseJournals
         retries += 1
         if retries <= max_retries
           wait = retries * 5
-          Rails.logger.warn("[DiscourseJournals::TitleMatcher] Page #{page} retry #{retries}/#{max_retries} after #{e.class}: #{e.message}, waiting #{wait}s")
-          publish_progress(:api, 0, 0, "第 #{page} 页请求失败 (#{e.class.name.split('::').last})，#{wait}s 后第 #{retries} 次重试...")
+          Rails.logger.warn(
+            "[DiscourseJournals::TitleMatcher] Page #{page} retry #{retries}/#{max_retries} after #{e.class}: #{e.message}, waiting #{wait}s",
+          )
           sleep wait
           retry
         end
         raise "API 第 #{page} 页请求失败 (重试 #{max_retries} 次后): #{e.message}"
+      end
+    end
+
+    def process_api_rows(rows)
+      count = 0
+      rows.each do |row|
+        unified = row["unified"] || {}
+        canonical_name = unified["canonical_name"]
+        next if canonical_name.blank?
+
+        normalized = self.class.normalize_title(canonical_name)
+        next if normalized.blank?
+
+        @api_index[normalized] ||= []
+        @api_index[normalized] << {
+          api_id: unified["id"],
+          canonical_name: canonical_name,
+          issn_l: unified["issn_l"],
+        }
+
+        count += 1
+      end
+      count
+    end
+
+    def format_eta(seconds)
+      return "" if seconds <= 0
+
+      if seconds < 60
+        ", 约 #{seconds}s"
+      elsif seconds < 3600
+        mins = seconds / 60
+        secs = seconds % 60
+        secs > 0 ? ", 约 #{mins}m#{secs}s" : ", 约 #{mins}m"
+      else
+        hours = seconds / 3600
+        mins = (seconds % 3600) / 60
+        mins > 0 ? ", 约 #{hours}h#{mins}m" : ", 约 #{hours}h"
       end
     end
 
