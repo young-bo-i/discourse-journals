@@ -36,7 +36,6 @@ module DiscourseJournals
         .strip
         .downcase
         .gsub(/\s+/, " ")
-        .gsub("&", " and ")
         .gsub(/[^\p{L}\p{N}\s]/, "")
         .gsub(/\s+/, " ")
         .strip
