@@ -111,6 +111,10 @@ after_initialize do
     # 映射分析
     post "/admin/journals/mapping/analyze" => "discourse_journals/admin_mapping#analyze",
          :constraints => AdminConstraint.new
+    post "/admin/journals/mapping/pause" => "discourse_journals/admin_mapping#pause",
+         :constraints => AdminConstraint.new
+    post "/admin/journals/mapping/restart" => "discourse_journals/admin_mapping#restart",
+         :constraints => AdminConstraint.new
     get "/admin/journals/mapping/status" => "discourse_journals/admin_mapping#status",
         :constraints => AdminConstraint.new
     get "/admin/journals/mapping/details" => "discourse_journals/admin_mapping#details",

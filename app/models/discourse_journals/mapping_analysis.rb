@@ -7,7 +7,7 @@ module DiscourseJournals
     validates :user_id, presence: true
     validates :status, presence: true
 
-    enum :status, { pending: 0, processing: 1, completed: 2, failed: 3 }
+    enum :status, { pending: 0, processing: 1, completed: 2, failed: 3, paused: 4 }
 
     CATEGORIES = %w[exact_1to1 forum_1_to_api_n forum_n_to_api_1 forum_n_to_api_m forum_only api_only].freeze
 
@@ -19,6 +19,10 @@ module DiscourseJournals
 
     def self.has_active?
       where(status: %i[pending processing]).exists?
+    end
+
+    def self.has_running?
+      where(status: %i[pending processing paused]).exists?
     end
 
     def progress_percent

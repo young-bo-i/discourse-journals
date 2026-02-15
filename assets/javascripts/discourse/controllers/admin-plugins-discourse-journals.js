@@ -48,6 +48,8 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
   @tracked analysisDetailsTotal = 0;
   @tracked loadingDetails = false;
   @tracked analysisFailed = false;
+  @tracked analysisPaused = false;
+  @tracked analysisPausing = false;
 
   // 删除相关
   @tracked deleting = false;
@@ -642,10 +644,62 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
     this.analysisMessage = "正在启动分析...";
     this.analysisResult = null;
     this.analysisFailed = false;
+    this.analysisPaused = false;
+    this.analysisPausing = false;
     this.showAnalysisDetails = false;
 
     try {
       const result = await ajax("/admin/journals/mapping/analyze", {
+        type: "POST",
+      });
+
+      this.analysisMessage = result.message;
+      this.subscribeToMappingProgress();
+    } catch (e) {
+      this.analyzing = false;
+      this.analysisMessage =
+        e.jqXHR?.responseJSON?.errors?.[0] ||
+        I18n.t("discourse_journals.admin.mapping.start_failed");
+      popupAjaxError(e);
+    }
+  }
+
+  @action
+  async pauseMappingAnalysis() {
+    this.analysisPausing = true;
+    this.analysisMessage = I18n.t("discourse_journals.admin.mapping.pausing");
+
+    try {
+      await ajax("/admin/journals/mapping/pause", {
+        type: "POST",
+      });
+    } catch (e) {
+      this.analysisPausing = false;
+      popupAjaxError(e);
+    }
+  }
+
+  @action
+  async restartMappingAnalysis() {
+    const confirmed = await this.dialog.yesNoConfirm({
+      message: I18n.t("discourse_journals.admin.mapping.confirm_restart"),
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    this.analyzing = true;
+    this.analysisProgress = 0;
+    this.analysisMessage = "正在重新启动分析...";
+    this.analysisResult = null;
+    this.analysisFailed = false;
+    this.analysisPaused = false;
+    this.analysisPausing = false;
+    this.showAnalysisDetails = false;
+
+    try {
+      const result = await ajax("/admin/journals/mapping/restart", {
         type: "POST",
       });
 
@@ -669,13 +723,20 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
 
       if (data.status === "completed") {
         this.analyzing = false;
+        this.analysisPausing = false;
         this.analysisProgress = 100;
         this.analysisMessage = null;
         this.loadMappingStatus();
         this.messageBus.unsubscribe(channel);
       } else if (data.status === "failed") {
         this.analyzing = false;
+        this.analysisPausing = false;
         this.analysisFailed = true;
+        this.messageBus.unsubscribe(channel);
+      } else if (data.status === "paused") {
+        this.analyzing = false;
+        this.analysisPausing = false;
+        this.analysisPaused = true;
         this.messageBus.unsubscribe(channel);
       }
     });
@@ -696,6 +757,12 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
           this.subscribeToMappingProgress();
         } else if (a.status === "completed") {
           this.analysisResult = a;
+        } else if (a.status === "paused") {
+          this.analysisPaused = true;
+          this.analysisMessage = I18n.t(
+            "discourse_journals.admin.mapping.analysis_paused_msg"
+          );
+          this.analysisProgress = a.progress || 0;
         } else if (a.status === "failed") {
           this.analysisFailed = true;
           this.analysisMessage = `${I18n.t("discourse_journals.admin.mapping.analysis_failed")}: ${a.error_message || ""}`;

@@ -47,6 +47,53 @@ module DiscourseJournals
       })
     end
 
+    # POST /admin/journals/mapping/pause
+    def pause
+      analysis = MappingAnalysis.current
+
+      unless analysis&.processing?
+        return render_json_error("当前没有正在运行的分析任务")
+      end
+
+      analysis.update!(status: :paused)
+      render json: { status: "paused", message: "分析已暂停" }
+    rescue StandardError => e
+      Rails.logger.error("[DiscourseJournals::Mapping] Failed to pause: #{e.message}")
+      render_json_error("暂停失败: #{e.message}")
+    end
+
+    # POST /admin/journals/mapping/restart
+    def restart
+      current = MappingAnalysis.current
+
+      if current&.processing?
+        return render_json_error("请先暂停当前分析任务")
+      end
+
+      # 清除所有旧的分析记录
+      MappingAnalysis.delete_all
+
+      analysis = MappingAnalysis.create!(
+        user_id: current_user.id,
+        status: :pending,
+      )
+
+      Jobs.enqueue(
+        Jobs::DiscourseJournals::AnalyzeMapping,
+        analysis_id: analysis.id,
+        user_id: current_user.id,
+      )
+
+      render json: {
+        status: "started",
+        analysis_id: analysis.id,
+        message: "映射分析已重新启动...",
+      }, status: :created
+    rescue StandardError => e
+      Rails.logger.error("[DiscourseJournals::Mapping] Failed to restart: #{e.message}")
+      render_json_error("重新启动失败: #{e.message}")
+    end
+
     # GET /admin/journals/mapping/details?category=exact_1to1&page=1
     def details
       analysis = MappingAnalysis.current

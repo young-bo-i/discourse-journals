@@ -330,14 +330,34 @@
       <div class="section-header">
         <h3>{{i18n "discourse_journals.admin.mapping.heading"}}</h3>
         <div class="header-actions">
-          <DButton
-            @class="btn-primary"
-            @action={{action "startMappingAnalysis"}}
-            @label="discourse_journals.admin.mapping.start"
-            @icon="exchange-alt"
-            @isLoading={{this.analyzing}}
-            @disabled={{this.analyzing}}
-          />
+          {{#if this.analyzing}}
+            <DButton
+              @class="btn-danger"
+              @action={{action "pauseMappingAnalysis"}}
+              @label="discourse_journals.admin.mapping.pause"
+              @icon="pause"
+              @isLoading={{this.analysisPausing}}
+              @disabled={{this.analysisPausing}}
+            />
+          {{else}}
+            <DButton
+              @class="btn-primary"
+              @action={{action "startMappingAnalysis"}}
+              @label="discourse_journals.admin.mapping.start"
+              @icon="exchange-alt"
+              @disabled={{this.analyzing}}
+            />
+            {{#if
+              (or this.analysisPaused this.analysisFailed this.analysisResult)
+            }}
+              <DButton
+                @class="btn-default"
+                @action={{action "restartMappingAnalysis"}}
+                @label="discourse_journals.admin.mapping.restart"
+                @icon="redo"
+              />
+            {{/if}}
+          {{/if}}
         </div>
       </div>
       <div class="section-content">
@@ -388,13 +408,43 @@
           </div>
         {{/if}}
 
+        {{#if this.analysisPaused}}
+          <div class="mapping-paused-panel">
+            <div class="mapping-progress">
+              <div class="progress-container">
+                <div class="progress-track">
+                  <div
+                    class="progress-fill progress-fill-paused"
+                    style="width: {{this.analysisProgress}}%"
+                  ></div>
+                </div>
+                <span class="progress-percent">{{this.analysisProgress}}%</span>
+              </div>
+            </div>
+            <div class="message-box message-warning">
+              <span class="paused-icon">&#x23F8;</span>
+              <div class="paused-content">
+                <strong>{{i18n
+                    "discourse_journals.admin.mapping.analysis_paused_title"
+                  }}</strong>
+                <p>{{this.analysisMessage}}</p>
+              </div>
+            </div>
+            <p class="mapping-paused-hint">{{i18n
+                "discourse_journals.admin.mapping.analysis_paused_hint"
+              }}</p>
+          </div>
+        {{/if}}
+
         {{#if this.analysisMessage}}
           {{#unless this.analyzing}}
             {{#unless this.analysisResult}}
               {{#unless this.analysisFailed}}
-                <div class="message-box message-error">
-                  {{this.analysisMessage}}
-                </div>
+                {{#unless this.analysisPaused}}
+                  <div class="message-box message-error">
+                    {{this.analysisMessage}}
+                  </div>
+                {{/unless}}
               {{/unless}}
             {{/unless}}
           {{/unless}}

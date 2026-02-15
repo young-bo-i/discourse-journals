@@ -5,14 +5,17 @@ require "json"
 
 module DiscourseJournals
   class TitleMatcher
+    class PausedError < StandardError; end
+
     API_BASE_URL = "https://journal.scholay.com/api/open/journals"
     API_PAGE_SIZE = 1000
     PROGRESS_INTERVAL = 10
 
     attr_reader :forum_index, :api_index, :results
 
-    def initialize(progress_callback: nil)
+    def initialize(progress_callback: nil, cancel_check: nil)
       @progress_callback = progress_callback
+      @cancel_check = cancel_check
       @forum_index = {}
       @api_index = {}
       @results = {
@@ -51,6 +54,10 @@ module DiscourseJournals
       @progress_callback&.call(phase, current, total, message)
     end
 
+    def check_cancelled!
+      raise PausedError, "分析已被用户暂停" if @cancel_check&.call
+    end
+
     def build_forum_index
       category_id = SiteSetting.discourse_journals_category_id.to_i
       if category_id.zero?
@@ -75,6 +82,7 @@ module DiscourseJournals
         }
 
         if (idx + 1) % 10_000 == 0
+          check_cancelled!
           publish_progress(:forum, idx + 1, total, "论坛索引构建中... #{idx + 1}/#{total}")
         end
       end
@@ -85,16 +93,39 @@ module DiscourseJournals
     def build_api_index
       publish_progress(:api, 0, 0, "正在获取 API 数据...")
 
-      first_page = fetch_api_page(1, 1)
-      total_records = first_page[:total]
-      total_pages = (total_records.to_f / API_PAGE_SIZE).ceil
+      first_result = fetch_api_page(1, API_PAGE_SIZE)
+      total_records = first_result[:total]
+      total_pages = first_result[:total_pages]
+      actual_page_size = first_result[:rows].size
 
-      publish_progress(:api, 0, total_records, "API 共 #{total_records} 条记录，开始分页获取...")
+      publish_progress(:api, 0, total_records, "API 共 #{total_records} 条记录，每页 #{actual_page_size} 条，共 #{total_pages} 页")
 
+      # 处理第一页数据
       fetched = 0
-      page = 1
+      first_result[:rows].each do |row|
+        unified = row["unified"] || {}
+        canonical_name = unified["canonical_name"]
+        next if canonical_name.blank?
+
+        normalized = self.class.normalize_title(canonical_name)
+        next if normalized.blank?
+
+        @api_index[normalized] ||= []
+        @api_index[normalized] << {
+          api_id: unified["id"],
+          canonical_name: canonical_name,
+          issn_l: unified["issn_l"],
+        }
+
+        fetched += 1
+      end
+
+      publish_progress(:api, fetched, total_records, "API 数据获取中... 第 1/#{total_pages} 页 (#{fetched} 条)")
+
+      page = 2
 
       while page <= total_pages
+        check_cancelled!
         result = fetch_api_page(page, API_PAGE_SIZE)
         rows = result[:rows]
         break if rows.empty?
@@ -219,6 +250,7 @@ module DiscourseJournals
         end
 
         if (idx + 1) % 50_000 == 0 || idx + 1 == total
+          check_cancelled!
           publish_progress(:match, idx + 1, total, "比对进行中... #{idx + 1}/#{total}")
         end
       end

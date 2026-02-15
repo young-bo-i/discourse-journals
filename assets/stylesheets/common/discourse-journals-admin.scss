@@ -828,6 +828,63 @@
     }
   }
 
+  // 暂停面板
+  .mapping-paused-panel {
+    margin: 12px 0;
+    padding: 16px;
+    background: var(--highlight-low, #fef9e7);
+    border: 1px solid var(--highlight-medium, #f0c674);
+    border-radius: 8px;
+
+    .mapping-progress {
+      margin-bottom: 12px;
+    }
+
+    .progress-fill-paused {
+      background: var(--highlight, #e9a820) !important;
+    }
+
+    .message-box.message-warning {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      background: var(--secondary);
+      border: 1px solid var(--highlight-medium, #f0c674);
+      border-radius: 6px;
+      padding: 12px 16px;
+      margin: 0;
+    }
+
+    .paused-icon {
+      font-size: 1.5em;
+      color: var(--highlight, #e9a820);
+      flex-shrink: 0;
+      line-height: 1;
+    }
+
+    .paused-content {
+      flex: 1;
+
+      strong {
+        display: block;
+        color: var(--highlight, #e9a820);
+        margin-bottom: 4px;
+      }
+
+      p {
+        margin: 0;
+        color: var(--primary-high);
+        font-size: 0.9em;
+      }
+    }
+
+    .mapping-paused-hint {
+      margin: 12px 0 0;
+      font-size: 0.85em;
+      color: var(--primary-medium);
+    }
+  }
+
   // 按钮样式覆盖
   .btn-flat {
     background: transparent;

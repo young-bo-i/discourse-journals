@@ -31,6 +31,9 @@ module Jobs
           progress_callback: ->(phase, current, total, message) {
             progress = calculate_progress(phase, current, total)
             publish_progress(user_id, analysis, "processing", progress, message)
+          },
+          cancel_check: -> {
+            analysis.reload.paused?
           }
         )
 
@@ -61,6 +64,12 @@ module Jobs
           "forum_only=#{results[:forum_only].size}, " \
           "api_only=#{results[:api_only].size}"
         )
+      rescue ::DiscourseJournals::TitleMatcher::PausedError => e
+        Rails.logger.info("[DiscourseJournals::Mapping] Paused by user: analysis #{analysis_id}")
+
+        if analysis
+          publish_progress(user_id, analysis, "paused", 0, "分析已暂停")
+        end
       rescue StandardError => e
         Rails.logger.error("[DiscourseJournals::Mapping] Failed: #{e.message}\n#{e.backtrace&.first(10)&.join("\n")}")
 
