@@ -27,13 +27,16 @@ add_admin_route "discourse_journals.title", "discourse-journals"
 
 after_initialize do
   require_relative "app/models/discourse_journals/import_log"
+  require_relative "app/models/discourse_journals/mapping_analysis"
   require_relative "app/services/discourse_journals/field_normalizer"
   require_relative "app/services/discourse_journals/field_usage_tracker"
   require_relative "app/services/discourse_journals/master_record_renderer"
   require_relative "app/services/discourse_journals/api_sync/client"
   require_relative "app/services/discourse_journals/api_sync/importer"
   require_relative "app/services/discourse_journals/journal_upserter"
+  require_relative "app/services/discourse_journals/title_matcher"
   require_relative "app/jobs/regular/discourse_journals/sync_from_api"
+  require_relative "app/jobs/regular/discourse_journals/analyze_mapping"
 
   # 注册自定义字段
   Topic.register_custom_field_type("journal_issn_l", :string)
@@ -103,6 +106,14 @@ after_initialize do
     
     # 导入日志查询
     get "/admin/journals/imports/:id/status" => "discourse_journals/admin_imports#status",
+        :constraints => AdminConstraint.new
+
+    # 映射分析
+    post "/admin/journals/mapping/analyze" => "discourse_journals/admin_mapping#analyze",
+         :constraints => AdminConstraint.new
+    get "/admin/journals/mapping/status" => "discourse_journals/admin_mapping#status",
+        :constraints => AdminConstraint.new
+    get "/admin/journals/mapping/details" => "discourse_journals/admin_mapping#details",
         :constraints => AdminConstraint.new
   end
 end

@@ -285,6 +285,207 @@
       </section>
     {{/if}}
 
+    {{! 映射分析 }}
+    <section class="journals-section mapping-section">
+      <div class="section-header">
+        <h3>{{i18n "discourse_journals.admin.mapping.heading"}}</h3>
+        <div class="header-actions">
+          <DButton
+            @class="btn-primary"
+            @action={{action "startMappingAnalysis"}}
+            @label="discourse_journals.admin.mapping.start"
+            @icon="exchange-alt"
+            @isLoading={{this.analyzing}}
+            @disabled={{this.analyzing}}
+          />
+        </div>
+      </div>
+      <div class="section-content">
+        <p class="mapping-desc">{{i18n "discourse_journals.admin.mapping.description"}}</p>
+
+        {{#if this.analyzing}}
+          <div class="mapping-progress">
+            <div class="progress-container">
+              <div class="progress-track">
+                <div class="progress-fill" style="width: {{this.analysisProgress}}%"></div>
+              </div>
+              <span class="progress-percent">{{this.analysisProgress}}%</span>
+            </div>
+            <p class="progress-status">{{this.analysisMessage}}</p>
+          </div>
+        {{/if}}
+
+        {{#if this.analysisMessage}}
+          {{#unless this.analyzing}}
+            {{#unless this.analysisResult}}
+              <div class="message-box message-error">
+                {{this.analysisMessage}}
+              </div>
+            {{/unless}}
+          {{/unless}}
+        {{/if}}
+
+        {{#if this.analysisResult}}
+          <div class="mapping-summary">
+            <div class="mapping-totals">
+              <div class="mapping-total-item">
+                <span class="total-value">{{this.analysisResult.total_forum_topics}}</span>
+                <span class="total-label">{{i18n "discourse_journals.admin.mapping.forum_topics"}}</span>
+              </div>
+              <div class="mapping-total-item">
+                <span class="total-value">{{this.analysisResult.total_api_records}}</span>
+                <span class="total-label">{{i18n "discourse_journals.admin.mapping.api_records"}}</span>
+              </div>
+            </div>
+
+            <div class="mapping-categories">
+              <div class="mapping-cat-row clickable" role="button" {{on "click" (fn this.loadMappingDetails "exact_1to1")}}>
+                <span class="cat-color cat-success"></span>
+                <span class="cat-label">{{i18n "discourse_journals.admin.mapping.exact_1to1"}}</span>
+                <span class="cat-count">{{this.analysisResult.exact_1to1}}</span>
+                <div class="cat-bar-track">
+                  <div class="cat-bar-fill cat-bar-success" style="width: {{this.mappingBarWidths.exact_1to1}}%"></div>
+                </div>
+              </div>
+
+              <div class="mapping-cat-row clickable" role="button" {{on "click" (fn this.loadMappingDetails "forum_1_to_api_n")}}>
+                <span class="cat-color cat-warning"></span>
+                <span class="cat-label">{{i18n "discourse_journals.admin.mapping.forum_1_to_api_n"}}</span>
+                <span class="cat-count">{{this.analysisResult.forum_1_to_api_n}}</span>
+                <div class="cat-bar-track">
+                  <div class="cat-bar-fill cat-bar-warning" style="width: {{this.mappingBarWidths.forum_1_to_api_n}}%"></div>
+                </div>
+              </div>
+
+              <div class="mapping-cat-row clickable" role="button" {{on "click" (fn this.loadMappingDetails "forum_n_to_api_1")}}>
+                <span class="cat-color cat-warning"></span>
+                <span class="cat-label">{{i18n "discourse_journals.admin.mapping.forum_n_to_api_1"}}</span>
+                <span class="cat-count">{{this.analysisResult.forum_n_to_api_1}}</span>
+                <div class="cat-bar-track">
+                  <div class="cat-bar-fill cat-bar-warning" style="width: {{this.mappingBarWidths.forum_n_to_api_1}}%"></div>
+                </div>
+              </div>
+
+              <div class="mapping-cat-row clickable" role="button" {{on "click" (fn this.loadMappingDetails "forum_n_to_api_m")}}>
+                <span class="cat-color cat-danger"></span>
+                <span class="cat-label">{{i18n "discourse_journals.admin.mapping.forum_n_to_api_m"}}</span>
+                <span class="cat-count">{{this.analysisResult.forum_n_to_api_m}}</span>
+                <div class="cat-bar-track">
+                  <div class="cat-bar-fill cat-bar-danger" style="width: {{this.mappingBarWidths.forum_n_to_api_m}}%"></div>
+                </div>
+              </div>
+
+              <div class="mapping-cat-row clickable" role="button" {{on "click" (fn this.loadMappingDetails "forum_only")}}>
+                <span class="cat-color cat-orphan"></span>
+                <span class="cat-label">{{i18n "discourse_journals.admin.mapping.forum_only"}}</span>
+                <span class="cat-count">{{this.analysisResult.forum_only}}</span>
+                <div class="cat-bar-track">
+                  <div class="cat-bar-fill cat-bar-orphan" style="width: {{this.mappingBarWidths.forum_only}}%"></div>
+                </div>
+              </div>
+
+              <div class="mapping-cat-row clickable" role="button" {{on "click" (fn this.loadMappingDetails "api_only")}}>
+                <span class="cat-color cat-new"></span>
+                <span class="cat-label">{{i18n "discourse_journals.admin.mapping.api_only"}}</span>
+                <span class="cat-count">{{this.analysisResult.api_only}}</span>
+                <div class="cat-bar-track">
+                  <div class="cat-bar-fill cat-bar-new" style="width: {{this.mappingBarWidths.api_only}}%"></div>
+                </div>
+              </div>
+            </div>
+
+            {{#if this.analysisResult.completed_at}}
+              <p class="mapping-time">{{i18n "discourse_journals.admin.mapping.completed_at"}} {{this.analysisResult.completed_at}}</p>
+            {{/if}}
+          </div>
+        {{/if}}
+
+        {{! 详情面板 }}
+        {{#if this.showAnalysisDetails}}
+          <div class="mapping-details-panel">
+            <div class="details-header">
+              <h4>{{this.analysisCategoryLabel}} ({{this.analysisDetailsTotal}})</h4>
+              <DButton
+                @class="btn-flat"
+                @action={{action "closeMappingDetails"}}
+                @icon="times"
+              />
+            </div>
+
+            {{#if this.loadingDetails}}
+              <div class="details-loading">{{i18n "discourse_journals.admin.mapping.loading"}}</div>
+            {{else}}
+              <div class="details-table-wrap">
+                <table class="mapping-details-table">
+                  <thead>
+                    <tr>
+                      <th>{{i18n "discourse_journals.admin.mapping.col_title"}}</th>
+                      {{#if this.isDetailsCategoryMatched}}
+                        <th>{{i18n "discourse_journals.admin.mapping.col_topic_id"}}</th>
+                        <th>{{i18n "discourse_journals.admin.mapping.col_api_id"}}</th>
+                        <th>{{i18n "discourse_journals.admin.mapping.col_issn_l"}}</th>
+                      {{/if}}
+                      {{#if this.isDetailsCategoryForumOnly}}
+                        <th>{{i18n "discourse_journals.admin.mapping.col_topic_id"}}</th>
+                      {{/if}}
+                      {{#if this.isDetailsCategoryApiOnly}}
+                        <th>{{i18n "discourse_journals.admin.mapping.col_api_id"}}</th>
+                        <th>{{i18n "discourse_journals.admin.mapping.col_issn_l"}}</th>
+                      {{/if}}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {{#each this.analysisDetailsItems as |item|}}
+                      <tr>
+                        <td class="detail-title">{{item.normalized_title}}</td>
+                        {{#if item.forum}}
+                          <td>
+                            {{#each item.forum as |f|}}
+                              <a href="/t/{{f.topic_id}}" target="_blank">{{f.topic_id}}</a>
+                            {{/each}}
+                          </td>
+                        {{/if}}
+                        {{#if item.api}}
+                          <td>
+                            {{#each item.api as |a|}}
+                              <span class="api-id-badge">{{a.api_id}}</span>
+                            {{/each}}
+                          </td>
+                          <td>
+                            {{#each item.api as |a|}}
+                              <span>{{a.issn_l}}</span>
+                            {{/each}}
+                          </td>
+                        {{/if}}
+                      </tr>
+                    {{/each}}
+                  </tbody>
+                </table>
+              </div>
+
+              {{#if this.hasMultipleDetailsPages}}
+                <div class="details-pagination">
+                  <DButton
+                    @class="btn-default btn-small"
+                    @action={{action "prevDetailsPage"}}
+                    @icon="chevron-left"
+                    @disabled={{this.prevDetailsPageDisabled}}
+                  />
+                  <span class="page-info">{{this.analysisDetailsPage}} / {{this.analysisDetailsTotalPages}}</span>
+                  <DButton
+                    @class="btn-default btn-small"
+                    @action={{action "nextDetailsPage"}}
+                    @icon="chevron-right"
+                    @disabled={{this.nextDetailsPageDisabled}}
+                  />
+                </div>
+              {{/if}}
+            {{/if}}
+          </div>
+        {{/if}}
+      </div>
+    </section>
+
     {{! 帮助信息 }}
     <section class="journals-section help-section">
       <div class="section-header">

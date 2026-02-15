@@ -4,6 +4,7 @@ import { action } from "@ember/object";
 import { service } from "@ember/service";
 import { ajax } from "discourse/lib/ajax";
 import { popupAjaxError } from "discourse/lib/ajax-error";
+import I18n from "discourse-i18n";
 
 export default class AdminPluginsDiscourseJournalsController extends Controller {
   @service dialog;
@@ -34,6 +35,19 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
   @tracked cancelling = false;
   @tracked hasIncompleteImport = false;
 
+  // 映射分析相关
+  @tracked analyzing = false;
+  @tracked analysisProgress = 0;
+  @tracked analysisMessage = null;
+  @tracked analysisResult = null;
+  @tracked showAnalysisDetails = false;
+  @tracked analysisDetailsCategory = null;
+  @tracked analysisDetailsItems = [];
+  @tracked analysisDetailsPage = 1;
+  @tracked analysisDetailsTotalPages = 1;
+  @tracked analysisDetailsTotal = 0;
+  @tracked loadingDetails = false;
+
   // 删除相关
   @tracked deleting = false;
   @tracked deleteMessage = null;
@@ -58,6 +72,8 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
 
     // 检查是否有可恢复的导入任务
     this.checkResumableImport();
+    // 检查映射分析状态
+    this.checkMappingStatus();
   }
 
   get hasActiveFilters() {
@@ -603,6 +619,203 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
       this.deleteSuccess = false;
       this.deleteMessage = e.jqXHR?.responseJSON?.errors?.[0] || "删除失败";
       popupAjaxError(e);
+    }
+  }
+
+  // ============ 映射分析 ============
+
+  @action
+  async startMappingAnalysis() {
+    const confirmed = await this.dialog.yesNoConfirm({
+      message: I18n.t("discourse_journals.admin.mapping.confirm_start"),
+    });
+
+    if (!confirmed) {
+      return;
+    }
+
+    this.analyzing = true;
+    this.analysisProgress = 0;
+    this.analysisMessage = "正在启动分析...";
+    this.analysisResult = null;
+    this.showAnalysisDetails = false;
+
+    try {
+      const result = await ajax("/admin/journals/mapping/analyze", {
+        type: "POST",
+      });
+
+      this.analysisMessage = result.message;
+      this.subscribeToMappingProgress();
+    } catch (e) {
+      this.analyzing = false;
+      this.analysisMessage =
+        e.jqXHR?.responseJSON?.errors?.[0] ||
+        I18n.t("discourse_journals.admin.mapping.start_failed");
+      popupAjaxError(e);
+    }
+  }
+
+  subscribeToMappingProgress() {
+    const channel = "/journals/mapping";
+
+    this.messageBus.subscribe(channel, (data) => {
+      this.analysisProgress = Math.round(data.progress || 0);
+      this.analysisMessage = data.message || "处理中...";
+
+      if (data.status === "completed") {
+        this.analyzing = false;
+        this.analysisProgress = 100;
+        this.loadMappingStatus();
+        this.messageBus.unsubscribe(channel);
+      } else if (data.status === "failed") {
+        this.analyzing = false;
+        this.analysisProgress = 0;
+        this.messageBus.unsubscribe(channel);
+      }
+    });
+  }
+
+  @action
+  async checkMappingStatus() {
+    try {
+      const result = await ajax("/admin/journals/mapping/status", {
+        type: "GET",
+      });
+
+      if (result.has_analysis && result.analysis) {
+        const a = result.analysis;
+        if (a.status === "processing") {
+          this.analyzing = true;
+          this.analysisMessage = "映射分析进行中...";
+          this.subscribeToMappingProgress();
+        } else if (a.status === "completed") {
+          this.analysisResult = a;
+        } else if (a.status === "failed") {
+          this.analysisMessage = `${I18n.t("discourse_journals.admin.mapping.analysis_failed")}: ${a.error_message || ""}`;
+        }
+      }
+    } catch {
+      // Silently fail
+    }
+  }
+
+  @action
+  async loadMappingStatus() {
+    try {
+      const result = await ajax("/admin/journals/mapping/status", {
+        type: "GET",
+      });
+
+      if (result.has_analysis && result.analysis) {
+        this.analysisResult = result.analysis;
+      }
+    } catch {
+      // Silently fail
+    }
+  }
+
+  @action
+  async loadMappingDetails(category) {
+    this.analysisDetailsCategory = category;
+    this.analysisDetailsPage = 1;
+    this.showAnalysisDetails = true;
+    await this.fetchMappingDetails(category, 1);
+  }
+
+  @action
+  async loadMappingDetailsPage(page) {
+    await this.fetchMappingDetails(this.analysisDetailsCategory, page);
+  }
+
+  async fetchMappingDetails(category, page) {
+    this.loadingDetails = true;
+    try {
+      const result = await ajax("/admin/journals/mapping/details", {
+        type: "GET",
+        data: { category, page, per_page: 50 },
+      });
+
+      this.analysisDetailsItems = result.items;
+      this.analysisDetailsPage = result.page;
+      this.analysisDetailsTotalPages = result.total_pages;
+      this.analysisDetailsTotal = result.total;
+    } catch (e) {
+      popupAjaxError(e);
+    } finally {
+      this.loadingDetails = false;
+    }
+  }
+
+  @action
+  closeMappingDetails() {
+    this.showAnalysisDetails = false;
+    this.analysisDetailsCategory = null;
+    this.analysisDetailsItems = [];
+  }
+
+  get analysisCategoryLabel() {
+    const key = `discourse_journals.admin.mapping.${this.analysisDetailsCategory}`;
+    return I18n.t(key);
+  }
+
+  get mappingBarWidths() {
+    const r = this.analysisResult;
+    if (!r) {
+      return {};
+    }
+    const forumTotal = r.total_forum_topics || 1;
+    const apiTotal = r.total_api_records || 1;
+    return {
+      exact_1to1: Math.round((r.exact_1to1 / forumTotal) * 100),
+      forum_1_to_api_n: Math.round((r.forum_1_to_api_n / forumTotal) * 100),
+      forum_n_to_api_1: Math.round((r.forum_n_to_api_1 / forumTotal) * 100),
+      forum_n_to_api_m: Math.round((r.forum_n_to_api_m / forumTotal) * 100),
+      forum_only: Math.round((r.forum_only / forumTotal) * 100),
+      api_only: Math.round((r.api_only / apiTotal) * 100),
+    };
+  }
+
+  get isDetailsCategoryMatched() {
+    return [
+      "exact_1to1",
+      "forum_1_to_api_n",
+      "forum_n_to_api_1",
+      "forum_n_to_api_m",
+    ].includes(this.analysisDetailsCategory);
+  }
+
+  get isDetailsCategoryForumOnly() {
+    return this.analysisDetailsCategory === "forum_only";
+  }
+
+  get isDetailsCategoryApiOnly() {
+    return this.analysisDetailsCategory === "api_only";
+  }
+
+  get prevDetailsPageDisabled() {
+    return this.analysisDetailsPage <= 1;
+  }
+
+  get nextDetailsPageDisabled() {
+    return this.analysisDetailsPage >= this.analysisDetailsTotalPages;
+  }
+
+  get hasMultipleDetailsPages() {
+    return this.analysisDetailsTotalPages > 1;
+  }
+
+  @action
+  prevDetailsPage() {
+    if (this.analysisDetailsPage > 1) {
+      this.loadMappingDetailsPage(this.analysisDetailsPage - 1);
+    }
+  }
+
+  @action
+  nextDetailsPage() {
+    if (this.analysisDetailsPage < this.analysisDetailsTotalPages) {
+      this.loadMappingDetailsPage(this.analysisDetailsPage + 1);
     }
   }
 
