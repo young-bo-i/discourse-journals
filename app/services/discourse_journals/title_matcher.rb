@@ -59,12 +59,9 @@ module DiscourseJournals
 
       publish_progress(:forum, 0, 0, "正在查询论坛期刊数据...")
 
-      topics = Topic
-        .where(category_id: category_id)
-        .where(deleted_at: nil)
-        .select(:id, :title)
-
-      total = topics.count
+      base_scope = Topic.where(category_id: category_id).where(deleted_at: nil)
+      total = base_scope.count
+      topics = base_scope.select(:id, :title)
       publish_progress(:forum, 0, total, "正在建立论坛标题索引 (#{total} 个话题)...")
 
       topics.find_each.with_index do |topic, idx|
