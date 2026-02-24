@@ -10,6 +10,11 @@ module DiscourseJournals
         return render_json_error("已有映射分析任务正在进行中")
       end
 
+      current = MappingAnalysis.current
+      if current&.sync_processing?
+        return render_json_error("映射应用正在执行中，请先暂停应用任务")
+      end
+
       MappingAnalysis.where.not(status: %i[pending processing]).delete_all
 
       analysis = MappingAnalysis.create!(
@@ -70,7 +75,10 @@ module DiscourseJournals
         return render_json_error("请先暂停当前分析任务")
       end
 
-      # 清除所有旧的分析记录
+      if current&.sync_processing?
+        return render_json_error("映射应用正在执行中，请先暂停应用任务")
+      end
+
       MappingAnalysis.delete_all
 
       analysis = MappingAnalysis.create!(
@@ -99,15 +107,8 @@ module DiscourseJournals
       analysis = MappingAnalysis.current
 
       unless analysis&.can_apply?
-        return render_json_error("当前没有可以应用的分析结果（需要分析已完成且未在应用中）")
+        return render_json_error("当前没有可以应用的分析结果（需要分析已完成且从未应用过）")
       end
-
-      analysis.update!(
-        apply_status: :not_applied,
-        apply_error_message: nil,
-        apply_stats: {},
-        apply_checkpoint: {},
-      )
 
       Jobs.enqueue(
         Jobs::DiscourseJournals::ApplyMapping,
@@ -194,21 +195,6 @@ module DiscourseJournals
     rescue StandardError => e
       Rails.logger.error("[DiscourseJournals::Mapping] Failed to resume apply: #{e.message}")
       render_json_error("恢复应用失败: #{e.message}")
-    end
-
-    # POST /admin/journals/mapping/apply_reset
-    def apply_reset
-      analysis = MappingAnalysis.current
-
-      unless analysis
-        return render_json_error("没有可以重置的分析记录")
-      end
-
-      analysis.reset_apply!
-      render json: { status: "reset", message: "应用状态已重置" }
-    rescue StandardError => e
-      Rails.logger.error("[DiscourseJournals::Mapping] Failed to reset apply: #{e.message}")
-      render_json_error("重置应用失败: #{e.message}")
     end
 
     # DELETE /admin/journals/delete_all

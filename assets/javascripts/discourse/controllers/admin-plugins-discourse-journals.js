@@ -85,6 +85,7 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
     return (
       this.analysisResult &&
       this.analysisResult.status === "completed" &&
+      this.analysisResult.apply_status === "not_applied" &&
       !this.applying &&
       !this.applyCompleted &&
       !this.applyFailed &&
@@ -94,13 +95,6 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
 
   get canResumeApply() {
     return !this.applying && (this.applyPaused || this.applyFailed);
-  }
-
-  get canResetApply() {
-    return (
-      !this.applying &&
-      (this.applyPaused || this.applyFailed || this.applyCompleted)
-    );
   }
 
   // ============ 映射分析 ============
@@ -461,23 +455,6 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
       await ajax("/admin/journals/mapping/apply_pause", { type: "POST" });
     } catch (e) {
       this.applyPausing = false;
-      popupAjaxError(e);
-    }
-  }
-
-  @action
-  async resetApplyMapping() {
-    const confirmed = await this.dialog.yesNoConfirm({
-      message: i18n("discourse_journals.admin.mapping.apply_reset_confirm"),
-    });
-    if (!confirmed) {
-      return;
-    }
-
-    try {
-      await ajax("/admin/journals/mapping/apply_reset", { type: "POST" });
-      this._resetApplyUI();
-    } catch (e) {
       popupAjaxError(e);
     }
   }

@@ -27,7 +27,7 @@
               @action={{action "startMappingAnalysis"}}
               @label="discourse_journals.admin.mapping.start"
               @icon="exchange-alt"
-              @disabled={{this.analyzing}}
+              @disabled={{or this.analyzing this.applying}}
             />
             {{#if
               (or this.analysisPaused this.analysisFailed this.analysisResult)
@@ -37,6 +37,7 @@
                 @action={{action "restartMappingAnalysis"}}
                 @label="discourse_journals.admin.mapping.restart"
                 @icon="redo"
+                @disabled={{this.applying}}
               />
             {{/if}}
           {{/if}}
@@ -431,15 +432,6 @@
                   @icon="play"
                 />
               {{/if}}
-
-              {{#if this.canResetApply}}
-                <DButton
-                  @class="btn-default"
-                  @action={{action "resetApplyMapping"}}
-                  @label="discourse_journals.admin.mapping.apply_reset"
-                  @icon="redo"
-                />
-              {{/if}}
             {{/if}}
           </div>
         </div>
@@ -519,6 +511,9 @@
                   }}:
                   {{this.applyStats.created}}</p>
               {{/if}}
+              <p class="apply-completed-hint">{{i18n
+                  "discourse_journals.admin.mapping.apply_completed_hint"
+                }}</p>
             </div>
           {{/if}}
 

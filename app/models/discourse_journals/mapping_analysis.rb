@@ -39,22 +39,11 @@ module DiscourseJournals
     end
 
     def can_apply?
-      completed? && %w[not_applied sync_completed sync_failed sync_paused].include?(apply_status)
+      completed? && not_applied?
     end
 
     def can_resume_apply?
       completed? && (sync_paused? || sync_failed?)
-    end
-
-    def reset_apply!
-      update!(
-        apply_status: :not_applied,
-        apply_stats: {},
-        apply_checkpoint: {},
-        apply_error_message: nil,
-        apply_started_at: nil,
-        apply_completed_at: nil,
-      )
     end
 
     def summary

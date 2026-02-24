@@ -106,8 +106,6 @@ after_initialize do
          :constraints => AdminConstraint.new
     post "/admin/journals/mapping/apply_resume" => "discourse_journals/admin_mapping#apply_resume",
          :constraints => AdminConstraint.new
-    post "/admin/journals/mapping/apply_reset" => "discourse_journals/admin_mapping#apply_reset",
-         :constraints => AdminConstraint.new
 
     # 管理操作
     delete "/admin/journals/delete_all" => "discourse_journals/admin_mapping#delete_all",
