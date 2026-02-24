@@ -1,508 +1,306 @@
 # frozen_string_literal: true
 
 module DiscourseJournals
-  # 字段归一化服务：将各数据源字段映射到统一结构
   class FieldNormalizer
     def initialize(journal_data)
-      @journal_data = ensure_hash(journal_data).deep_symbolize_keys
-      @unified_index = ensure_hash(@journal_data[:unified_index])
-      @sources = ensure_hash(@journal_data[:sources])
-      preparse_sources!
+      @data = journal_data.is_a?(Hash) ? journal_data.deep_symbolize_keys : {}
+      @unified = @data[:unified] || {}
+      @sources = @data[:sources] || {}
+      @cover = @data[:cover] || {}
+      @issn_details = @data[:issn_details] || []
     end
 
     def normalize
       {
         identity: build_identity,
         publication: build_publication,
-        open_access: build_open_access,
-        review_compliance: build_review_compliance,
-        preservation: build_preservation,
-        subjects_topics: build_subjects_topics,
         metrics: build_metrics,
-        crossref_quality: build_crossref_quality,
-        nlm_cataloging: build_nlm_cataloging,
-        wikipedia: build_wikipedia,
         jcr: build_jcr,
-        cas_partition: build_cas_partition,
+        scimago: build_scimago,
+        cas_partition: build_cas,
+        warning: build_warning,
+        open_access: build_open_access,
+        subjects_topics: build_subjects,
+        crossref_quality: build_crossref,
       }
     end
 
     private
 
-    attr_reader :journal_data, :unified_index, :sources,
-                :crossref, :crossref_msg,
-                :doaj, :doaj_result, :doaj_bibjson,
-                :nlm, :nlm_result, :nlm_journal,
-                :openalex, :wikidata, :wikidata_bindings,
-                :issn_info
+    attr_reader :data, :unified, :sources, :cover, :issn_details
 
-    def preparse_sources!
-      @crossref = ensure_hash(sources[:crossref])
-      @doaj = ensure_hash(sources[:doaj])
-      @nlm = ensure_hash(sources[:nlm])
-      @openalex = ensure_hash(sources[:openalex])
-      @wikidata = ensure_hash(sources[:wikidata])
-
-      @crossref_msg = ensure_hash(safe_dig(@crossref, :message) || @crossref)
-      @doaj_result = ensure_hash(safe_dig(@doaj, :results, 0))
-      @doaj_bibjson = ensure_hash(@doaj_result[:bibjson])
-      @nlm_result = ensure_hash(@nlm[:result])
-      @nlm_journal = ensure_hash(@nlm_result.values.find { |v| v.is_a?(Hash) && v[:uid] })
-      @wikidata_bindings = safe_dig(@wikidata, :results, :bindings) || []
-      @issn_info = ensure_hash(unified_index[:issn_info])
+    def oa_main
+      @_oa_main ||= sources.dig(:openalex, :main) || {}
     end
 
-    def ensure_hash(data)
-      return {} if data.nil?
-      return data if data.is_a?(Hash)
-      
-      if data.is_a?(String)
-        begin
-          parsed = JSON.parse(data)
-          return parsed if parsed.is_a?(Hash)
-        rescue JSON::ParserError
-          # fallthrough
-        end
-      end
-      
-      {}
+    def wd_main
+      @_wd_main ||= sources.dig(:wikidata, :main) || {}
     end
 
-    def safe_dig(hash, *keys)
-      return nil if hash.nil?
-      
-      # 如果是字符串，尝试解析为 JSON
-      if hash.is_a?(String)
-        begin
-          hash = JSON.parse(hash)
-        rescue JSON::ParserError
-          return nil
-        end
-      end
-      
-      # 如果不是哈希类型，返回 nil
-      return nil unless hash.respond_to?(:dig)
-      
-      hash.dig(*keys)
-    rescue StandardError
-      nil
+    def doaj_main
+      @_doaj_main ||= sources.dig(:doaj, :main) || {}
+    end
+
+    def scimago_main
+      @_scimago_main ||= sources.dig(:scimago, :main) || {}
+    end
+
+    def jcr_main
+      @_jcr_main ||= sources.dig(:jcr, :main) || {}
+    end
+
+    def fqb_main
+      @_fqb_main ||= sources.dig(:fqb, :main) || {}
     end
 
     def build_identity
+      abbreviation = wd_main[:iso4_abbreviation] ||
+        wd_main[:short_name] ||
+        sources.dig(:openalex, :alternate_titles)&.first&.dig(:title)
+
       {
-        title_main: extract_title,
-        title_alternate: extract_alternate_titles(nlm_journal, openalex),
-        issn_l: extract_issn_l(issn_info, openalex),
-        issn_list: extract_issn_list(crossref_msg, nlm_journal, openalex, doaj_bibjson, issn_info),
-        issn_type_detail: extract_issn_type_detail(crossref_msg, nlm_journal, issn_info),
-        issn_info: issn_info.presence,
-        homepage_url: extract_homepage(openalex, doaj_bibjson, wikidata_bindings),
-        official_website_list: extract_official_websites(wikidata_bindings, doaj_bibjson),
-        external_ids: {
-          openalex_id: openalex[:id],
-          wikidata_id: extract_wikidata_id(openalex, wikidata_bindings),
-          nlm_unique_id: nlm_journal[:nlmuniqueid],
-          crossref_status: crossref_msg[:status],
-        },
+        title: unified[:canonical_name],
+        abbreviation: abbreviation,
+        issn_l: unified[:issn_l],
+        issn_details: issn_details,
+        alternate_titles: extract_alternate_titles,
+        openalex_id: unified[:openalex_id],
+        openalex_type: unified[:openalex_type] || oa_main[:type],
+        wikidata_qid: unified[:wikidata_qid],
+        cover_url: cover[:cover_url],
+        cover_original_url: cover[:original_url],
+        homepage_url: oa_main[:homepage_url] || extract_wikidata_homepage,
       }
     end
 
     def build_publication
       {
-        publisher_name: extract_publisher_name(doaj_bibjson, crossref_msg, nlm_journal, openalex),
-        publisher_country: extract_publisher_country(doaj_bibjson, openalex, nlm_journal),
-        publication_place: safe_dig(nlm_journal, :publicationinfolist, 0, :place),
-        start_year_cataloging: nlm_journal[:startyear],
-        start_year_statistical: openalex[:first_publication_year],
-        oa_start_year: doaj_bibjson[:oa_start],
-        end_year: nlm_journal[:endyear],
-        serial_publication_note: safe_dig(nlm_journal, :publicationinfolist, 0, :datesofserialpublication),
-        language: extract_languages(unified_index, doaj_bibjson, nlm_journal),
+        publisher_name: unified[:crossref_publisher] || unified[:doaj_publisher] || oa_main[:host_organization_name],
+        publisher_id: oa_main[:host_organization],
+        country_code: unified[:openalex_country] || unified[:doaj_country] || oa_main[:country_code],
+        country_name: unified[:wikidata_country] || unified[:scimago_country] || wd_main[:country_label],
+        first_publication_year: oa_main[:first_publication_year],
+        last_publication_year: oa_main[:last_publication_year],
+        is_core: oa_main[:is_core],
+      }
+    end
+
+    def build_metrics
+      counts_by_year = sources.dig(:openalex, :counts_by_year) || []
+      sorted_counts = counts_by_year
+        .select { |c| c[:year] && c[:works_count] }
+        .sort_by { |c| -c[:year] }
+
+      {
+        works_count: unified[:openalex_works_count] || oa_main[:works_count],
+        oa_works_count: oa_main[:oa_works_count],
+        cited_by_count: unified[:openalex_cited_by_count] || oa_main[:cited_by_count],
+        h_index: unified[:openalex_h_index] || oa_main[:summary_stats_h_index],
+        i10_index: unified[:openalex_i10_index] || oa_main[:summary_stats_i10_index],
+        two_year_mean_citedness: unified[:openalex_2yr_mean_citedness] || oa_main[:summary_stats_2yr_mean_citedness],
+        apc_usd: oa_main[:apc_usd],
+        counts_by_year: sorted_counts.first(15).map { |c|
+          {
+            year: c[:year],
+            works_count: c[:works_count].to_i,
+            oa_works_count: c[:oa_works_count].to_i,
+            cited_by_count: c[:cited_by_count].to_i,
+          }
+        },
+      }
+    end
+
+    def build_jcr
+      main = jcr_main
+      all_years = sources.dig(:jcr, :all_years) || []
+      return nil if main.empty? && all_years.empty?
+
+      years = all_years.any? ? all_years : [main]
+      {
+        data: years
+          .select { |y| y[:year] }
+          .sort_by { |y| -y[:year].to_i }
+          .map { |y|
+            {
+              year: y[:year],
+              impact_factor: y[:impact_factor],
+              quartile: y[:if_quartile],
+              rank: y[:if_rank],
+              category: y[:category],
+            }
+          },
+      }
+    end
+
+    def build_scimago
+      main = scimago_main
+      all_years = sources.dig(:scimago, :all_years) || []
+      return nil if main.empty? && all_years.empty?
+
+      years = all_years.any? ? all_years : [main]
+      {
+        data: years
+          .select { |y| y[:year] }
+          .sort_by { |y| -y[:year].to_i }
+          .map { |y|
+            {
+              year: y[:year],
+              sjr: parse_decimal(y[:sjr]),
+              best_quartile: y[:sjr_best_quartile],
+              h_index: y[:h_index],
+              total_docs_year: y[:total_docs_year],
+              total_docs_3years: y[:total_docs_3years],
+              total_refs: y[:total_refs],
+              total_citations_3years: y[:total_citations_3years],
+              citable_docs_3years: y[:citable_docs_3years],
+              citations_per_doc_2years: parse_decimal(y[:citations_per_doc_2years]),
+              ref_per_doc: parse_decimal(y[:ref_per_doc]),
+              female_pct: parse_decimal(y[:female_pct]),
+              overton: y[:overton],
+              sdg: y[:sdg],
+              categories: y[:categories],
+            }
+          },
+      }
+    end
+
+    def build_cas
+      main = fqb_main
+      all_years = sources.dig(:fqb, :all_years) || []
+      return nil if main.empty? && all_years.empty?
+
+      years = all_years.any? ? all_years : [main]
+      {
+        data: years
+          .select { |y| y[:year] }
+          .sort_by { |y| -y[:year].to_i }
+          .map { |y|
+            minor_cats = (1..6).filter_map { |i|
+              cat = y[:"subcategory_#{i}"]
+              next unless cat.present?
+              { category: cat, quartile: y[:"subcategory_#{i}_quartile"] }
+            }
+            {
+              year: y[:year],
+              major_category: y[:major_category],
+              major_quartile: y[:major_quartile],
+              top: y[:top],
+              web_of_science: y[:web_of_science],
+              open_access: y[:open_access],
+              minor_categories: minor_cats,
+            }
+          },
+      }
+    end
+
+    def build_warning
+      main = sources.dig(:gjqk, :main) || {}
+      all_years = sources.dig(:gjqk, :all_years) || []
+      return nil if main.empty? && all_years.empty?
+
+      years = all_years.any? ? all_years : [main]
+      {
+        data: years
+          .select { |y| y[:year] }
+          .sort_by { |y| -y[:year].to_i }
+          .map { |y|
+            {
+              year: y[:year],
+              level: y[:warning_level],
+              reason: y[:warning_reason],
+            }
+          },
       }
     end
 
     def build_open_access
       {
-        is_oa: openalex[:is_oa] || doaj_bibjson[:boai],
-        is_in_doaj: openalex[:is_in_doaj] || !doaj_result.empty?,
-        doaj_since_year: openalex[:is_in_doaj_since_year],
-        oa_start_year: doaj_bibjson[:oa_start],
-        author_retains_copyright: safe_dig(doaj_bibjson, :copyright, :author_retains),
-        copyright_url: safe_dig(doaj_bibjson, :copyright, :url),
-        license_list: doaj_bibjson[:license],
-        license_terms_url: safe_dig(doaj_bibjson, :ref, :license_terms),
-        has_apc: extract_has_apc(doaj_bibjson, openalex),
-        apc_price: extract_apc_price(doaj_bibjson, openalex),
-        apc_url: safe_dig(doaj_bibjson, :apc, :url),
-        has_waiver: safe_dig(doaj_bibjson, :waiver, :has_waiver),
-        waiver_url: safe_dig(doaj_bibjson, :waiver, :url),
-        other_charges: doaj_bibjson[:other_charges],
+        is_oa: to_bool(unified[:openalex_is_oa]) || to_bool(oa_main[:is_oa]),
+        is_in_doaj: to_bool(unified[:doaj_is_in_doaj]) || to_bool(oa_main[:is_in_doaj]),
+        has_apc: to_bool(unified[:doaj_has_apc]) || to_bool(doaj_main[:apc_has_apc]),
+        apc_usd: oa_main[:apc_usd],
+        apc_prices: sources.dig(:openalex, :apc_prices) || [],
+        doaj_apc_max: sources.dig(:doaj, :apc_max) || [],
+        licenses: sources.dig(:doaj, :licenses) || [],
       }
     end
 
-    def build_review_compliance
-      {
-        review_process: safe_dig(doaj_bibjson, :editorial, :review_process),
-        review_url: safe_dig(doaj_bibjson, :editorial, :review_url),
-        editorial_board_url: safe_dig(doaj_bibjson, :editorial, :board_url),
-        plagiarism_detection: safe_dig(doaj_bibjson, :plagiarism, :detection),
-        plagiarism_url: safe_dig(doaj_bibjson, :plagiarism, :url),
-        author_instructions_url: safe_dig(doaj_bibjson, :ref, :author_instructions),
-        oa_statement_url: safe_dig(doaj_bibjson, :ref, :oa_statement),
-        aims_scope_url: safe_dig(doaj_bibjson, :ref, :aims_scope),
-        publication_time_weeks: doaj_bibjson[:publication_time_weeks],
-      }
-    end
-
-    def build_preservation
-      {
-        preservation_service: safe_dig(doaj_bibjson, :preservation, :service),
-        preservation_national_library: safe_dig(doaj_bibjson, :preservation, :national_library),
-        preservation_url: safe_dig(doaj_bibjson, :preservation, :url),
-        has_deposit_policy: safe_dig(doaj_bibjson, :deposit_policy, :has_policy),
-        deposit_policy_service: safe_dig(doaj_bibjson, :deposit_policy, :service),
-        deposit_policy_url: safe_dig(doaj_bibjson, :deposit_policy, :url),
-      }
-    end
-
-    def build_subjects_topics
-      {
-        subject_list: doaj_bibjson[:subject],
-        keywords: doaj_bibjson[:keywords],
-        topics_top: openalex[:topics],
-        topic_share: safe_dig(openalex, :topic_share),
-      }
-    end
-
-    def build_metrics
-      {
-        works_count: openalex[:works_count] || unified_index[:works_count],
-        oa_works_count: openalex[:oa_works_count],
-        cited_by_count: openalex[:cited_by_count] || unified_index[:cited_by_count],
-        two_year_mean_citedness: safe_dig(openalex, :summary_stats, :"2yr_mean_citedness"),
-        h_index: safe_dig(openalex, :summary_stats, :h_index),
-        i10_index: safe_dig(openalex, :summary_stats, :i10_index),
-        counts_by_year: openalex[:counts_by_year],
-        works_api_url: openalex[:works_api_url],
-      }
-    end
-
-    def build_crossref_quality
-      {
-        doi_counts: crossref_msg[:counts],
-        dois_by_year: safe_dig(crossref_msg, :breakdowns, :dois_by_issued_year),
-        metadata_coverage: crossref_msg[:coverage],
-        coverage_type: crossref_msg[:"coverage-type"],
-        deposit_flags: crossref_msg[:flags],
-        crossref_subjects: crossref_msg[:subjects],
-      }
-    end
-
-    def build_nlm_cataloging
-      {
-        title_sort: nlm_journal[:titlemainsort],
-        medline_ta: nlm_journal[:medlineta],
-        current_indexing_status: nlm_journal[:currentindexingstatus],
-        resource_type: nlm_journal[:resourceinfolist],
-        nlm_date_revised: nlm_journal[:daterevised],
-        broad_heading: nlm_journal[:broadheading],
-        continuation_notes: nlm_journal[:continuationnotes],
-      }
-    end
-
-    def build_wikipedia
-      wikipedia = ensure_hash(sources[:wikipedia])
-      return nil if wikipedia.empty?
+    def build_subjects
+      oa_topics = sources.dig(:openalex, :topics) || []
+      doaj_keywords = sources.dig(:doaj, :keywords) || []
+      doaj_subjects = sources.dig(:doaj, :subjects) || []
 
       {
-        article_title: wikipedia[:article_title],
-        extract: wikipedia[:extract],
-        description: wikipedia[:description],
-        thumbnail: wikipedia[:thumbnail],
-        categories: wikipedia[:categories],
-        infobox: wikipedia[:infobox],
-        source_method: wikipedia[:source_method],
+        topics: oa_topics
+          .select { |t| t[:display_name] }
+          .first(8)
+          .map { |t|
+            {
+              name: t[:display_name],
+              count: t[:count],
+              score: t[:score],
+              field: t[:field_display_name],
+              domain: t[:domain_display_name],
+            }
+          },
+        keywords: doaj_keywords.map { |k| k[:keyword] }.compact,
+        subjects: doaj_subjects.map { |s| s[:term] || s[:code] }.compact,
       }
     end
 
-    def build_jcr
-      jcr = ensure_hash(journal_data[:jcr])
-      return nil if jcr.empty?
+    def build_crossref
+      cr = sources[:crossref]
+      return nil unless cr
+
+      main = cr[:main] || {}
+      dois_by_year = (cr[:dois_by_year] || [])
+        .select { |d| d[:year] && d[:count] }
+        .sort_by { |d| -d[:year].to_i }
+        .first(15)
+        .map { |d| { year: d[:year], count: d[:count].to_i } }
+
+      coverage = (cr[:coverage_types] || []).find { |c| c[:type_name] == "all" }
 
       {
-        total_years: jcr[:total_years],
-        data: normalize_jcr_data(jcr[:data]),
+        total_dois: main[:counts_total_dois],
+        current_dois: main[:counts_current_dois],
+        dois_by_year: dois_by_year,
+        coverage: coverage ? extract_coverage(coverage) : nil,
       }
     end
 
-    def build_cas_partition
-      cas = ensure_hash(journal_data[:cas_partition])
-      return nil if cas.empty?
-
-      {
-        total_years: cas[:total_years],
-        data: normalize_cas_data(cas[:data]),
-      }
-    end
-
-    def normalize_jcr_data(data)
-      return [] unless data.is_a?(Array)
-
-      data.map do |item|
-        item = ensure_hash(item)
-        {
-          year: item[:year],
-          journal: item[:journal],
-          issn: item[:issn],
-          eissn: item[:eissn],
-          category: item[:category],
-          impact_factor: item[:impact_factor],
-          quartile: item[:quartile],
-          rank: item[:rank],
-        }
-      end
-    end
-
-    def normalize_cas_data(data)
-      return [] unless data.is_a?(Array)
-
-      data.map do |item|
-        item = ensure_hash(item)
-        {
-          year: item[:year],
-          journal: item[:journal],
-          issn: item[:issn],
-          review: item[:review],
-          open_access: item[:open_access],
-          web_of_science: item[:web_of_science],
-          major_category: item[:major_category],
-          major_partition: item[:major_partition],
-          is_top_journal: item[:is_top_journal],
-          minor_categories: item[:minor_categories],
-        }
-      end
-    end
-
-    # 辅助方法
-    def extract_title
-      unified_index[:title] ||
-        safe_dig(sources, :openalex, :display_name) ||
-        safe_dig(sources, :crossref, :message, :title) ||
-        safe_dig(sources, :doaj, :results, 0, :bibjson, :title) ||
-        safe_dig(sources, :nlm, :result)&.values&.find { |v| v.is_a?(Hash) && v[:uid] }&.dig(:titlemainlist, 0, :title) ||
-        journal_data[:name]
-    end
-
-    def extract_alternate_titles(nlm_journal, openalex)
+    def extract_alternate_titles
       titles = []
-      
-      # NLM alternate titles
-      if nlm_journal[:titleotherlist].is_a?(Array)
-        titles.concat(nlm_journal[:titleotherlist].map { |t| t.is_a?(Hash) ? t[:titlealternate] : nil }.compact)
-      end
-      
-      # OpenAlex alternate titles
-      openalex_titles = openalex[:alternate_titles]
-      if openalex_titles.is_a?(Array)
-        titles.concat(openalex_titles)
-      elsif openalex_titles.is_a?(String)
-        titles << openalex_titles
-      end
-      
-      titles.compact.uniq
+      oa_alts = sources.dig(:openalex, :alternate_titles) || []
+      oa_alts.each { |a| titles << (a.is_a?(Hash) ? a[:title] : a.to_s) }
+
+      wd_titles = sources.dig(:wikidata, :titles) || []
+      wd_titles.each { |t| titles << t[:title] if t[:title] }
+
+      titles.compact.uniq.first(5)
     end
 
-    # 提取主 ISSN-L（链接 ISSN）
-    # 优先从 issn_info 提取，其次从 openalex，最后从 journal_data
-    def extract_issn_l(issn_info, openalex)
-      # 1. 优先使用 issn_info 中的 issn_l
-      return issn_info[:issn_l] if valid_issn_format?(issn_info[:issn_l])
-
-      # 2. 使用 issn_info 中的 issn
-      return issn_info[:issn] if valid_issn_format?(issn_info[:issn])
-
-      # 3. 使用 issn_info 中的 eissn
-      return issn_info[:eissn] if valid_issn_format?(issn_info[:eissn])
-
-      # 4. 从 all_issns 中提取第一个有效 ISSN
-      all_issns = issn_info[:all_issns]
-      if all_issns.is_a?(Array) && all_issns.any?
-        first_valid = all_issns.find { |entry| entry.is_a?(Hash) && valid_issn_format?(entry[:issn]) }
-        return first_valid[:issn] if first_valid
-      end
-
-      # 5. 使用 openalex 的 issn_l
-      return openalex[:issn_l] if valid_issn_format?(openalex[:issn_l])
-
-      # 6. 回退到 journal_data 的 issn（可能是 OpenAlex ID，但作为最后手段）
-      journal_data[:issn]
+    def extract_wikidata_homepage
+      websites = sources.dig(:wikidata, :websites) || []
+      websites.first&.dig(:url)
     end
 
-    # 验证 ISSN 格式（标准 ISSN 格式: XXXX-XXXX）
-    def valid_issn_format?(issn)
-      return false if issn.blank?
-      issn.to_s.match?(/^\d{4}-\d{3}[\dX]$/i)
+    def extract_coverage(cov)
+      %i[abstracts references orcids funders licenses affiliations].filter_map { |key|
+        val = cov[key]
+        next unless val.is_a?(Numeric) && val > 0
+        [key, (val * 100).round(0)]
+      }.to_h
     end
 
-    def extract_issn_list(crossref_msg, nlm_journal, openalex, doaj_bibjson, issn_info = {})
-      issns = []
-
-      # 优先添加 issn_info 中的 ISSN（这些是最准确的）
-      issns << issn_info[:issn_l] if valid_issn_format?(issn_info[:issn_l])
-      issns << issn_info[:issn] if valid_issn_format?(issn_info[:issn])
-      issns << issn_info[:eissn] if valid_issn_format?(issn_info[:eissn])
-
-      # 从 all_issns 中添加
-      all_issns = issn_info[:all_issns]
-      if all_issns.is_a?(Array)
-        all_issns.each do |entry|
-          issns << entry[:issn] if entry.is_a?(Hash) && valid_issn_format?(entry[:issn])
-        end
-      end
-
-      # Crossref ISSN（可能是数组或字符串）
-      crossref_issn = crossref_msg[:ISSN]
-      if crossref_issn.is_a?(Array)
-        issns.concat(crossref_issn.select { |i| valid_issn_format?(i) })
-      elsif valid_issn_format?(crossref_issn)
-        issns << crossref_issn
-      end
-
-      # NLM ISSN list
-      if nlm_journal[:issnlist].is_a?(Array)
-        nlm_journal[:issnlist].each do |i|
-          issns << i[:issn] if i.is_a?(Hash) && valid_issn_format?(i[:issn])
-        end
-      end
-
-      # OpenAlex ISSN（可能是数组或字符串）
-      openalex_issn = openalex[:issn]
-      if openalex_issn.is_a?(Array)
-        issns.concat(openalex_issn.select { |i| valid_issn_format?(i) })
-      elsif valid_issn_format?(openalex_issn)
-        issns << openalex_issn
-      end
-
-      # DOAJ ISSN
-      issns << doaj_bibjson[:eissn] if valid_issn_format?(doaj_bibjson[:eissn])
-      issns << doaj_bibjson[:pissn] if valid_issn_format?(doaj_bibjson[:pissn])
-
-      issns.compact.uniq
+    def parse_decimal(val)
+      return nil if val.nil?
+      val.to_s.tr(",", ".").to_f
     end
 
-    def extract_issn_type_detail(crossref_msg, nlm_journal, issn_info = {})
-      details = []
-
-      # 优先添加 issn_info 中的详细信息
-      all_issns = issn_info[:all_issns]
-      if all_issns.is_a?(Array)
-        all_issns.each do |entry|
-          if entry.is_a?(Hash) && valid_issn_format?(entry[:issn])
-            details << { issn: entry[:issn], type: entry[:type], source: "unified_index" }
-          end
-        end
-      end
-
-      # Crossref ISSN types
-      crossref_issn_types = crossref_msg[:"issn-type"]
-      if crossref_issn_types.is_a?(Array)
-        crossref_issn_types.each do |item|
-          if item.is_a?(Hash) && valid_issn_format?(item[:value])
-            details << { issn: item[:value], type: item[:type], source: "Crossref" }
-          end
-        end
-      end
-
-      # NLM ISSN list
-      nlm_issn_list = nlm_journal[:issnlist]
-      if nlm_issn_list.is_a?(Array)
-        nlm_issn_list.each do |item|
-          if item.is_a?(Hash) && valid_issn_format?(item[:issn])
-            details << { issn: item[:issn], type: item[:issntype], source: "NLM" }
-          end
-        end
-      end
-
-      # 去重（基于 ISSN）
-      details.uniq { |d| d[:issn] }
-    end
-
-    def extract_homepage(openalex, doaj_bibjson, wikidata_bindings)
-      openalex[:homepage_url] ||
-        safe_dig(doaj_bibjson, :ref, :journal) ||
-        wikidata_bindings.first&.dig(:officialWebsite, :value) ||
-        unified_index[:homepage]
-    end
-
-    def extract_official_websites(wikidata_bindings, doaj_bibjson)
-      websites = []
-      websites.concat(wikidata_bindings.map { |b| b.dig(:officialWebsite, :value) }.compact)
-      websites << safe_dig(doaj_bibjson, :ref, :journal) if safe_dig(doaj_bibjson, :ref, :journal)
-      websites.compact.uniq
-    end
-
-    def extract_wikidata_id(openalex, wikidata_bindings)
-      openalex.dig(:ids, :wikidata) ||
-        wikidata_bindings.first&.dig(:item, :value)&.split("/")&.last
-    end
-
-    def extract_publisher_name(doaj_bibjson, crossref_msg, nlm_journal, openalex)
-      safe_dig(doaj_bibjson, :publisher, :name) ||
-        safe_dig(nlm_journal, :publicationinfolist, 0, :publisher) ||
-        openalex[:host_organization_name] ||
-        crossref_msg[:publisher] ||
-        unified_index[:publisher]
-    end
-
-    def extract_publisher_country(doaj_bibjson, openalex, nlm_journal)
-      country_code = safe_dig(doaj_bibjson, :publisher, :country) || openalex[:country_code]
-      country_name = nlm_journal[:country] || unified_index[:country]
-
-      if country_code || country_name
-        { code: country_code, name: country_name }.compact
-      else
-        nil
-      end
-    end
-
-    def extract_languages(unified_index, doaj_bibjson, nlm_journal)
-      langs = []
-      langs.concat(unified_index[:languages] || [])
-      langs.concat(doaj_bibjson[:language] || [])
-      langs << nlm_journal[:language] if nlm_journal[:language]
-      langs.compact.uniq
-    end
-
-    def extract_has_apc(doaj_bibjson, openalex)
-      safe_dig(doaj_bibjson, :apc, :has_apc) ||
-        (!openalex[:apc_prices].nil? && !openalex[:apc_prices].empty?) ||
-        unified_index[:apc_has]
-    end
-
-    def extract_apc_price(doaj_bibjson, openalex)
-      result = { primary: nil, alternatives: [] }
-
-      # DOAJ 作为主值
-      if safe_dig(doaj_bibjson, :apc, :max)&.any?
-        max_apc = doaj_bibjson[:apc][:max].first
-        result[:primary] = {
-          price: max_apc[:price],
-          currency: max_apc[:currency],
-          source: "DOAJ",
-        }
-      end
-
-      # OpenAlex 作为候选值
-      if openalex[:apc_prices]&.any?
-        openalex[:apc_prices].each do |apc|
-          result[:alternatives] << { price: apc[:price], currency: apc[:currency], source: "OpenAlex" }
-        end
-      end
-
-      # 添加美元估算
-      result[:usd_estimate] = openalex[:apc_usd] if openalex[:apc_usd]
-
-      result[:primary].nil? && result[:alternatives].empty? ? nil : result
+    def to_bool(val)
+      return nil if val.nil?
+      val == true || val == 1 || val == "1"
     end
   end
 end

@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 # name: discourse-journals
-# about: 期刊统一档案系统 - 映射分析与同步
+# about: Unified journal archive system - mapping, analysis and sync
 # version: 1.0
 # authors: enterscholar
 
@@ -16,7 +16,7 @@ end
 
 require_relative "lib/discourse_journals/engine"
 
-# 注册管理员路由（在 Plugins 菜单中显示）
+# Register admin route (shows in Plugins menu)
 add_admin_route "discourse_journals.title", "discourse-journals"
 
 after_initialize do
@@ -29,6 +29,7 @@ after_initialize do
   require_relative "app/services/discourse_journals/journal_upserter"
   require_relative "app/services/discourse_journals/title_matcher"
   require_relative "app/services/discourse_journals/api_data_transformer"
+  require_relative "app/services/discourse_journals/svg_chart_builder"
   require_relative "app/services/discourse_journals/mapping_applier"
   require_relative "app/jobs/regular/discourse_journals/analyze_mapping"
   require_relative "app/jobs/regular/discourse_journals/apply_mapping"
@@ -36,9 +37,16 @@ after_initialize do
 
   Topic.register_custom_field_type("discourse_journals_issn_l", :string)
   Topic.register_custom_field_type("discourse_journals_publisher", :string)
+  Topic.register_custom_field_type("discourse_journals_data", :string)
+  Topic.register_custom_field_type("discourse_journals_cover_url", :string)
 
   module ::DiscourseJournals
-    CUSTOM_FIELD_NAMES = %w[discourse_journals_issn_l discourse_journals_publisher].freeze
+    CUSTOM_FIELD_NAMES = %w[
+      discourse_journals_issn_l
+      discourse_journals_publisher
+      discourse_journals_data
+      discourse_journals_cover_url
+    ].freeze
 
     def self.resolve_seo_placeholders(template, topic)
       return "" if template.blank? || topic.nil?
@@ -141,8 +149,28 @@ after_initialize do
   register_html_builder("server:before-head-close-crawler", &keywords_html)
   register_html_builder("server:before-head-close", &keywords_html)
 
+  on(:before_post_process_cooked) do |doc, post|
+    next unless post&.topic
+    category_id = SiteSetting.discourse_journals_category_id.to_i
+    next if category_id.zero? || post.topic.category_id != category_id
+    next unless post.post_number == 1
+
+    json_field =
+      TopicCustomField.find_by(topic_id: post.topic_id, name: "discourse_journals_data")
+    if json_field&.value.present?
+      begin
+        normalized = JSON.parse(json_field.value).deep_symbolize_keys
+        html = ::DiscourseJournals::MasterRecordRenderer.new(normalized).render
+        post.update_columns(cooked: html, baked_version: Post::BAKED_VERSION)
+      rescue JSON::ParserError => e
+        Rails.logger.warn(
+          "[DiscourseJournals] Failed to re-render post #{post.id} from stored data: #{e.message}",
+        )
+      end
+    end
+  end
+
   Discourse::Application.routes.append do
-    # 映射分析
     post "/admin/journals/mapping/analyze" => "discourse_journals/admin_mapping#analyze",
          :constraints => AdminConstraint.new
     post "/admin/journals/mapping/pause" => "discourse_journals/admin_mapping#pause",
@@ -154,7 +182,6 @@ after_initialize do
     get "/admin/journals/mapping/details" => "discourse_journals/admin_mapping#details",
         :constraints => AdminConstraint.new
 
-    # 映射应用
     post "/admin/journals/mapping/apply" => "discourse_journals/admin_mapping#apply",
          :constraints => AdminConstraint.new
     get "/admin/journals/mapping/apply_status" => "discourse_journals/admin_mapping#apply_status",
@@ -164,7 +191,6 @@ after_initialize do
     post "/admin/journals/mapping/apply_resume" => "discourse_journals/admin_mapping#apply_resume",
          :constraints => AdminConstraint.new
 
-    # 管理操作
     delete "/admin/journals/delete_all" => "discourse_journals/admin_mapping#delete_all",
            :constraints => AdminConstraint.new
   end

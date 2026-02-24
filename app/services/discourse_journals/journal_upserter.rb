@@ -2,24 +2,30 @@
 
 module DiscourseJournals
   class JournalUpserter
+    CUSTOM_FIELD_NAMES = %w[
+      discourse_journals_issn_l
+      discourse_journals_publisher
+      discourse_journals_data
+      discourse_journals_cover_url
+    ].freeze
+
     def initialize(system_user: Discourse.system_user)
       @system_user = system_user
       @category_cache = nil
     end
 
-    def upsert!(journal, existing_topic_id: nil)
-      journal = ensure_hash(journal).deep_symbolize_keys
-      prepared = normalize_and_validate!(journal)
+    def upsert!(journal_data, existing_topic_id: nil)
+      prepared = normalize_and_render!(journal_data)
 
       if existing_topic_id
         topic = Topic.find_by(id: existing_topic_id)
         if topic
-          update_topic!(topic, journal, prepared)
+          update_topic!(topic, journal_data, prepared)
           return :updated
         end
       end
 
-      create_topic!(journal, prepared)
+      create_topic!(journal_data, prepared)
       :created
     end
 
@@ -27,27 +33,15 @@ module DiscourseJournals
 
     attr_reader :system_user
 
-    def ensure_hash(data)
-      return data if data.is_a?(Hash)
-      if data.is_a?(String)
-        begin
-          return JSON.parse(data)
-        rescue JSON::ParserError
-          return {}
-        end
-      end
-      {}
-    end
-
-    def create_topic!(journal, prepared)
+    def create_topic!(journal_data, prepared)
       category = journal_category
-      tags = build_tags(journal)
+      tags = build_tags(journal_data)
 
       creator =
         PostCreator.new(
           system_user,
           title: prepared[:title],
-          raw: prepared[:raw],
+          raw: prepared[:raw_text],
           category: category.id,
           tags: tags,
           skip_validations: true,
@@ -57,46 +51,52 @@ module DiscourseJournals
       post = creator.create!
       topic = post.topic
 
-      store_custom_fields!(topic, prepared[:normalized])
+      post.update_columns(
+        cooked: prepared[:html],
+        baked_version: Post::BAKED_VERSION,
+      )
+
+      store_custom_fields!(topic, prepared)
       ensure_closed!(topic)
       topic
     end
 
-    def update_topic!(topic, journal, prepared)
+    def update_topic!(topic, journal_data, prepared)
       first_post = topic.first_post
       if first_post
-        if first_post.raw != prepared[:raw]
-          first_post.update_columns(
-            raw: prepared[:raw],
-            cooked: PrettyText.cook(prepared[:raw]),
-            baked_version: Post::BAKED_VERSION,
-            updated_at: Time.current,
-          )
-          SearchIndexer.index(first_post) if first_post.topic_id
-        end
+        first_post.update_columns(
+          raw: prepared[:raw_text],
+          cooked: prepared[:html],
+          baked_version: Post::BAKED_VERSION,
+          updated_at: Time.current,
+        )
+        SearchIndexer.index(first_post) if first_post.topic_id
       end
 
       topic.update_columns(title: prepared[:title], fancy_title: nil) if topic.title != prepared[:title]
 
-      store_custom_fields!(topic, prepared[:normalized])
-      update_tags!(topic, journal)
+      store_custom_fields!(topic, prepared)
+      update_tags!(topic, journal_data)
       ensure_closed!(topic)
       topic
     end
 
-    CUSTOM_FIELD_NAMES = %w[discourse_journals_issn_l discourse_journals_publisher].freeze
-
-    def store_custom_fields!(topic, normalized)
-      issn_l = normalized.dig(:identity, :issn_l)
-      publisher = normalized.dig(:publication, :publisher_name)
-
+    def store_custom_fields!(topic, prepared)
       fields = {}
-      fields["discourse_journals_issn_l"] = issn_l.to_s if issn_l.present?
-      fields["discourse_journals_publisher"] = publisher.to_s if publisher.present?
+      fields["discourse_journals_issn_l"] = prepared[:issn_l].to_s if prepared[:issn_l].present?
+      fields["discourse_journals_publisher"] = prepared[:publisher].to_s if prepared[:publisher].present?
+      fields["discourse_journals_cover_url"] = prepared[:cover_url].to_s if prepared[:cover_url].present?
+
+      if prepared[:normalized_json].present?
+        fields["discourse_journals_data"] = prepared[:normalized_json]
+      end
+
       return if fields.empty?
 
       TopicCustomField.where(topic_id: topic.id, name: CUSTOM_FIELD_NAMES).delete_all
-      rows = fields.map { |name, value| { topic_id: topic.id, name: name, value: value, created_at: Time.current, updated_at: Time.current } }
+      rows = fields.map do |name, value|
+        { topic_id: topic.id, name: name, value: value, created_at: Time.current, updated_at: Time.current }
+      end
       TopicCustomField.insert_all(rows)
     end
 
@@ -106,14 +106,10 @@ module DiscourseJournals
       topic.update_status("closed", true, system_user)
     end
 
-    def update_tags!(topic, journal)
+    def update_tags!(topic, journal_data)
       return unless SiteSetting.tagging_enabled
-      
-      tags = build_tags(journal)
+      tags = build_tags(journal_data)
       return if tags.empty?
-      
-      # 使用 DiscourseTagging 更新标签
-      # add_or_create_tags_by_name 会自动创建不存在的标签
       DiscourseTagging.add_or_create_tags_by_name(topic, tags)
     end
 
@@ -126,84 +122,68 @@ module DiscourseJournals
       end
     end
 
-    def normalize_and_validate!(journal)
-      normalizer = FieldNormalizer.new(journal)
-      normalized_data = normalizer.normalize
+    def normalize_and_render!(journal_data)
+      normalizer = FieldNormalizer.new(journal_data)
+      normalized = normalizer.normalize
 
-      title = normalized_data.dig(:identity, :title_main)
+      title = normalized.dig(:identity, :title)
       raise ArgumentError, "Missing title in normalized data" if title.blank?
 
-      raw = MasterRecordRenderer.new(normalized_data).render
-      raise ArgumentError, "Empty content generated" if raw.blank?
+      renderer = MasterRecordRenderer.new(normalized)
+      html = renderer.render
+      raw_text = renderer.render_plain_text
+      raise ArgumentError, "Empty content generated" if html.blank?
 
-      { normalized: normalized_data, title: title, raw: raw }
+      {
+        title: title,
+        html: html,
+        raw_text: raw_text,
+        normalized: normalized,
+        normalized_json: normalized.to_json,
+        issn_l: normalized.dig(:identity, :issn_l),
+        publisher: normalized.dig(:publication, :publisher_name),
+        cover_url: normalized.dig(:identity, :cover_url),
+      }
     end
 
-    def build_tags(journal)
+    def build_tags(journal_data)
+      journal_data = journal_data.deep_symbolize_keys if journal_data.is_a?(Hash)
       tags = []
-      
-      # JCR 标签（使用 jcr: 前缀区分）
-      if jcr_data = journal.dig(:jcr, :data)
-        jcr_data = jcr_data.map { |d| d.is_a?(Hash) ? d.deep_symbolize_keys : d }
-        latest_jcr = jcr_data.first
-        if latest_jcr
-          # 从 category 提取索引类型和学科
-          # 例如: "ONCOLOGY(SCIE)" -> 索引类型 "SCIE", 学科 "Oncology"
-          if category = latest_jcr[:category]
-            category = category.to_s
-            # 提取括号内的索引类型: SCIE -> jcr:SCIE（保持大写）
-            if match = category.match(/\(([^)]+)\)\s*$/)
-              index_type = match[1].strip
-              tags << "jcr:#{index_type}" if index_type.present?
-            end
-            # 提取学科名称（去掉括号部分）: ONCOLOGY -> jcr:Oncology（首字母大写）
-            subject = category.gsub(/\([^)]*\)\s*$/, '').strip
-            tags << "jcr:#{titleize_subject(subject)}" if subject.present?
+
+      jcr_data = journal_data.dig(:sources, :jcr, :all_years) || []
+      jcr_data = [journal_data.dig(:sources, :jcr, :main)].compact if jcr_data.empty?
+      latest_jcr = jcr_data.first
+      if latest_jcr
+        if (category = latest_jcr[:category]&.to_s)
+          if (match = category.match(/\(([^)]+)\)\s*$/))
+            tags << "jcr:#{match[1].strip}"
           end
-          # 分区: Q1 -> jcr:Q1（保持大写）
-          if quartile = latest_jcr[:quartile]
-            tags << "jcr:#{quartile}"
+          subject = category.gsub(/\([^)]*\)\s*$/, "").strip
+          tags << "jcr:#{titleize_subject(subject)}" if subject.present?
+        end
+        tags << "jcr:#{latest_jcr[:if_quartile]}" if latest_jcr[:if_quartile]
+      end
+
+      fqb_data = journal_data.dig(:sources, :fqb, :all_years) || []
+      fqb_data = [journal_data.dig(:sources, :fqb, :main)].compact if fqb_data.empty?
+      latest_fqb = fqb_data.first
+      if latest_fqb
+        tags << "cas:#{latest_fqb[:web_of_science]}" if latest_fqb[:web_of_science].present?
+        if (partition = latest_fqb[:major_quartile]&.to_s)
+          if (pm = partition.match(/(\d+)/))
+            tags << "cas:#{I18n.t("discourse_journals.render.cas_tag_suffix", num: pm[1])}"
           end
         end
+        tags << "cas:#{latest_fqb[:major_category]}" if latest_fqb[:major_category].present?
       end
-      
-      # 中科院标签（使用 cas: 前缀区分）
-      if cas_data = journal.dig(:cas_partition, :data)
-        cas_data = cas_data.map { |d| d.is_a?(Hash) ? d.deep_symbolize_keys : d }
-        latest_cas = cas_data.first
-        if latest_cas
-          # WOS收录: SCIE -> cas:SCIE（保持大写）
-          if wos = latest_cas[:web_of_science]
-            tags << "cas:#{wos}"
-          end
-          # 分区: 提取数字 -> cas:1区
-          if partition = latest_cas[:major_partition]
-            partition_str = partition.to_s
-            if partition_match = partition_str.match(/(\d+)/)
-              tags << "cas:#{partition_match[1]}区"
-            end
-          end
-          # 大类学科: 医学 -> cas:医学（中文保持原样）
-          if major_category = latest_cas[:major_category]
-            tags << "cas:#{major_category}"
-          end
-        end
-      end
-      
-      # 去重并过滤空值
+
       tags.compact.reject(&:blank?).uniq
     end
 
-    # 将学科名称转换为首字母大写格式
-    # 例如: "ONCOLOGY" -> "Oncology", "CELL BIOLOGY" -> "Cell Biology"
     def titleize_subject(subject)
       return subject if subject.blank?
-      
-      # 如果包含中文，保持原样
       return subject if subject.match?(/[\u4e00-\u9fa5]/)
-      
-      # 英文学科名称：每个单词首字母大写
-      subject.split(/\s+/).map(&:capitalize).join(' ')
+      subject.split(/\s+/).map(&:capitalize).join(" ")
     end
   end
 end
