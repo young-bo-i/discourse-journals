@@ -56,7 +56,8 @@ module Jobs
             publish_progress(user_id, analysis, "processing", percent, message, stats)
           },
           cancel_check: -> {
-            analysis.reload.sync_paused?
+            reloaded = analysis.reload
+            reloaded.sync_paused? || reloaded.not_applied?
           },
         )
 

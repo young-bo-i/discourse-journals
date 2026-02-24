@@ -187,10 +187,6 @@ module DiscourseJournals
     def apply_reset
       analysis = MappingAnalysis.current
 
-      if analysis&.sync_processing?
-        return render_json_error("请先暂停正在运行的应用任务")
-      end
-
       unless analysis
         return render_json_error("没有可以重置的分析记录")
       end
