@@ -4,19 +4,17 @@ module DiscourseJournals
   class JournalUpserter
     def initialize(system_user: Discourse.system_user)
       @system_user = system_user
+      @category_cache = nil
     end
 
     def upsert!(journal, existing_topic_id: nil)
       journal = ensure_hash(journal).deep_symbolize_keys
-      
-      # 验证必要字段 - 使用 primary_id 作为主标识符
+
       primary_id = journal[:primary_id] || journal[:issn] || journal.dig(:unified_index, :issn_l)
       raise ArgumentError, "Missing primary_id" if primary_id.blank?
-      
-      # 归一化数据并缓存（避免重复计算，性能优化）
-      normalized_data = normalize_and_validate!(journal)
-      
-      # 使用传入的 topic_id 或查找（批量预查询时 existing_topic_id 已知）
+
+      prepared = normalize_and_validate!(journal)
+
       topic = if existing_topic_id
         find_topic_by_id(existing_topic_id, primary_id)
       else
@@ -24,16 +22,14 @@ module DiscourseJournals
       end
 
       if topic
-        update_topic!(topic, journal, normalized_data)
+        update_topic!(topic, journal, prepared)
         :updated
       else
-        create_topic!(journal, normalized_data)
+        create_topic!(journal, prepared)
         :created
       end
     rescue StandardError => e
-      # 记录详细错误日志
       log_error(journal, e)
-      # 重新抛出异常，让调用者知道失败了
       raise
     end
 
@@ -128,58 +124,54 @@ module DiscourseJournals
       topic
     end
 
-    def create_topic!(journal, normalized_data)
-      category_id = SiteSetting.discourse_journals_category_id.to_i
-      category = Category.find_by(id: category_id)
-      raise Discourse::InvalidParameters.new(:discourse_journals_category_id) if category.blank?
-
+    def create_topic!(journal, prepared)
+      category = journal_category
       tags = build_tags(journal)
-      title = build_title(normalized_data)
-      raw = build_raw(normalized_data)
 
       creator =
         PostCreator.new(
           system_user,
-          title: title,
-          raw: raw,
+          title: prepared[:title],
+          raw: prepared[:raw],
           category: category.id,
           tags: tags,
           skip_validations: true,
+          skip_jobs: true,
         )
 
       post = creator.create!
       topic = post.topic
 
-      update_custom_fields!(topic, journal)
-      close_topic!(topic)
+      upsert_custom_fields!(topic, journal)
+      ensure_closed!(topic)
       topic
     end
 
-    def update_topic!(topic, journal, normalized_data)
-      title = build_title(normalized_data)
-      raw = build_raw(normalized_data)
-      
+    def update_topic!(topic, journal, prepared)
       first_post = topic.first_post
-      revisor = PostRevisor.new(first_post, topic)
-      revisor.revise!(
-        system_user,
-        { raw: raw },
-        bypass_bump: SiteSetting.discourse_journals_bypass_bump,
-        skip_validations: true,
-      )
+      if first_post
+        if first_post.raw != prepared[:raw]
+          first_post.update_columns(
+            raw: prepared[:raw],
+            cooked: PrettyText.cook(prepared[:raw]),
+            baked_version: Post::BAKED_VERSION,
+            updated_at: Time.current,
+          )
+          SearchIndexer.index(first_post) if first_post.topic_id
+        end
+      end
 
-      topic.update!(title: title) if topic.title != title
+      topic.update_columns(title: prepared[:title], fancy_title: nil) if topic.title != prepared[:title]
 
-      # 更新标签
       update_tags!(topic, journal)
-
-      update_custom_fields!(topic, journal)
-      close_topic!(topic)
+      upsert_custom_fields!(topic, journal)
+      ensure_closed!(topic)
       topic
     end
 
-    def close_topic!(topic)
+    def ensure_closed!(topic)
       return unless SiteSetting.discourse_journals_close_topics
+      return if topic.closed?
       topic.update_status("closed", true, system_user)
     end
 
@@ -194,48 +186,41 @@ module DiscourseJournals
       DiscourseTagging.add_or_create_tags_by_name(topic, tags)
     end
 
-    def update_custom_fields!(topic, journal)
-      primary_id = journal[:primary_id] || journal[:issn]
-      
-      # 只保存唯一关联字段
-      topic.custom_fields[CUSTOM_FIELD_PRIMARY_ID] = primary_id
-      
-      # 保留旧字段名用于向后兼容
-      topic.custom_fields[CUSTOM_FIELD_ISSN] = primary_id
-      
-      topic.save_custom_fields(true)
+    def journal_category
+      @category_cache ||= begin
+        cid = SiteSetting.discourse_journals_category_id.to_i
+        cat = Category.find_by(id: cid)
+        raise Discourse::InvalidParameters.new(:discourse_journals_category_id) if cat.blank?
+        cat
+      end
     end
 
-    # 归一化数据并验证（返回缓存的 normalized_data，避免重复计算）
+    def upsert_custom_fields!(topic, journal)
+      primary_id = journal[:primary_id] || journal[:issn]
+      return if primary_id.blank?
+
+      now = Time.current
+      [CUSTOM_FIELD_PRIMARY_ID, CUSTOM_FIELD_ISSN].each do |field_name|
+        existing = TopicCustomField.where(topic_id: topic.id, name: field_name).first
+        if existing
+          existing.update_columns(value: primary_id, updated_at: now) if existing.value != primary_id
+        else
+          TopicCustomField.create!(topic_id: topic.id, name: field_name, value: primary_id)
+        end
+      end
+    end
+
     def normalize_and_validate!(journal)
-      # 归一化数据（只计算一次）
       normalizer = FieldNormalizer.new(journal)
       normalized_data = normalizer.normalize
-      
-      # 验证渲染是否成功
-      renderer = MasterRecordRenderer.new(normalized_data)
-      renderer.render
-      
-      # 验证必要字段（只验证标题，不再强制要求 ISSN）
+
       title = normalized_data.dig(:identity, :title_main)
       raise ArgumentError, "Missing title in normalized data" if title.blank?
-      
-      normalized_data
-    end
 
-    # 从缓存的 normalized_data 中提取标题
-    def build_title(normalized_data)
-      title = normalized_data.dig(:identity, :title_main)
-      raise ArgumentError, "Missing title" if title.blank?
-      title
-    end
+      raw = MasterRecordRenderer.new(normalized_data).render
+      raise ArgumentError, "Empty content generated" if raw.blank?
 
-    # 从缓存的 normalized_data 中渲染内容
-    def build_raw(normalized_data)
-      renderer = MasterRecordRenderer.new(normalized_data)
-      content = renderer.render
-      raise ArgumentError, "Empty content generated" if content.blank?
-      content
+      { normalized: normalized_data, title: title, raw: raw }
     end
 
     def build_tags(journal)
