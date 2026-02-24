@@ -10,9 +10,9 @@ module DiscourseJournals
 
     API_BASE_URL = "https://journal.scholay.com/api/open/journals"
     BYIDS_BATCH_SIZE = 50
-    API_CONCURRENCY = 5
+    API_CONCURRENCY = 4
     DELETE_BATCH_SIZE = 200
-    UPSERT_CONCURRENCY = 5
+    UPSERT_CONCURRENCY = 4
 
     attr_reader :stats
 
