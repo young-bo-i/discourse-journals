@@ -34,10 +34,18 @@ module DiscourseJournals
 
       resume_phase = @checkpoint["phase"]
 
+      Rails.logger.info(
+        "[DiscourseJournals::MappingApplier] run! phase=#{resume_phase.inspect}, " \
+        "checkpoint=#{@checkpoint.inspect}, stats=#{@stats.inspect}, " \
+        "api_actions=#{@api_actions.size}, deletes=#{@topics_to_delete.size}",
+      )
+
       if resume_phase == "api_sync"
+        Rails.logger.info("[DiscourseJournals::MappingApplier] SKIPPING deletes, resuming api_sync at offset #{@checkpoint["api_offset"]}")
         execute_api_sync(skip_offset: @checkpoint["api_offset"].to_i)
       else
         delete_offset = resume_phase == "deletes" ? @checkpoint["delete_offset"].to_i : 0
+        Rails.logger.info("[DiscourseJournals::MappingApplier] Starting deletes at offset #{delete_offset}")
         execute_deletes(skip_offset: delete_offset)
         execute_api_sync(skip_offset: 0)
       end
@@ -293,6 +301,9 @@ module DiscourseJournals
       remaining_ids = all_api_ids[skip_offset..] || []
       return if remaining_ids.empty?
 
+      Rails.logger.info(
+        "[DiscourseJournals::MappingApplier] execute_api_sync: total=#{total}, skip_offset=#{skip_offset}, remaining=#{remaining_ids.size}",
+      )
       publish_progress(5, "开始同步 API 数据 (共 #{total} 条，从 ##{skip_offset + 1} 继续)...")
 
       batches = remaining_ids.each_slice(BYIDS_BATCH_SIZE).to_a

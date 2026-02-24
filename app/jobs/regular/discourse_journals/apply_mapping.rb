@@ -31,6 +31,14 @@ module Jobs
         resume_checkpoint = resume ? (analysis.apply_checkpoint || {}) : {}
         resume_stats = resume ? (analysis.apply_stats || {}) : {}
 
+        if resume
+          Rails.logger.info(
+            "[DiscourseJournals::ApplyMapping] RESUME: checkpoint=#{resume_checkpoint.inspect}, stats=#{resume_stats.inspect}",
+          )
+        else
+          Rails.logger.info("[DiscourseJournals::ApplyMapping] FRESH START: no checkpoint")
+        end
+
         analysis.update!(
           apply_status: :sync_processing,
           apply_started_at: resume ? analysis.apply_started_at || Time.current : Time.current,
