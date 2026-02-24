@@ -33,7 +33,7 @@ module Jobs
             publish_progress(user_id, analysis, "processing", progress, message)
           },
           cancel_check: -> {
-            analysis.reload.paused?
+            ::DiscourseJournals::MappingAnalysis.where(id: analysis.id, status: :paused).exists?
           }
         )
 

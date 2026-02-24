@@ -13,6 +13,7 @@ import ageWithTooltip from "discourse/helpers/age-with-tooltip";
 import discourseDebounce from "discourse/lib/debounce";
 import { searchForTerm } from "discourse/lib/search";
 import DiscourseURL from "discourse/lib/url";
+import { i18n } from "discourse-i18n";
 
 export default class JournalSearchBox extends Component {
   static shouldRender(outletArgs, helper) {
@@ -140,7 +141,7 @@ export default class JournalSearchBox extends Component {
           <input
             type="text"
             class="journal-search-input"
-            placeholder="搜索期刊..."
+            placeholder={{i18n "discourse_journals.search.placeholder"}}
             value={{this.searchQuery}}
             autocomplete="off"
             {{on "input" this.onInput}}
@@ -192,11 +193,11 @@ export default class JournalSearchBox extends Component {
                 {{on "click" this.goToFullSearch}}
               >
                 {{icon "magnifying-glass"}}
-                <span>更多...</span>
+                <span>{{i18n "discourse_journals.search.more"}}</span>
               </a>
             {{else if (not this.loading)}}
               <div class="journal-search-no-results">
-                没有找到相关期刊
+                {{i18n "discourse_journals.search.no_results"}}
               </div>
             {{/if}}
           </div>

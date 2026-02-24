@@ -12,12 +12,6 @@ register_asset "stylesheets/common/discourse-journals-admin.scss"
 
 module ::DiscourseJournals
   PLUGIN_NAME = "discourse-journals"
-
-  # 话题关联字段（唯一，用于与外部 API 关联）
-  CUSTOM_FIELD_PRIMARY_ID = "discourse_journals_primary_id"
-
-  # 兼容旧版（查找时使用）
-  CUSTOM_FIELD_ISSN = "discourse_journals_issn"
 end
 
 require_relative "lib/discourse_journals/engine"
@@ -27,6 +21,8 @@ add_admin_route "discourse_journals.title", "discourse-journals"
 
 after_initialize do
   require_relative "app/models/discourse_journals/mapping_analysis"
+  require_relative "app/services/discourse_journals/api_rate_limiter"
+  require_relative "app/services/discourse_journals/bulk_topic_deleter"
   require_relative "app/services/discourse_journals/field_normalizer"
   require_relative "app/services/discourse_journals/field_usage_tracker"
   require_relative "app/services/discourse_journals/master_record_renderer"
@@ -38,51 +34,112 @@ after_initialize do
   require_relative "app/jobs/regular/discourse_journals/apply_mapping"
   require_relative "app/jobs/regular/discourse_journals/delete_all_journals"
 
-  # 注册自定义字段
-  Topic.register_custom_field_type("journal_issn_l", :string)
+  Topic.register_custom_field_type("discourse_journals_issn_l", :string)
+  Topic.register_custom_field_type("discourse_journals_publisher", :string)
 
-  # 使用 register_modifier 来修改标题内容（这是 Discourse 官方推荐的方法）
-  register_modifier(:meta_data_content) do |content, type, context|
-    # 只修改 title 类型的元数据
-    next content unless type == :title
-    next content unless SiteSetting.discourse_journals_enabled
-    next content if SiteSetting.discourse_journals_title_suffix.blank?
-    
-    # 获取当前请求的上下文
-    request_path = context[:url]
-    next content unless request_path&.start_with?("/t/")
-    
-    # 尝试从请求中获取话题信息
-    # 这个方法在服务器端渲染时有效
-    begin
-      # 从 request_path 解析话题 ID
-      # 路径格式: /t/topic-slug/123
+  module ::DiscourseJournals
+    CUSTOM_FIELD_NAMES = %w[discourse_journals_issn_l discourse_journals_publisher].freeze
+
+    def self.resolve_seo_placeholders(template, topic)
+      return "" if template.blank? || topic.nil?
+
+      custom_fields =
+        TopicCustomField
+          .where(topic_id: topic.id, name: CUSTOM_FIELD_NAMES)
+          .pluck(:name, :value)
+          .to_h
+
+      tag_names = topic.tags.loaded? ? topic.tags.map(&:name) : topic.tags.pluck(:name)
+
+      replacements = {
+        "title" => topic.title || "",
+        "issn" => custom_fields["discourse_journals_issn_l"] || "",
+        "publisher" => custom_fields["discourse_journals_publisher"] || "",
+        "category" => topic.category&.name || "",
+        "tags" => tag_names.join(", "),
+        "site_name" => SiteSetting.title || "",
+      }
+
+      result = template.gsub(/\{\{(\w+)\}\}/) { |_| replacements[$1] || "" }
+      result.gsub(/,\s*,/, ",").gsub(/\s*-\s*-/, " -").strip.gsub(/^[,\s-]+|[,\s-]+$/, "").strip
+    end
+
+    def self.find_journal_topic(request_path)
+      return nil unless SiteSetting.discourse_journals_enabled
+      return nil unless request_path&.start_with?("/t/")
+
+      category_id = SiteSetting.discourse_journals_category_id.to_i
+      return nil if category_id.zero?
+
       topic_id = request_path.match(%r{/t/[^/]+/(\d+)}i)&.captures&.first
-      next content unless topic_id
-      
-      topic = Topic.find_by(id: topic_id)
-      next content unless topic
-      
-      category_id = SiteSetting.discourse_journals_category_id
-      next content if category_id.blank?
-      
-      # 检查是否是期刊分类的话题
-      if topic.category_id == category_id.to_i
+      return nil unless topic_id
+
+      Topic.includes(:category, :tags).find_by(id: topic_id, category_id: category_id)
+    end
+  end
+
+  register_modifier(:meta_data_content) do |content, type, context|
+    next content unless SiteSetting.discourse_journals_enabled
+    next content unless type == :title || type == :description
+
+    request_path = context[:url]
+
+    begin
+      if type == :title
         suffix = SiteSetting.discourse_journals_title_suffix
-        
-        # 避免重复添加后缀
+        next content if suffix.blank?
+
+        category_id = SiteSetting.discourse_journals_category_id.to_i
+        next content if category_id.zero?
+        next content unless request_path&.start_with?("/t/")
+
+        topic_id = request_path.match(%r{/t/[^/]+/(\d+)}i)&.captures&.first
+        next content unless topic_id
+        next content unless Topic.where(id: topic_id, category_id: category_id).exists?
         next content if content.include?(suffix)
-        
-        # 返回修改后的标题
+
         "#{content} - #{suffix}"
+      elsif type == :description
+        template = SiteSetting.discourse_journals_meta_description
+        next content if template.blank?
+
+        topic = ::DiscourseJournals.find_journal_topic(request_path)
+        next content unless topic
+
+        resolved = ::DiscourseJournals.resolve_seo_placeholders(template, topic)
+        resolved.present? ? resolved : content
       else
         content
       end
     rescue StandardError => e
-      Rails.logger.warn("[DiscourseJournals] Failed to modify title: #{e.message}")
+      Rails.logger.warn("[DiscourseJournals] Failed to modify #{type}: #{e.message}")
       content
     end
   end
+
+  keywords_html = ->(controller) do
+    next "" unless SiteSetting.discourse_journals_enabled
+    next "" unless controller.instance_of?(TopicsController)
+
+    template = SiteSetting.discourse_journals_meta_keywords
+    next "" if template.blank?
+
+    topic_view = controller.instance_variable_get(:@topic_view)
+    next "" unless topic_view
+
+    topic = topic_view.topic
+    category_id = SiteSetting.discourse_journals_category_id.to_i
+    next "" if category_id.zero? || topic.category_id != category_id
+
+    resolved = ::DiscourseJournals.resolve_seo_placeholders(template, topic)
+    next "" if resolved.blank?
+
+    escaped = ERB::Util.html_escape(resolved)
+    "<meta name=\"keywords\" content=\"#{escaped}\">"
+  end
+
+  register_html_builder("server:before-head-close-crawler", &keywords_html)
+  register_html_builder("server:before-head-close", &keywords_html)
 
   Discourse::Application.routes.append do
     # 映射分析

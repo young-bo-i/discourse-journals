@@ -57,6 +57,7 @@ module DiscourseJournals
       post = creator.create!
       topic = post.topic
 
+      store_custom_fields!(topic, prepared[:normalized])
       ensure_closed!(topic)
       topic
     end
@@ -77,9 +78,26 @@ module DiscourseJournals
 
       topic.update_columns(title: prepared[:title], fancy_title: nil) if topic.title != prepared[:title]
 
+      store_custom_fields!(topic, prepared[:normalized])
       update_tags!(topic, journal)
       ensure_closed!(topic)
       topic
+    end
+
+    CUSTOM_FIELD_NAMES = %w[discourse_journals_issn_l discourse_journals_publisher].freeze
+
+    def store_custom_fields!(topic, normalized)
+      issn_l = normalized.dig(:identity, :issn_l)
+      publisher = normalized.dig(:publication, :publisher_name)
+
+      fields = {}
+      fields["discourse_journals_issn_l"] = issn_l.to_s if issn_l.present?
+      fields["discourse_journals_publisher"] = publisher.to_s if publisher.present?
+      return if fields.empty?
+
+      TopicCustomField.where(topic_id: topic.id, name: CUSTOM_FIELD_NAMES).delete_all
+      rows = fields.map { |name, value| { topic_id: topic.id, name: name, value: value, created_at: Time.current, updated_at: Time.current } }
+      TopicCustomField.insert_all(rows)
     end
 
     def ensure_closed!(topic)

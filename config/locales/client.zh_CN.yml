@@ -5,6 +5,8 @@ zh_CN:
       search:
         placeholder: "搜索期刊（输入名称、ISSN、出版商...）"
         button: "搜索"
+        no_results: "没有找到相关期刊"
+        more: "更多..."
       admin:
         heading: "期刊库"
         subtitle: "期刊数据映射分析与同步管理"

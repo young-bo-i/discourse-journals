@@ -64,8 +64,9 @@ module Jobs
             publish_progress(user_id, analysis, "processing", percent, message, stats)
           },
           cancel_check: -> {
-            reloaded = analysis.reload
-            reloaded.sync_paused? || reloaded.not_applied?
+            ::DiscourseJournals::MappingAnalysis
+              .where(id: analysis.id, apply_status: %i[sync_paused not_applied])
+              .exists?
           },
         )
 
@@ -88,7 +89,7 @@ module Jobs
       rescue ::DiscourseJournals::MappingApplier::PausedError
         Rails.logger.info("[DiscourseJournals::ApplyMapping] Paused by user: analysis #{analysis_id}")
         if analysis
-          stats = analysis.reload.apply_stats || {}
+          stats = ::DiscourseJournals::MappingAnalysis.where(id: analysis.id).pick(:apply_stats) || {}
           publish_progress(user_id, analysis, "paused", 0, "应用已暂停", stats)
         end
       rescue StandardError => e
@@ -100,7 +101,7 @@ module Jobs
             apply_error_message: e.message,
             apply_completed_at: Time.current,
           )
-          stats = analysis.reload.apply_stats || {}
+          stats = ::DiscourseJournals::MappingAnalysis.where(id: analysis.id).pick(:apply_stats) || {}
           publish_progress(user_id, analysis, "failed", 0, "应用失败: #{e.message}", stats)
         end
       end

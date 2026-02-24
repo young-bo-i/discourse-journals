@@ -5,6 +5,8 @@ en:
       search:
         placeholder: "Search journals (name, ISSN, publisher...)"
         button: "Search"
+        no_results: "No journals found"
+        more: "More..."
       admin:
         heading: "Journals"
         subtitle: "Journal Data Mapping Analysis & Sync"

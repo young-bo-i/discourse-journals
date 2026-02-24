@@ -6,13 +6,11 @@ require "json"
 module DiscourseJournals
   class MappingApplier
     class PausedError < StandardError; end
-    class FatalError < StandardError; end
 
     API_BASE_URL = "https://journal.scholay.com/api/open/journals"
     BYIDS_BATCH_SIZE = 50
     API_CONCURRENCY = 4
-    DELETE_BATCH_SIZE = 200
-    UPSERT_CONCURRENCY = 4
+    DELETE_BATCH_SIZE = BulkTopicDeleter::BATCH_SIZE
 
     attr_reader :stats
 
@@ -20,13 +18,12 @@ module DiscourseJournals
       @analysis = analysis
       @progress_callback = progress_callback
       @cancel_check = cancel_check
+      @rate_limiter = ApiRateLimiter.new
       @checkpoint = (resume_checkpoint || {}).transform_keys(&:to_s)
       @api_actions = {}
       @topics_to_delete = []
       @stats = (resume_stats || { deleted: 0, updated: 0, created: 0, skipped: 0, errors: 0 }).transform_keys(&:to_sym)
       @system_user = Discourse.system_user
-      @stats_mutex = Mutex.new
-      @fatal_error = nil
     end
 
     def run!
@@ -59,20 +56,6 @@ module DiscourseJournals
       raise PausedError, "应用已被用户暂停" if @cancel_check&.call
     end
 
-    def check_fatal!
-      err = @stats_mutex.synchronize { @fatal_error }
-      raise err if err
-    end
-
-    def set_fatal!(action, id, error)
-      @stats_mutex.synchronize do
-        return if @fatal_error
-        msg = "[#{action}] ID=#{id}: #{error.class} - #{error.message}"
-        Rails.logger.error("[DiscourseJournals::MappingApplier] FATAL: #{msg}\n#{error.backtrace&.first(5)&.join("\n")}")
-        @fatal_error = FatalError.new(msg)
-      end
-    end
-
     def publish_progress(percent, message)
       @progress_callback&.call(percent, message, @stats)
     end
@@ -83,7 +66,7 @@ module DiscourseJournals
     end
 
     def increment_stat(key, amount = 1)
-      @stats_mutex.synchronize { @stats[key] += amount }
+      @stats[key] += amount
     end
 
     def build_action_plan
@@ -216,83 +199,14 @@ module DiscourseJournals
     end
 
     def bulk_delete_topic_batch(topic_ids)
-      return 0 if topic_ids.empty?
-
-      existing_ids = DB.query_single("SELECT id FROM topics WHERE id IN (:ids)", ids: topic_ids)
-      return 0 if existing_ids.empty?
-
-      post_ids = DB.query_single(
-        "SELECT id FROM posts WHERE topic_id IN (:ids)",
-        ids: existing_ids,
-      )
-
-      Topic.transaction do
-        if post_ids.present?
-          DB.exec(
-            "DELETE FROM post_replies WHERE post_id IN (:ids) OR reply_post_id IN (:ids)",
-            ids: post_ids,
-          )
-          DB.exec("DELETE FROM post_actions WHERE post_id IN (:ids)", ids: post_ids)
-          DB.exec("DELETE FROM post_revisions WHERE post_id IN (:ids)", ids: post_ids)
-          DB.exec("DELETE FROM post_search_data WHERE post_id IN (:ids)", ids: post_ids)
-          DB.exec("DELETE FROM post_custom_fields WHERE post_id IN (:ids)", ids: post_ids)
-          DB.exec(
-            "DELETE FROM quoted_posts WHERE post_id IN (:ids) OR quoted_post_id IN (:ids)",
-            ids: post_ids,
-          )
-          DB.exec(
-            "DELETE FROM upload_references WHERE target_type = 'Post' AND target_id IN (:ids)",
-            ids: post_ids,
-          )
-          DB.exec(
-            "DELETE FROM bookmarks WHERE bookmarkable_type = 'Post' AND bookmarkable_id IN (:ids)",
-            ids: post_ids,
-          )
-        end
-
-        DB.exec("DELETE FROM topic_custom_fields WHERE topic_id IN (:ids)", ids: existing_ids)
-        DB.exec("DELETE FROM topic_users WHERE topic_id IN (:ids)", ids: existing_ids)
-        DB.exec("DELETE FROM topic_links WHERE topic_id IN (:ids)", ids: existing_ids)
-        DB.exec("DELETE FROM topic_search_data WHERE topic_id IN (:ids)", ids: existing_ids)
-        DB.exec("DELETE FROM topic_timers WHERE topic_id IN (:ids)", ids: existing_ids)
-        DB.exec("DELETE FROM topic_tags WHERE topic_id IN (:ids)", ids: existing_ids)
-        DB.exec("DELETE FROM notifications WHERE topic_id IN (:ids)", ids: existing_ids)
-        DB.exec("DELETE FROM user_actions WHERE target_topic_id IN (:ids)", ids: existing_ids)
-        DB.exec(
-          "DELETE FROM bookmarks WHERE bookmarkable_type = 'Topic' AND bookmarkable_id IN (:ids)",
-          ids: existing_ids,
-        )
-        DB.exec(
-          "DELETE FROM upload_references WHERE target_type = 'Topic' AND target_id IN (:ids)",
-          ids: existing_ids,
-        )
-
-        DB.exec("DELETE FROM posts WHERE topic_id IN (:ids)", ids: existing_ids)
-        DB.exec("DELETE FROM topics WHERE id IN (:ids)", ids: existing_ids)
-      end
-
-      existing_ids.size
+      BulkTopicDeleter.delete_batch(topic_ids)
     end
 
     def update_category_stats_after_delete
-      category_id = SiteSetting.discourse_journals_category_id.to_i
-      return if category_id.zero?
-
-      category = Category.find_by(id: category_id)
-      return unless category
-
-      Category.update_stats
-      category.update_column(
-        :topic_count,
-        Topic.where(category_id: category_id, visible: true).count,
-      )
-    rescue StandardError => e
-      Rails.logger.warn(
-        "[DiscourseJournals::MappingApplier] Category stats update failed: #{e.message}",
-      )
+      BulkTopicDeleter.update_category_stats(SiteSetting.discourse_journals_category_id)
     end
 
-    # ──── Phase 2: Concurrent fetch + parallel upsert ────
+    # ──── Phase 2: Concurrent fetch + serial upsert ────
     def execute_api_sync(skip_offset: 0)
       all_api_ids = @api_actions.keys
       total = all_api_ids.size
@@ -307,7 +221,7 @@ module DiscourseJournals
       publish_progress(5, "开始同步 API 数据 (共 #{total} 条，从 ##{skip_offset + 1} 继续)...")
 
       batches = remaining_ids.each_slice(BYIDS_BATCH_SIZE).to_a
-      processed = Concurrent::AtomicFixnum.new(0)
+      processed = 0
       base_offset = skip_offset
       start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
@@ -316,14 +230,47 @@ module DiscourseJournals
       begin
         batches.each_slice(API_CONCURRENCY).with_index do |concurrent_batches, _batch_group_idx|
           check_cancelled!
-          check_fatal!
 
           rows = fetch_byids_concurrent(connections, concurrent_batches)
-          process_rows_parallel(rows, processed, base_offset, total, start_time)
-          check_fatal!
 
-          current = processed.value
-          save_checkpoint("api_sync", "api_offset", base_offset + current)
+          rows.each do |row|
+            unified = row["unified"] || {}
+            api_id = unified["id"]
+            next unless api_id
+
+            action_info = @api_actions[api_id]
+            next unless action_info
+
+            check_cancelled!
+            journal_params = ApiDataTransformer.transform(row)
+            upserter = JournalUpserter.new(system_user: @system_user)
+
+            case action_info[:action]
+            when :update
+              upserter.upsert!(journal_params, existing_topic_id: action_info[:topic_id])
+              increment_stat(:updated)
+            when :create
+              upserter.upsert!(journal_params)
+              increment_stat(:created)
+            end
+
+            processed += 1
+            if processed % 20 == 0
+              elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start_time
+              speed = (processed.to_f / elapsed).round(0)
+              remaining = total - (base_offset + processed)
+              eta = speed > 0 ? (remaining.to_f / speed).round(0) : 0
+              eta_str = format_eta(eta)
+
+              pct = (5 + (base_offset + processed).to_f / total * 95).round(1)
+              publish_progress(
+                pct,
+                "同步中... #{base_offset + processed}/#{total} (#{@stats[:updated]} 更新, #{@stats[:created]} 新建, #{speed} 条/秒#{eta_str})",
+              )
+            end
+          end
+
+          save_checkpoint("api_sync", "api_offset", base_offset + processed)
           persist_stats
         end
       ensure
@@ -338,63 +285,6 @@ module DiscourseJournals
         100,
         "同步完成：#{@stats[:updated]} 更新, #{@stats[:created]} 新建, #{@stats[:deleted]} 删除, #{@stats[:errors]} 错误",
       )
-    end
-
-    def process_rows_parallel(rows, processed_counter, base_offset, total, start_time)
-      queue = Queue.new
-      rows.each { |row| queue << row }
-
-      threads = [UPSERT_CONCURRENCY, rows.size].min.times.map do
-        Thread.new do
-          while (row = queue.pop(true) rescue nil)
-            break if @stats_mutex.synchronize { @fatal_error }
-
-            unified = row["unified"] || {}
-            api_id = unified["id"]
-            next unless api_id
-
-            action_info = @api_actions[api_id]
-            next unless action_info
-
-            begin
-              check_cancelled!
-              journal_params = ApiDataTransformer.transform(row)
-              upserter = JournalUpserter.new(system_user: @system_user)
-
-              case action_info[:action]
-              when :update
-                upserter.upsert!(journal_params, existing_topic_id: action_info[:topic_id])
-                increment_stat(:updated)
-              when :create
-                upserter.upsert!(journal_params)
-                increment_stat(:created)
-              end
-            rescue PausedError
-              break
-            rescue StandardError => e
-              set_fatal!(action_info[:action].to_s, api_id, e)
-              break
-            end
-
-            current = processed_counter.increment
-            if current % 20 == 0
-              elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start_time
-              speed = current > 0 ? (current.to_f / elapsed).round(0) : 0
-              remaining = total - (base_offset + current)
-              eta = speed > 0 ? (remaining.to_f / speed).round(0) : 0
-              eta_str = format_eta(eta)
-
-              pct = (5 + (base_offset + current).to_f / total * 95).round(1)
-              publish_progress(
-                pct,
-                "同步中... #{base_offset + current}/#{total} (#{@stats[:updated]} 更新, #{@stats[:created]} 新建, #{speed} 条/秒#{eta_str})",
-              )
-            end
-          end
-        end
-      end
-
-      threads.each(&:join)
     end
 
     def persist_stats
@@ -436,6 +326,7 @@ module DiscourseJournals
       max_retries = 3
 
       begin
+        @rate_limiter.throttle!
         request = Net::HTTP::Get.new(path)
         response = http.request(request)
 

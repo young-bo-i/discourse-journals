@@ -18,6 +18,7 @@ module DiscourseJournals
     def initialize(progress_callback: nil, cancel_check: nil)
       @progress_callback = progress_callback
       @cancel_check = cancel_check
+      @rate_limiter = ApiRateLimiter.new
       @forum_index = {}
       @api_index = {}
       @results = {
@@ -200,6 +201,7 @@ module DiscourseJournals
       max_retries = 3
 
       begin
+        @rate_limiter.throttle!
         request = Net::HTTP::Get.new(path)
         response = http.request(request)
 

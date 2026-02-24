@@ -19,6 +19,7 @@ module DiscourseJournals
     CATEGORIES = %w[exact_1to1 forum_1_to_api_n forum_n_to_api_1 forum_n_to_api_m forum_only api_only].freeze
 
     scope :latest, -> { order(created_at: :desc) }
+    scope :lightweight, -> { select(column_names - ["details_data"]) }
 
     def self.current
       latest.first

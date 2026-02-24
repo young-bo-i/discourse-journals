@@ -42,6 +42,10 @@ module DiscourseJournals
       I18n.t("discourse_journals.master_record.#{key}")
     end
 
+    def r(key, **opts)
+      I18n.t("discourse_journals.render.#{key}", **opts)
+    end
+
     def mark_used(*paths)
       paths.each { |path| @tracker.mark_used(path) }
     end
@@ -56,7 +60,7 @@ module DiscourseJournals
 
       case type
       when :boolean
-        value ? "是" : "否"
+        value ? r("yes") : r("no")
       when :array
         value.is_a?(Array) ? value.join(", ") : value.to_s
       when :url
@@ -94,7 +98,7 @@ module DiscourseJournals
       jcr = @data[:jcr] || {}
       cas = @data[:cas_partition] || {}
 
-      title = identity[:title_main] || "未知期刊"
+      title = identity[:title_main] || r("unknown_journal")
       issn = identity[:issn_l]
       # 只有有效的 ISSN 格式才显示（XXXX-XXXX）
       issn = nil unless issn.present? && issn.to_s.match?(/^\d{4}-\d{3}[\dX]$/i)
@@ -130,19 +134,19 @@ module DiscourseJournals
       # 学术指标（单行展示）
       stats = []
       if metrics[:h_index]
-        stats << "**h-index** #{metrics[:h_index]}"
+        stats << "**#{r("h_index")}** #{metrics[:h_index]}"
         mark_used("metrics.h_index")
       end
       if metrics[:works_count]
-        stats << "**论文** #{format_number(metrics[:works_count])}"
+        stats << "**#{r("papers")}** #{format_number(metrics[:works_count])}"
         mark_used("metrics.works_count")
       end
       if metrics[:cited_by_count]
-        stats << "**被引** #{format_number(metrics[:cited_by_count])}"
+        stats << "**#{r("cited")}** #{format_number(metrics[:cited_by_count])}"
         mark_used("metrics.cited_by_count")
       end
       if review[:publication_time_weeks]
-        stats << "**审稿周期** #{review[:publication_time_weeks]}周"
+        stats << "**#{r("review_period")}** #{r("review_weeks", count: review[:publication_time_weeks])}"
         mark_used("review_compliance.publication_time_weeks")
       end
       stats_line = stats.any? ? stats.join(" · ") : ""
@@ -159,28 +163,26 @@ module DiscourseJournals
       # 基本信息表格
       out << "| | |\n"
       out << "|:--|:--|\n"
-      out << "| **ISSN** | `#{issn}` |\n" if issn.present?
-      out << "| **出版商** | #{publisher} |\n"
-      out << "| **国家** | #{country} |\n"
-      
-      # JCR 信息
+      out << "| **#{r("issn")}** | `#{issn}` |\n" if issn.present?
+      out << "| **#{r("publisher")}** | #{publisher} |\n"
+      out << "| **#{r("country")}** | #{country} |\n"
+
       if jcr_latest
         if jcr_latest[:impact_factor]
-          out << "| **影响因子** | #{jcr_latest[:impact_factor]} (#{jcr_latest[:year] || '—'}) |\n"
+          out << "| **#{r("impact_factor")}** | #{jcr_latest[:impact_factor]} (#{jcr_latest[:year] || '—'}) |\n"
         end
         if jcr_latest[:quartile]
-          out << "| **JCR 分区** | #{jcr_latest[:quartile]} |\n"
+          out << "| **#{r("jcr_partition")}** | #{jcr_latest[:quartile]} |\n"
         end
       end
-      
-      # 中科院分区信息
+
       if cas_latest
         cas_info = []
-        cas_info << "#{cas_partition_num}区" if cas_partition_num
+        cas_info << r("partition_suffix", num: cas_partition_num) if cas_partition_num
         cas_info << "Top" if cas_latest[:is_top_journal]
         cas_info << cas_latest[:major_category] if cas_latest[:major_category]
         if cas_info.any?
-          out << "| **中科院分区** | #{cas_info.join(" · ")} |\n"
+          out << "| **#{r("cas_partition")}** | #{cas_info.join(" · ")} |\n"
         end
       end
 
@@ -190,7 +192,7 @@ module DiscourseJournals
       wiki = @data[:wikipedia] || {}
       if wiki[:extract].present?
         out << "---\n\n"
-        out << "**简介**: #{wiki[:extract]}\n\n"
+        out << "**#{r("summary")}**: #{wiki[:extract]}\n\n"
         mark_used("wikipedia.extract", "wikipedia.article_title", "wikipedia.description",
                   "wikipedia.thumbnail", "wikipedia.categories", "wikipedia.infobox", "wikipedia.source_method")
       end
@@ -206,23 +208,21 @@ module DiscourseJournals
       out = +""
       data = jcr[:data]
 
-      # 最新年份详细信息
       latest = data.first
       if latest
-        out << "**最新数据 (#{latest[:year]}年)**\n\n"
-        out << "| 指标 | 数值 |\n"
+        out << "**#{r("latest_data", year: latest[:year])}**\n\n"
+        out << "| #{r("metric")} | #{r("value")} |\n"
         out << "|:--|:--|\n"
-        out << "| 影响因子 | **#{latest[:impact_factor]}** |\n" if latest[:impact_factor]
-        out << "| JCR 分区 | #{latest[:quartile]} |\n" if latest[:quartile]
-        out << "| 学科排名 | #{latest[:rank]} |\n" if latest[:rank]
-        out << "| 学科类别 | #{latest[:category]} |\n" if latest[:category]
+        out << "| #{r("impact_factor")} | **#{latest[:impact_factor]}** |\n" if latest[:impact_factor]
+        out << "| #{r("jcr_quartile")} | #{latest[:quartile]} |\n" if latest[:quartile]
+        out << "| #{r("subject_rank")} | #{latest[:rank]} |\n" if latest[:rank]
+        out << "| #{r("subject_category")} | #{latest[:category]} |\n" if latest[:category]
         out << "\n"
       end
 
-      # 历年影响因子趋势（表格形式）
       if data.size > 1
-        out << "**历年趋势**\n\n"
-        out << "| 年份 | 影响因子 | 分区 | 排名 |\n"
+        out << "**#{r("historical_trend")}**\n\n"
+        out << "| #{r("year")} | #{r("impact_factor")} | #{r("quartile")} | #{r("rank")} |\n"
         out << "|:--:|:--:|:--:|:--:|\n"
         data.each_with_index do |item, index|
           year = item[:year] || "—"
@@ -251,15 +251,13 @@ module DiscourseJournals
       out = +""
       data = cas[:data]
 
-      # 最新年份详细信息
       latest = data.first
       if latest
-        out << "**最新数据 (#{latest[:year]}年)**\n\n"
-        out << "| 指标 | 数值 |\n"
+        out << "**#{r("latest_data", year: latest[:year])}**\n\n"
+        out << "| #{r("metric")} | #{r("value")} |\n"
         out << "|:--|:--|\n"
-        out << "| 大类学科 | #{latest[:major_category]} |\n" if latest[:major_category]
-        
-        # 提取分区数字
+        out << "| #{r("major_discipline")} | #{latest[:major_category]} |\n" if latest[:major_category]
+
         partition_num = nil
         if latest[:major_partition]
           partition_str = latest[:major_partition].to_s
@@ -267,15 +265,14 @@ module DiscourseJournals
             partition_num = match[1]
           end
         end
-        out << "| 大类分区 | **#{partition_num}区** |\n" if partition_num
-        out << "| Top 期刊 | #{latest[:is_top_journal] ? '是' : '否'} |\n" unless latest[:is_top_journal].nil?
-        out << "| WOS 收录 | #{latest[:web_of_science]} |\n" if latest[:web_of_science]
+        out << "| #{r("major_partition_label")} | **#{r("partition_suffix", num: partition_num)}** |\n" if partition_num
+        out << "| #{r("top_journal")} | #{latest[:is_top_journal] ? r("yes") : r("no")} |\n" unless latest[:is_top_journal].nil?
+        out << "| #{r("wos_index")} | #{latest[:web_of_science]} |\n" if latest[:web_of_science]
         out << "\n"
 
-        # 小类分区
         if latest[:minor_categories]&.any?
-          out << "**小类分区**\n\n"
-          out << "| 学科 | 分区 |\n"
+          out << "**#{r("minor_partitions")}**\n\n"
+          out << "| #{r("discipline")} | #{r("partition")} |\n"
           out << "|:--|:--|\n"
           latest[:minor_categories].each do |cat|
             if cat.is_a?(Hash)
@@ -286,22 +283,20 @@ module DiscourseJournals
         end
       end
 
-      # 历年分区（表格形式）
       if data.size > 1
-        out << "**历年趋势**\n\n"
-        out << "| 年份 | 大类 | 分区 | Top |\n"
+        out << "**#{r("historical_trend")}**\n\n"
+        out << "| #{r("year")} | #{r("major_discipline")} | #{r("partition")} | #{r("top")} |\n"
         out << "|:--:|:--:|:--:|:--:|\n"
         data.each_with_index do |item, index|
           year = item[:year] || "—"
           major = item[:major_category] || "—"
-          # 提取分区数字
           partition = "—"
           if item[:major_partition]
             if match = item[:major_partition].to_s.match(/(\d+)/)
-              partition = "#{match[1]}区"
+              partition = r("partition_suffix", num: match[1])
             end
           end
-          top = item[:is_top_journal] ? "是" : "否"
+          top = item[:is_top_journal] ? r("yes") : r("no")
           # 最新年份加粗
           if index == 0
             out << "| **#{year}** | **#{major}** | **#{partition}** | **#{top}** |\n"
@@ -323,32 +318,30 @@ module DiscourseJournals
 
       out = +""
 
-      # 基本状态表格
       status_rows = []
-      
+
       if oa[:is_oa].present?
-        status_rows << "| 开放获取 | #{oa[:is_oa] ? '是' : '否'} |"
+        status_rows << "| #{r("open_access")} | #{oa[:is_oa] ? r("yes") : r("no")} |"
       end
-      
+
       if oa[:oa_start_year].present?
-        status_rows << "| OA 起始年份 | #{oa[:oa_start_year]} |"
+        status_rows << "| #{r("oa_start_year")} | #{oa[:oa_start_year]} |"
         mark_used("open_access.oa_start_year")
       end
-      
+
       if oa[:author_retains_copyright].present?
-        status_rows << "| 作者保留版权 | #{oa[:author_retains_copyright] ? '是' : '否'} |"
+        status_rows << "| #{r("author_retains_copyright")} | #{oa[:author_retains_copyright] ? r("yes") : r("no")} |"
         mark_used("open_access.author_retains_copyright")
       end
 
       if status_rows.any?
-        out << "| 项目 | 状态 |\n"
+        out << "| #{r("item")} | #{r("status")} |\n"
         out << "|------|------|\n"
         out << status_rows.join("\n") + "\n\n"
       end
 
-      # 许可证
       if oa[:license_list]&.any?
-        out << "**许可证**\n\n"
+        out << "**#{r("licenses")}**\n\n"
         oa[:license_list].each do |license|
           if license.is_a?(Hash)
             license_name = license[:type] || "Unknown"
@@ -365,13 +358,12 @@ module DiscourseJournals
         mark_used("open_access.license_list")
       end
 
-      # APC 信息
       if oa[:has_apc].present? || oa[:apc_price].present?
-        out << "**文章处理费 (APC)**\n\n"
-        
+        out << "**#{r("apc_heading")}**\n\n"
+
         apc_rows = []
         if oa[:has_apc].present?
-          apc_rows << "| 收取 APC | #{oa[:has_apc] ? '是' : '否'} |"
+          apc_rows << "| #{r("has_apc")} | #{oa[:has_apc] ? r("yes") : r("no")} |"
           mark_used("open_access.has_apc")
         end
 
@@ -379,45 +371,43 @@ module DiscourseJournals
           apc = oa[:apc_price]
           if apc[:primary]
             primary = apc[:primary]
-            apc_rows << "| APC 价格 | #{primary[:price]} #{primary[:currency]} |"
+            apc_rows << "| #{r("apc_price")} | #{primary[:price]} #{primary[:currency]} |"
           end
           if apc[:usd_estimate]
-            apc_rows << "| 美元估算 | $#{apc[:usd_estimate]} |"
+            apc_rows << "| #{r("usd_estimate")} | $#{apc[:usd_estimate]} |"
           end
           mark_used("open_access.apc_price")
         end
 
         if apc_rows.any?
-          out << "| 项目 | 金额 |\n"
+          out << "| #{r("item")} | #{r("amount")} |\n"
           out << "|------|------|\n"
           out << apc_rows.join("\n") + "\n\n"
         end
 
         if oa[:apc_url].present?
-          out << "#{link('查看 APC 政策', oa[:apc_url])}\n\n"
+          out << "#{link(r("view_apc_policy"), oa[:apc_url])}\n\n"
           mark_used("open_access.apc_url")
         end
       end
 
-      # 减免政策
       if oa[:has_waiver].present? && oa[:has_waiver]
-        out << "**减免政策**: "
+        out << "**#{r("waiver_policy")}**: "
         if oa[:waiver_url].present?
-          out << "#{link('查看减免说明', oa[:waiver_url])}\n\n"
+          out << "#{link(r("view_waiver"), oa[:waiver_url])}\n\n"
           mark_used("open_access.waiver_url")
         else
-          out << "有\n\n"
+          out << "#{r("yes")}\n\n"
         end
         mark_used("open_access.has_waiver")
       end
 
-      # 相关链接
       links = []
-      links << link("版权说明", oa[:copyright_url]) if oa[:copyright_url].present?
-      links << link("许可证条款", oa[:license_terms_url]) if oa[:license_terms_url].present?
-      
+      links << link(r("copyright_notice"), oa[:copyright_url]) if oa[:copyright_url].present?
+      links << link(r("license_terms"), oa[:license_terms_url]) if oa[:license_terms_url].present?
+
       if links.any?
-        out << "**相关链接**: #{links.join(" · ")}\n"
+        out << "**#{r("related_links")}**: #{links.join(" · ")}\n"
         mark_used("open_access.copyright_url", "open_access.license_terms_url")
       end
 
@@ -459,8 +449,8 @@ module DiscourseJournals
       max_works = 1 if max_works.zero?
 
       total_works = metrics[:works_count]
-      out << "**年度发文量**"
-      out << "（累计 #{format_number(total_works)} 篇）" if total_works
+      out << "**#{r("annual_publications")}**"
+      out << r("total_publications", count: format_number(total_works)) if total_works
       out << "\n\n"
       out << "```\n"
       
@@ -480,8 +470,8 @@ module DiscourseJournals
       max_cited = chart_data.map { |d| d[:cited_by_count].to_i }.max
       if max_cited && max_cited > 0
         total_cited = metrics[:cited_by_count]
-        out << "**年度被引量**"
-        out << "（累计 #{format_number(total_cited)} 次）" if total_cited
+        out << "**#{r("annual_citations")}**"
+        out << r("total_citations", count: format_number(total_cited)) if total_cited
         out << "\n\n"
         out << "```\n"
         
@@ -511,36 +501,35 @@ module DiscourseJournals
       if review[:review_process]
         processes = review[:review_process]
         processes = [processes] unless processes.is_a?(Array)
-        out << "**审稿方式**: #{processes.join(", ")}\n\n"
+        out << "**#{r("review_method")}**: #{processes.join(", ")}\n\n"
         mark_used("review_compliance.review_process")
       end
 
-      # 相关链接表格
       link_items = []
-      
+
       if review[:review_url].present?
-        link_items << ["审稿流程", review[:review_url]]
+        link_items << [r("review_process_link"), review[:review_url]]
         mark_used("review_compliance.review_url")
       end
       if review[:editorial_board_url].present?
-        link_items << ["编委会", review[:editorial_board_url]]
+        link_items << [r("editorial_board"), review[:editorial_board_url]]
         mark_used("review_compliance.editorial_board_url")
       end
       if review[:author_instructions_url].present?
-        link_items << ["投稿指南", review[:author_instructions_url]]
+        link_items << [r("submission_guidelines"), review[:author_instructions_url]]
         mark_used("review_compliance.author_instructions_url")
       end
       if review[:oa_statement_url].present?
-        link_items << ["OA 声明", review[:oa_statement_url]]
+        link_items << [r("oa_statement"), review[:oa_statement_url]]
         mark_used("review_compliance.oa_statement_url")
       end
       if review[:aims_scope_url].present?
-        link_items << ["期刊宗旨", review[:aims_scope_url]]
+        link_items << [r("journal_aims"), review[:aims_scope_url]]
         mark_used("review_compliance.aims_scope_url")
       end
 
       if link_items.any?
-        out << "**相关链接**\n\n"
+        out << "**#{r("related_links")}**\n\n"
         link_items.each do |name, url|
           out << "- #{link(name, url)}\n"
         end
@@ -548,10 +537,10 @@ module DiscourseJournals
       end
 
       if review[:plagiarism_detection].present?
-        status = review[:plagiarism_detection] ? "是" : "否"
-        out << "**反抄袭检测**: #{status}"
+        status = review[:plagiarism_detection] ? r("yes") : r("no")
+        out << "**#{r("plagiarism_detection")}**: #{status}"
         if review[:plagiarism_url].present?
-          out << " (#{link('查看详情', review[:plagiarism_url])})"
+          out << " (#{link(r("view_details"), review[:plagiarism_url])})"
           mark_used("review_compliance.plagiarism_url")
         end
         out << "\n"
@@ -570,26 +559,25 @@ module DiscourseJournals
       items = []
 
       if pres[:preservation_service]&.any?
-        items << "**保存服务**: #{pres[:preservation_service].join(" · ")}"
+        items << "**#{r("preservation_services")}**: #{pres[:preservation_service].join(" · ")}"
         mark_used("preservation.preservation_service")
       end
 
       if pres[:preservation_national_library]&.any?
-        items << "**国家图书馆**: #{pres[:preservation_national_library].join(" · ")}"
+        items << "**#{r("national_libraries")}**: #{pres[:preservation_national_library].join(" · ")}"
         mark_used("preservation.preservation_national_library")
       end
 
       if pres[:deposit_policy_service]&.any?
-        items << "**存储服务**: #{pres[:deposit_policy_service].join(" · ")}"
+        items << "**#{r("deposit_services")}**: #{pres[:deposit_policy_service].join(" · ")}"
         mark_used("preservation.deposit_policy_service")
       end
 
       out << items.join("\n\n") + "\n\n" if items.any?
 
-      # 相关链接
       links = []
-      links << link("保存政策", pres[:preservation_url]) if pres[:preservation_url].present?
-      links << link("存储政策", pres[:deposit_policy_url]) if pres[:deposit_policy_url].present?
+      links << link(r("preservation_policy"), pres[:preservation_url]) if pres[:preservation_url].present?
+      links << link(r("deposit_policy"), pres[:deposit_policy_url]) if pres[:deposit_policy_url].present?
       
       if links.any?
         out << links.join(" · ") + "\n"
@@ -617,19 +605,19 @@ module DiscourseJournals
             subj
           end
         end.compact
-        out << "**学科**: #{terms.join(" · ")}\n\n" if terms.any?
+        out << "**#{r("subjects")}**: #{terms.join(" · ")}\n\n" if terms.any?
         mark_used("subjects_topics.subject_list")
       end
 
       # 关键词（标签式展示）
       if subjects[:keywords]&.any?
-        out << "**关键词**: #{subjects[:keywords].first(10).join(" · ")}\n\n"
+        out << "**#{r("keywords")}**: #{subjects[:keywords].first(10).join(" · ")}\n\n"
         mark_used("subjects_topics.keywords")
       end
 
       # OpenAlex 主题（简化展示）
       if subjects[:topics_top]&.any?
-        out << "**研究主题**\n\n"
+        out << "**#{r("research_topics")}**\n\n"
         subjects[:topics_top].first(5).each do |topic|
           name = topic[:display_name] || "—"
           field = topic.dig(:field, :display_name)
@@ -653,21 +641,19 @@ module DiscourseJournals
 
       out = +""
 
-      # DOI 统计（简洁显示）
       if quality[:doi_counts]
         counts = quality[:doi_counts]
         total = counts[:total_dois] || counts[:"total-dois"]
         if total
-          out << "**DOI 总数**: #{format_number(total)}\n\n"
+          out << "**#{r("total_dois")}**: #{format_number(total)}\n\n"
         end
         mark_used("crossref_quality.doi_counts")
       end
 
-      # 元数据覆盖率（柱状图）
       if quality[:metadata_coverage].present?
         coverage = quality[:metadata_coverage]
         if coverage.is_a?(Hash) && coverage.any?
-          out << "**元数据覆盖率**\n\n"
+          out << "**#{r("metadata_coverage")}**\n\n"
           out << "```\n"
           
           # 选择主要字段展示
@@ -693,17 +679,17 @@ module DiscourseJournals
     end
 
     def format_field_name(field)
-      names = {
-        "abstracts" => "摘要",
-        "references" => "参考文献",
-        "orcids" => "ORCID",
-        "funders" => "资助信息",
-        "licenses" => "许可证",
-        "affiliations" => "机构信息",
-        "award-numbers" => "基金号",
-        "resource-links" => "资源链接",
-      }
-      names[field] || field
+      key = {
+        "abstracts" => "field_abstracts",
+        "references" => "field_references",
+        "orcids" => "field_orcids",
+        "funders" => "field_funders",
+        "licenses" => "field_licenses",
+        "affiliations" => "field_affiliations",
+        "award-numbers" => "field_award_numbers",
+        "resource-links" => "field_resource_links",
+      }[field]
+      key ? r(key) : field
     end
 
     # ==================== NLM 编目信息 ====================
@@ -715,22 +701,22 @@ module DiscourseJournals
       
       items = []
       if nlm[:medline_ta].present?
-        items << "**MEDLINE**: #{nlm[:medline_ta]}"
+        items << "**#{r("medline")}**: #{nlm[:medline_ta]}"
         mark_used("nlm_cataloging.medline_ta")
       end
       if nlm[:current_indexing_status].present?
-        status = nlm[:current_indexing_status] == "Y" ? "已索引" : "未索引"
-        items << "**状态**: #{status}"
+        status = nlm[:current_indexing_status] == "Y" ? r("indexed") : r("not_indexed")
+        items << "**#{r("nlm_status")}**: #{status}"
       end
       if nlm[:nlm_date_revised].present?
-        items << "**更新**: #{nlm[:nlm_date_revised]}"
+        items << "**#{r("nlm_updated")}**: #{nlm[:nlm_date_revised]}"
         mark_used("nlm_cataloging.nlm_date_revised")
       end
 
       out << items.join(" · ") + "\n\n" if items.any?
 
       if nlm[:broad_heading]&.any?
-        out << "**主题词**: #{nlm[:broad_heading].join(" · ")}\n"
+        out << "**#{r("headings")}**: #{nlm[:broad_heading].join(" · ")}\n"
         mark_used("nlm_cataloging.broad_heading")
       end
 

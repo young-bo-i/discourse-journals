@@ -10,6 +10,10 @@ plugins:
     default: "期刊详情 | 学术期刊库 | 开放获取期刊"
     client: true
     description: "期刊话题标题后缀（用于 SEO，只在 HTML title 标签中显示）"
+  discourse_journals_meta_description:
+    default: "{{title}} - {{publisher}} - ISSN: {{issn}}"
+  discourse_journals_meta_keywords:
+    default: "{{title}}, {{issn}}, {{publisher}}, {{tags}}"
   discourse_journals_auto_recover_deleted:
     default: true
     description: "自动恢复被删除的期刊话题（如果设为 false，将跳过已删除的期刊）"
