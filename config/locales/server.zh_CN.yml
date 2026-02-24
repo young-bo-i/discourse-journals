@@ -2,7 +2,6 @@ zh_CN:
   site_settings:
     discourse_journals_enabled: "启用期刊插件"
     discourse_journals_category_id: "期刊分类"
-    discourse_journals_api_url: "外部 API URL"
     discourse_journals_title_suffix: "SEO 标题后缀"
     discourse_journals_auto_recover_deleted: "自动恢复已删除的期刊话题"
     discourse_journals_close_topics: "创建后关闭期刊话题"
@@ -11,14 +10,6 @@ zh_CN:
     title: "期刊库"
     errors:
       missing_category: "请在站点设置中选择期刊分类"
-      upload_failed: "文件上传失败"
-      invalid_json: "无效的 JSON 文件格式"
-      file_too_large: "文件太大"
-    admin:
-      imports:
-        started: "导入任务已提交到后台队列"
-        success: "导入成功完成"
-        error: "导入失败"
     master_record:
       sections:
         identity: "基本信息"

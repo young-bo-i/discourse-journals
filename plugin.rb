@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 # name: discourse-journals
-# about: 期刊统一档案系统 - JSON 导入管理
-# version: 0.8
+# about: 期刊统一档案系统 - 映射分析与同步
+# version: 1.0
 # authors: enterscholar
 
 enabled_site_setting :discourse_journals_enabled
@@ -26,17 +26,17 @@ require_relative "lib/discourse_journals/engine"
 add_admin_route "discourse_journals.title", "discourse-journals"
 
 after_initialize do
-  require_relative "app/models/discourse_journals/import_log"
   require_relative "app/models/discourse_journals/mapping_analysis"
   require_relative "app/services/discourse_journals/field_normalizer"
   require_relative "app/services/discourse_journals/field_usage_tracker"
   require_relative "app/services/discourse_journals/master_record_renderer"
-  require_relative "app/services/discourse_journals/api_sync/client"
-  require_relative "app/services/discourse_journals/api_sync/importer"
   require_relative "app/services/discourse_journals/journal_upserter"
   require_relative "app/services/discourse_journals/title_matcher"
-  require_relative "app/jobs/regular/discourse_journals/sync_from_api"
+  require_relative "app/services/discourse_journals/api_data_transformer"
+  require_relative "app/services/discourse_journals/mapping_applier"
   require_relative "app/jobs/regular/discourse_journals/analyze_mapping"
+  require_relative "app/jobs/regular/discourse_journals/apply_mapping"
+  require_relative "app/jobs/regular/discourse_journals/delete_all_journals"
 
   # 注册自定义字段
   Topic.register_custom_field_type("journal_issn_l", :string)
@@ -84,30 +84,7 @@ after_initialize do
     end
   end
 
-  # 注册 API 路由
   Discourse::Application.routes.append do
-    # API 同步
-    post "/admin/journals/sync" => "discourse_journals/admin_sync#create",
-         :constraints => AdminConstraint.new
-    post "/admin/journals/sync/test" => "discourse_journals/admin_sync#test_connection",
-         :constraints => AdminConstraint.new
-    post "/admin/journals/sync/pause" => "discourse_journals/admin_sync#pause",
-         :constraints => AdminConstraint.new
-    post "/admin/journals/sync/resume" => "discourse_journals/admin_sync#resume",
-         :constraints => AdminConstraint.new
-    post "/admin/journals/sync/cancel" => "discourse_journals/admin_sync#cancel",
-         :constraints => AdminConstraint.new
-    get "/admin/journals/sync/status" => "discourse_journals/admin_sync#status",
-        :constraints => AdminConstraint.new
-    
-    # 删除所有期刊
-    delete "/admin/journals/delete_all" => "discourse_journals/admin_sync#delete_all",
-           :constraints => AdminConstraint.new
-    
-    # 导入日志查询
-    get "/admin/journals/imports/:id/status" => "discourse_journals/admin_imports#status",
-        :constraints => AdminConstraint.new
-
     # 映射分析
     post "/admin/journals/mapping/analyze" => "discourse_journals/admin_mapping#analyze",
          :constraints => AdminConstraint.new
@@ -119,5 +96,21 @@ after_initialize do
         :constraints => AdminConstraint.new
     get "/admin/journals/mapping/details" => "discourse_journals/admin_mapping#details",
         :constraints => AdminConstraint.new
+
+    # 映射应用
+    post "/admin/journals/mapping/apply" => "discourse_journals/admin_mapping#apply",
+         :constraints => AdminConstraint.new
+    get "/admin/journals/mapping/apply_status" => "discourse_journals/admin_mapping#apply_status",
+        :constraints => AdminConstraint.new
+    post "/admin/journals/mapping/apply_pause" => "discourse_journals/admin_mapping#apply_pause",
+         :constraints => AdminConstraint.new
+    post "/admin/journals/mapping/apply_resume" => "discourse_journals/admin_mapping#apply_resume",
+         :constraints => AdminConstraint.new
+    post "/admin/journals/mapping/apply_reset" => "discourse_journals/admin_mapping#apply_reset",
+         :constraints => AdminConstraint.new
+
+    # 管理操作
+    delete "/admin/journals/delete_all" => "discourse_journals/admin_mapping#delete_all",
+           :constraints => AdminConstraint.new
   end
 end

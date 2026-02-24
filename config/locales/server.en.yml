@@ -2,7 +2,6 @@ en:
   site_settings:
     discourse_journals_enabled: "Enable journals plugin"
     discourse_journals_category_id: "Journals category"
-    discourse_journals_api_url: "External API URL for syncing journals"
     discourse_journals_title_suffix: "Title suffix for SEO (only in HTML title tag)"
     discourse_journals_auto_recover_deleted: "Auto-recover deleted journal topics during sync"
     discourse_journals_close_topics: "Close journal topics after upsert"
@@ -11,9 +10,6 @@ en:
     title: "Journals"
     errors:
       missing_category: "Select a journals category in site settings."
-      upload_failed: "File upload failed"
-      invalid_json: "Invalid JSON file format"
-      file_too_large: "File is too large"
     master_record:
       sections:
         identity: "Journal Identity"

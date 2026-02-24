@@ -1,331 +1,13 @@
 <div class="admin-container journals-admin-page">
   <div class="journals-header">
     <h2>{{i18n "discourse_journals.admin.heading"}}</h2>
-    <p class="journals-subtitle">从外部 API 同步期刊数据到 Discourse</p>
+    <p class="journals-subtitle">{{i18n
+        "discourse_journals.admin.subtitle"
+      }}</p>
   </div>
 
   <div class="journals-main">
-    {{! API 配置区域 }}
-    <section class="journals-section">
-      <div class="section-header">
-        <h3>API 配置</h3>
-      </div>
-      <div class="section-content">
-        <div class="form-row">
-          <label class="form-label">API 地址</label>
-          <div class="form-input-group">
-            <input
-              type="text"
-              {{on "input" this.updateApiUrl}}
-              value={{this.apiUrl}}
-              placeholder="https://api.example.com"
-              class="form-input"
-            />
-            <DButton
-              @class="btn-default"
-              @action={{action "testConnection"}}
-              @label="discourse_journals.admin.sync.test_connection"
-              @icon="link"
-              @isLoading={{this.testing}}
-              @disabled={{this.syncing}}
-            />
-          </div>
-          <p class="form-hint">
-            可在
-            <a
-              href="/admin/site_settings/category/plugins?filter=journals"
-            >站点设置</a>
-            中配置默认地址
-          </p>
-        </div>
-
-        {{#if this.testMessage}}
-          <div
-            class="message-box
-              {{if this.testSuccess 'message-success' 'message-error'}}"
-          >
-            {{this.testMessage}}
-          </div>
-        {{/if}}
-      </div>
-    </section>
-
-    {{! 筛选条件 }}
-    <section class="journals-section collapsible">
-      <div
-        class="section-header clickable"
-        role="button"
-        {{on "click" this.toggleFilters}}
-      >
-        <h3>筛选条件</h3>
-        <span class="toggle-icon">{{if this.showFilters "−" "+"}}</span>
-      </div>
-
-      {{#if this.showFilters}}
-        <div class="section-content">
-          <div class="filters-grid">
-            <div class="form-field">
-              <label>搜索关键词</label>
-              <input
-                type="text"
-                {{on "input" this.updateFilterQ}}
-                value={{this.filterQ}}
-                placeholder="ISSN、标题、出版商..."
-              />
-            </div>
-
-            <div class="form-field">
-              <label>DOAJ 收录</label>
-              <select
-                {{on "change" this.updateFilterInDoaj}}
-                value={{this.filterInDoaj}}
-              >
-                <option value="">全部</option>
-                <option value="true">是</option>
-                <option value="false">否</option>
-              </select>
-            </div>
-
-            <div class="form-field">
-              <label>NLM 收录</label>
-              <select
-                {{on "change" this.updateFilterInNlm}}
-                value={{this.filterInNlm}}
-              >
-                <option value="">全部</option>
-                <option value="true">是</option>
-                <option value="false">否</option>
-              </select>
-            </div>
-
-            <div class="form-field">
-              <label>Wikidata 记录</label>
-              <select
-                {{on "change" this.updateFilterHasWikidata}}
-                value={{this.filterHasWikidata}}
-              >
-                <option value="">全部</option>
-                <option value="true">有</option>
-                <option value="false">无</option>
-              </select>
-            </div>
-
-            <div class="form-field">
-              <label>开放获取</label>
-              <select
-                {{on "change" this.updateFilterIsOpenAccess}}
-                value={{this.filterIsOpenAccess}}
-              >
-                <option value="">全部</option>
-                <option value="true">是</option>
-                <option value="false">否</option>
-              </select>
-            </div>
-          </div>
-
-          <div class="filter-footer">
-            {{#if this.hasActiveFilters}}
-              <span class="filter-badge">已应用
-                {{this.activeFiltersCount}}
-                个筛选</span>
-              <DButton
-                @class="btn-flat"
-                @action={{action "clearFilters"}}
-                @label="discourse_journals.admin.sync.clear"
-                @icon="times"
-              />
-            {{else}}
-              <span class="filter-hint">未设置筛选条件</span>
-            {{/if}}
-          </div>
-        </div>
-      {{/if}}
-    </section>
-
-    {{! 导入操作 }}
-    <section class="journals-section">
-      <div class="section-header">
-        <h3>数据导入</h3>
-      </div>
-      <div class="section-content">
-        <div class="import-actions">
-          <div class="import-action-card">
-            <div class="action-info">
-              <span class="action-title">测试导入</span>
-              <span class="action-desc">导入第一页数据（约 100
-                条），用于验证配置</span>
-            </div>
-            <DButton
-              @class="btn-primary"
-              @action={{action "syncFirstPage"}}
-              @label="discourse_journals.admin.sync.start_test"
-              @icon="flask"
-              @isLoading={{this.syncing}}
-              @disabled={{this.importDisabled}}
-            />
-          </div>
-
-          <div class="import-action-card">
-            <div class="action-info">
-              <span class="action-title">完整导入</span>
-              <span
-                class="action-desc"
-              >导入所有期刊数据，可能需要较长时间</span>
-            </div>
-            <DButton
-              @class="btn-primary"
-              @action={{action "syncAllPages"}}
-              @label="discourse_journals.admin.sync.start_import"
-              @icon="database"
-              @isLoading={{this.syncing}}
-              @disabled={{this.importDisabled}}
-            />
-          </div>
-        </div>
-      </div>
-    </section>
-
-    {{! 进度显示 }}
-    {{#if this.showProgress}}
-      <section class="journals-section progress-section">
-        <div class="section-header">
-          <h3>导入进度</h3>
-          <div class="header-actions">
-            {{#if this.canPause}}
-              <DButton
-                @class="btn-default"
-                @action={{action "pauseImport"}}
-                @label="discourse_journals.admin.sync.pause"
-                @icon="pause"
-                @isLoading={{this.pausing}}
-              />
-            {{/if}}
-            {{#if this.canResume}}
-              <DButton
-                @class="btn-primary"
-                @action={{action "resumeImport"}}
-                @label="discourse_journals.admin.sync.resume"
-                @icon="play"
-                @isLoading={{this.resuming}}
-              />
-            {{/if}}
-            {{#if this.canCancel}}
-              <DButton
-                @class="btn-danger"
-                @action={{action "cancelImport"}}
-                @label="discourse_journals.admin.sync.cancel"
-                @icon="times"
-                @isLoading={{this.cancelling}}
-              />
-            {{/if}}
-          </div>
-        </div>
-        <div class="section-content">
-          <div class="progress-container">
-            <div class="progress-track">
-              <div
-                class="progress-fill"
-                style="width: {{this.progress}}%"
-              ></div>
-            </div>
-            <span class="progress-percent">{{this.progress}}%</span>
-            {{#if this.importEta}}
-              <span class="progress-eta">预计剩余 {{this.importEta}}</span>
-            {{/if}}
-          </div>
-
-          <p class="progress-status">{{this.progressMessage}}</p>
-
-          {{#if this.importStats}}
-            <div class="stats-grid">
-              <div class="stat-item">
-                <span class="stat-value">{{this.importStats.processed}}</span>
-                <span class="stat-label">已处理 /
-                  {{this.importStats.total}}</span>
-              </div>
-              <div class="stat-item stat-success">
-                <span class="stat-value">{{this.importStats.created}}</span>
-                <span class="stat-label">新建</span>
-              </div>
-              <div class="stat-item stat-info">
-                <span class="stat-value">{{this.importStats.updated}}</span>
-                <span class="stat-label">更新</span>
-              </div>
-              {{#if (gt this.importStats.skipped 0)}}
-                <div class="stat-item stat-warning">
-                  <span class="stat-value">{{this.importStats.skipped}}</span>
-                  <span class="stat-label">跳过</span>
-                </div>
-              {{/if}}
-              {{#if (gt this.importStats.errors 0)}}
-                <div class="stat-item stat-error">
-                  <span class="stat-value">{{this.importStats.errors}}</span>
-                  <span class="stat-label">错误</span>
-                </div>
-              {{/if}}
-            </div>
-          {{/if}}
-        </div>
-      </section>
-    {{/if}}
-
-    {{! 结果消息 }}
-    {{#if this.importMessage}}
-      <div
-        class="message-box
-          {{if this.importSuccess 'message-success' 'message-error'}}"
-      >
-        {{this.importMessage}}
-      </div>
-    {{/if}}
-
-    {{! 错误日志 }}
-    {{#if (gt this.errors.length 0)}}
-      <section class="journals-section error-section">
-        <div class="section-header">
-          <h3>错误日志
-            <span class="error-count">({{this.errors.length}})</span></h3>
-          <div class="header-actions">
-            <DButton
-              @class="btn-flat"
-              @action={{action "toggleErrors"}}
-              @label={{if
-                this.showErrors
-                "discourse_journals.admin.errors.collapse"
-                "discourse_journals.admin.errors.expand"
-              }}
-              @icon={{if this.showErrors "angle-up" "angle-down"}}
-            />
-            <DButton
-              @class="btn-flat"
-              @action={{action "copyErrors"}}
-              @label="discourse_journals.admin.errors.copy"
-              @icon="copy"
-            />
-          </div>
-        </div>
-
-        {{#if this.showErrors}}
-          <div class="section-content">
-            <div class="errors-list">
-              {{#each this.errors as |error index|}}
-                <div class="error-item">
-                  <span class="error-index">{{add index 1}}</span>
-                  <div class="error-content">
-                    <p class="error-message">{{error.message}}</p>
-                    {{#if error.details}}
-                      <pre class="error-details">{{error.details}}</pre>
-                    {{/if}}
-                  </div>
-                </div>
-              {{/each}}
-            </div>
-          </div>
-        {{/if}}
-      </section>
-    {{/if}}
-
-    {{! 映射分析 }}
+    {{! ═══ Phase 1: 映射分析 ═══ }}
     <section class="journals-section mapping-section">
       <div class="section-header">
         <h3>{{i18n "discourse_journals.admin.mapping.heading"}}</h3>
@@ -360,11 +42,13 @@
           {{/if}}
         </div>
       </div>
+
       <div class="section-content">
         <p class="mapping-desc">{{i18n
             "discourse_journals.admin.mapping.description"
           }}</p>
 
+        {{! 分析进行中 }}
         {{#if this.analyzing}}
           <div class="mapping-progress">
             <div class="progress-container">
@@ -380,6 +64,7 @@
           </div>
         {{/if}}
 
+        {{! 分析失败 }}
         {{#if this.analysisFailed}}
           <div class="mapping-failed-panel">
             <div class="mapping-progress">
@@ -408,6 +93,7 @@
           </div>
         {{/if}}
 
+        {{! 分析已暂停 }}
         {{#if this.analysisPaused}}
           <div class="mapping-paused-panel">
             <div class="mapping-progress">
@@ -436,6 +122,7 @@
           </div>
         {{/if}}
 
+        {{! 其他消息（如启动失败等） }}
         {{#if this.analysisMessage}}
           {{#unless this.analyzing}}
             {{#unless this.analysisResult}}
@@ -450,6 +137,7 @@
           {{/unless}}
         {{/if}}
 
+        {{! 分析结果 }}
         {{#if this.analysisResult}}
           <div class="mapping-summary">
             <div class="mapping-totals">
@@ -598,143 +286,331 @@
                 {{this.analysisResult.completed_at}}</p>
             {{/if}}
           </div>
-        {{/if}}
 
-        {{! 详情面板 }}
-        {{#if this.showAnalysisDetails}}
-          <div class="mapping-details-panel">
-            <div class="details-header">
-              <h4>{{this.analysisCategoryLabel}}
-                ({{this.analysisDetailsTotal}})</h4>
-              <DButton
-                @class="btn-flat"
-                @action={{action "closeMappingDetails"}}
-                @icon="times"
-              />
-            </div>
-
-            {{#if this.loadingDetails}}
-              <div class="details-loading">{{i18n
-                  "discourse_journals.admin.mapping.loading"
-                }}</div>
-            {{else}}
-              <div class="details-table-wrap">
-                <table class="mapping-details-table">
-                  <thead>
-                    <tr>
-                      <th>{{i18n
-                          "discourse_journals.admin.mapping.col_title"
-                        }}</th>
-                      {{#if this.isDetailsCategoryMatched}}
-                        <th>{{i18n
-                            "discourse_journals.admin.mapping.col_topic_id"
-                          }}</th>
-                        <th>{{i18n
-                            "discourse_journals.admin.mapping.col_api_id"
-                          }}</th>
-                        <th>{{i18n
-                            "discourse_journals.admin.mapping.col_issn_l"
-                          }}</th>
-                      {{/if}}
-                      {{#if this.isDetailsCategoryForumOnly}}
-                        <th>{{i18n
-                            "discourse_journals.admin.mapping.col_topic_id"
-                          }}</th>
-                      {{/if}}
-                      {{#if this.isDetailsCategoryApiOnly}}
-                        <th>{{i18n
-                            "discourse_journals.admin.mapping.col_api_id"
-                          }}</th>
-                        <th>{{i18n
-                            "discourse_journals.admin.mapping.col_issn_l"
-                          }}</th>
-                      {{/if}}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {{#each this.analysisDetailsItems as |item|}}
-                      <tr>
-                        <td class="detail-title">{{item.normalized_title}}</td>
-                        {{#if item.forum}}
-                          <td>
-                            {{#each item.forum as |f|}}
-                              <a
-                                href="/t/{{f.topic_id}}"
-                                target="_blank"
-                              >{{f.topic_id}}</a>
-                            {{/each}}
-                          </td>
-                        {{/if}}
-                        {{#if item.api}}
-                          <td>
-                            {{#each item.api as |a|}}
-                              <span class="api-id-badge">{{a.api_id}}</span>
-                            {{/each}}
-                          </td>
-                          <td>
-                            {{#each item.api as |a|}}
-                              <span>{{a.issn_l}}</span>
-                            {{/each}}
-                          </td>
-                        {{/if}}
-                      </tr>
-                    {{/each}}
-                  </tbody>
-                </table>
+          {{! 详情面板 }}
+          {{#if this.showAnalysisDetails}}
+            <div class="mapping-details-panel">
+              <div class="details-header">
+                <h4>{{this.analysisCategoryLabel}}
+                  ({{this.analysisDetailsTotal}})</h4>
+                <DButton
+                  @class="btn-flat"
+                  @action={{action "closeMappingDetails"}}
+                  @icon="times"
+                />
               </div>
 
-              {{#if this.hasMultipleDetailsPages}}
-                <div class="details-pagination">
-                  <DButton
-                    @class="btn-default btn-small"
-                    @action={{action "prevDetailsPage"}}
-                    @icon="chevron-left"
-                    @disabled={{this.prevDetailsPageDisabled}}
-                  />
-                  <span class="page-info">{{this.analysisDetailsPage}}
-                    /
-                    {{this.analysisDetailsTotalPages}}</span>
-                  <DButton
-                    @class="btn-default btn-small"
-                    @action={{action "nextDetailsPage"}}
-                    @icon="chevron-right"
-                    @disabled={{this.nextDetailsPageDisabled}}
-                  />
+              {{#if this.loadingDetails}}
+                <div class="details-loading">{{i18n
+                    "discourse_journals.admin.mapping.loading"
+                  }}</div>
+              {{else}}
+                <div class="details-table-wrap">
+                  <table class="mapping-details-table">
+                    <thead>
+                      <tr>
+                        <th>{{i18n
+                            "discourse_journals.admin.mapping.col_title"
+                          }}</th>
+                        {{#if this.isDetailsCategoryMatched}}
+                          <th>{{i18n
+                              "discourse_journals.admin.mapping.col_topic_id"
+                            }}</th>
+                          <th>{{i18n
+                              "discourse_journals.admin.mapping.col_api_id"
+                            }}</th>
+                          <th>{{i18n
+                              "discourse_journals.admin.mapping.col_issn_l"
+                            }}</th>
+                        {{/if}}
+                        {{#if this.isDetailsCategoryForumOnly}}
+                          <th>{{i18n
+                              "discourse_journals.admin.mapping.col_topic_id"
+                            }}</th>
+                        {{/if}}
+                        {{#if this.isDetailsCategoryApiOnly}}
+                          <th>{{i18n
+                              "discourse_journals.admin.mapping.col_api_id"
+                            }}</th>
+                          <th>{{i18n
+                              "discourse_journals.admin.mapping.col_issn_l"
+                            }}</th>
+                        {{/if}}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {{#each this.analysisDetailsItems as |item|}}
+                        <tr>
+                          <td
+                            class="detail-title"
+                          >{{item.normalized_title}}</td>
+                          {{#if item.forum}}
+                            <td>
+                              {{#each item.forum as |f|}}
+                                <a
+                                  href="/t/{{f.topic_id}}"
+                                  target="_blank"
+                                >{{f.topic_id}}</a>
+                              {{/each}}
+                            </td>
+                          {{/if}}
+                          {{#if item.api}}
+                            <td>
+                              {{#each item.api as |a|}}
+                                <span class="api-id-badge">{{a.api_id}}</span>
+                              {{/each}}
+                            </td>
+                            <td>
+                              {{#each item.api as |a|}}
+                                <span>{{a.issn_l}}</span>
+                              {{/each}}
+                            </td>
+                          {{/if}}
+                        </tr>
+                      {{/each}}
+                    </tbody>
+                  </table>
                 </div>
+
+                {{#if this.hasMultipleDetailsPages}}
+                  <div class="details-pagination">
+                    <DButton
+                      @class="btn-default btn-small"
+                      @action={{action "prevDetailsPage"}}
+                      @icon="chevron-left"
+                      @disabled={{this.prevDetailsPageDisabled}}
+                    />
+                    <span class="page-info">{{this.analysisDetailsPage}}
+                      /
+                      {{this.analysisDetailsTotalPages}}</span>
+                    <DButton
+                      @class="btn-default btn-small"
+                      @action={{action "nextDetailsPage"}}
+                      @icon="chevron-right"
+                      @disabled={{this.nextDetailsPageDisabled}}
+                    />
+                  </div>
+                {{/if}}
+              {{/if}}
+            </div>
+          {{/if}}
+        {{/if}}
+      </div>
+    </section>
+
+    {{! ═══ Phase 2: 应用映射 ═══ }}
+    {{#if this.analysisResult}}
+      <section class="journals-section apply-section">
+        <div class="section-header">
+          <h3>{{i18n "discourse_journals.admin.mapping.apply_heading"}}</h3>
+          <div class="header-actions apply-task-controls">
+            {{#if this.applying}}
+              <DButton
+                @class="btn-danger"
+                @action={{action "pauseApplyMapping"}}
+                @label="discourse_journals.admin.mapping.apply_pause"
+                @icon="pause"
+                @isLoading={{this.applyPausing}}
+                @disabled={{this.applyPausing}}
+              />
+            {{else}}
+              {{#if this.canStartApply}}
+                <DButton
+                  @class="btn-primary"
+                  @action={{action "startApplyMapping"}}
+                  @label="discourse_journals.admin.mapping.apply_start"
+                  @icon="check-double"
+                />
+              {{/if}}
+
+              {{#if this.canResumeApply}}
+                <DButton
+                  @class="btn-primary"
+                  @action={{action "resumeApplyMapping"}}
+                  @label="discourse_journals.admin.mapping.apply_resume"
+                  @icon="play"
+                />
+              {{/if}}
+
+              {{#if this.canResetApply}}
+                <DButton
+                  @class="btn-default"
+                  @action={{action "resetApplyMapping"}}
+                  @label="discourse_journals.admin.mapping.apply_reset"
+                  @icon="redo"
+                />
               {{/if}}
             {{/if}}
           </div>
-        {{/if}}
-      </div>
-    </section>
+        </div>
 
-    {{! 帮助信息 }}
-    <section class="journals-section help-section">
-      <div class="section-header">
-        <h3>使用说明</h3>
-      </div>
-      <div class="section-content">
-        <ul class="help-list">
-          <li>首次导入建议先使用「测试导入」验证配置是否正确</li>
-          <li>导入过程会自动创建或更新期刊话题，不会产生重复数据</li>
-          <li>如果数据处理失败（如缺少必要字段），该期刊会被跳过</li>
-          <li>导入在后台运行，可以安全关闭此页面</li>
-        </ul>
-      </div>
-    </section>
+        <div class="section-content">
+          <p class="apply-desc">{{i18n
+              "discourse_journals.admin.mapping.apply_description"
+            }}</p>
 
-    {{! 危险操作 }}
+          {{! 应用进行中 }}
+          {{#if this.applying}}
+            <div class="mapping-apply-progress">
+              <div class="progress-container">
+                <div class="progress-track">
+                  <div
+                    class="progress-fill"
+                    style="width: {{this.applyProgress}}%"
+                  ></div>
+                </div>
+                <span class="progress-percent">{{this.applyProgress}}%</span>
+              </div>
+              <p class="progress-status">{{this.applyMessage}}</p>
+              {{#if this.applyStats}}
+                <div class="stats-grid apply-stats-grid">
+                  {{#if this.applyStats.deleted}}
+                    <div class="stat-item stat-error">
+                      <span
+                        class="stat-value"
+                      >{{this.applyStats.deleted}}</span>
+                      <span class="stat-label">{{i18n
+                          "discourse_journals.admin.mapping.apply_stats_deleted"
+                        }}</span>
+                    </div>
+                  {{/if}}
+                  <div class="stat-item stat-info">
+                    <span class="stat-value">{{this.applyStats.updated}}</span>
+                    <span class="stat-label">{{i18n
+                        "discourse_journals.admin.mapping.apply_stats_updated"
+                      }}</span>
+                  </div>
+                  <div class="stat-item stat-success">
+                    <span class="stat-value">{{this.applyStats.created}}</span>
+                    <span class="stat-label">{{i18n
+                        "discourse_journals.admin.mapping.apply_stats_created"
+                      }}</span>
+                  </div>
+                  {{#if this.applyStats.errors}}
+                    <div class="stat-item stat-warning">
+                      <span class="stat-value">{{this.applyStats.errors}}</span>
+                      <span class="stat-label">{{i18n
+                          "discourse_journals.admin.mapping.apply_stats_errors"
+                        }}</span>
+                    </div>
+                  {{/if}}
+                </div>
+              {{/if}}
+            </div>
+          {{/if}}
+
+          {{! 应用完成 }}
+          {{#if this.applyCompleted}}
+            <div class="message-box message-success mapping-apply-result">
+              <strong>{{i18n
+                  "discourse_journals.admin.mapping.apply_completed"
+                }}</strong>
+              {{#if this.applyStats}}
+                <p>{{i18n
+                    "discourse_journals.admin.mapping.apply_stats_deleted"
+                  }}:
+                  {{this.applyStats.deleted}},
+                  {{i18n
+                    "discourse_journals.admin.mapping.apply_stats_updated"
+                  }}:
+                  {{this.applyStats.updated}},
+                  {{i18n
+                    "discourse_journals.admin.mapping.apply_stats_created"
+                  }}:
+                  {{this.applyStats.created}}</p>
+              {{/if}}
+            </div>
+          {{/if}}
+
+          {{! 应用失败 }}
+          {{#if this.applyFailed}}
+            <div class="message-box message-error mapping-apply-result">
+              <strong>{{i18n
+                  "discourse_journals.admin.mapping.apply_failed"
+                }}</strong>
+              <p>{{this.applyMessage}}</p>
+              {{#if this.applyStats}}
+                <div class="stats-grid apply-stats-grid stats-grid-inline">
+                  {{#if this.applyStats.deleted}}
+                    <div class="stat-item stat-error">
+                      <span
+                        class="stat-value"
+                      >{{this.applyStats.deleted}}</span>
+                      <span class="stat-label">{{i18n
+                          "discourse_journals.admin.mapping.apply_stats_deleted"
+                        }}</span>
+                    </div>
+                  {{/if}}
+                  <div class="stat-item stat-info">
+                    <span class="stat-value">{{this.applyStats.updated}}</span>
+                    <span class="stat-label">{{i18n
+                        "discourse_journals.admin.mapping.apply_stats_updated"
+                      }}</span>
+                  </div>
+                  <div class="stat-item stat-success">
+                    <span class="stat-value">{{this.applyStats.created}}</span>
+                    <span class="stat-label">{{i18n
+                        "discourse_journals.admin.mapping.apply_stats_created"
+                      }}</span>
+                  </div>
+                </div>
+              {{/if}}
+            </div>
+          {{/if}}
+
+          {{! 应用已暂停 }}
+          {{#if this.applyPaused}}
+            <div class="message-box message-warning mapping-apply-result">
+              <strong>{{i18n
+                  "discourse_journals.admin.mapping.apply_paused_title"
+                }}</strong>
+              <p>{{this.applyMessage}}</p>
+              {{#if this.applyStats}}
+                <div class="stats-grid apply-stats-grid stats-grid-inline">
+                  {{#if this.applyStats.deleted}}
+                    <div class="stat-item stat-error">
+                      <span
+                        class="stat-value"
+                      >{{this.applyStats.deleted}}</span>
+                      <span class="stat-label">{{i18n
+                          "discourse_journals.admin.mapping.apply_stats_deleted"
+                        }}</span>
+                    </div>
+                  {{/if}}
+                  <div class="stat-item stat-info">
+                    <span class="stat-value">{{this.applyStats.updated}}</span>
+                    <span class="stat-label">{{i18n
+                        "discourse_journals.admin.mapping.apply_stats_updated"
+                      }}</span>
+                  </div>
+                  <div class="stat-item stat-success">
+                    <span class="stat-value">{{this.applyStats.created}}</span>
+                    <span class="stat-label">{{i18n
+                        "discourse_journals.admin.mapping.apply_stats_created"
+                      }}</span>
+                  </div>
+                </div>
+              {{/if}}
+            </div>
+          {{/if}}
+        </div>
+      </section>
+    {{/if}}
+
+    {{! ═══ 危险操作 ═══ }}
     <section class="journals-section danger-section">
       <div class="section-header">
-        <h3>危险操作</h3>
+        <h3>{{i18n "discourse_journals.admin.danger.heading"}}</h3>
       </div>
       <div class="section-content">
         <div class="danger-action">
           <div class="danger-info">
-            <span class="danger-title">删除所有期刊</span>
-            <span
-              class="danger-desc"
-            >永久删除所有导入的期刊帖子，此操作不可撤销</span>
+            <span class="danger-title">{{i18n
+                "discourse_journals.admin.danger.delete_all_title"
+              }}</span>
+            <span class="danger-desc">{{i18n
+                "discourse_journals.admin.danger.delete_all_desc"
+              }}</span>
           </div>
           <DButton
             @class="btn-danger"
@@ -746,7 +622,6 @@
           />
         </div>
 
-        {{! 删除进度显示 }}
         {{#if this.showDeleteProgress}}
           <div class="delete-progress-section">
             <div class="progress-container">
@@ -758,7 +633,10 @@
               </div>
               <span class="progress-percent">{{this.deleteProgress}}%</span>
               {{#if this.deleteEta}}
-                <span class="progress-eta">预计剩余 {{this.deleteEta}}</span>
+                <span class="progress-eta">{{i18n
+                    "discourse_journals.admin.danger.eta_prefix"
+                  }}
+                  {{this.deleteEta}}</span>
               {{/if}}
             </div>
 
@@ -768,13 +646,17 @@
               <div class="stats-grid">
                 <div class="stat-item">
                   <span class="stat-value">{{this.deleteStats.deleted}}</span>
-                  <span class="stat-label">已删除 /
+                  <span class="stat-label">{{i18n
+                      "discourse_journals.admin.danger.deleted_of"
+                    }}
                     {{this.deleteStats.total}}</span>
                 </div>
                 {{#if (gt this.deleteStats.errors 0)}}
                   <div class="stat-item stat-error">
                     <span class="stat-value">{{this.deleteStats.errors}}</span>
-                    <span class="stat-label">失败</span>
+                    <span class="stat-label">{{i18n
+                        "discourse_journals.admin.danger.delete_errors_label"
+                      }}</span>
                   </div>
                 {{/if}}
               </div>

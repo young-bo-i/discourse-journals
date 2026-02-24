@@ -94,6 +94,123 @@ module DiscourseJournals
       render_json_error("重新启动失败: #{e.message}")
     end
 
+    # POST /admin/journals/mapping/apply
+    def apply
+      analysis = MappingAnalysis.current
+
+      unless analysis&.can_apply?
+        return render_json_error("当前没有可以应用的分析结果（需要分析已完成且未在应用中）")
+      end
+
+      analysis.update!(
+        apply_status: :not_applied,
+        apply_error_message: nil,
+        apply_stats: {},
+        apply_checkpoint: {},
+      )
+
+      Jobs.enqueue(
+        Jobs::DiscourseJournals::ApplyMapping,
+        analysis_id: analysis.id,
+        user_id: current_user.id,
+      )
+
+      render json: {
+        status: "started",
+        analysis_id: analysis.id,
+        message: "映射应用任务已启动...",
+      }
+    rescue StandardError => e
+      Rails.logger.error("[DiscourseJournals::Mapping] Failed to start apply: #{e.message}")
+      render_json_error("启动映射应用失败: #{e.message}")
+    end
+
+    # GET /admin/journals/mapping/apply_status
+    def apply_status
+      analysis = MappingAnalysis.current
+
+      if analysis.nil?
+        return render_json_dump({ has_analysis: false })
+      end
+
+      render_json_dump({
+        has_analysis: true,
+        apply_status: analysis.apply_status,
+        apply_stats: analysis.apply_stats || {},
+        apply_error_message: analysis.apply_error_message,
+        apply_started_at: analysis.apply_started_at,
+        apply_completed_at: analysis.apply_completed_at,
+      })
+    end
+
+    # POST /admin/journals/mapping/apply_pause
+    def apply_pause
+      analysis = MappingAnalysis.current
+
+      unless analysis&.sync_processing?
+        return render_json_error("当前没有正在运行的应用任务")
+      end
+
+      analysis.update!(apply_status: :sync_paused)
+      render json: { status: "paused", message: "应用已暂停" }
+    rescue StandardError => e
+      Rails.logger.error("[DiscourseJournals::Mapping] Failed to pause apply: #{e.message}")
+      render_json_error("暂停应用失败: #{e.message}")
+    end
+
+    # POST /admin/journals/mapping/apply_resume
+    def apply_resume
+      analysis = MappingAnalysis.current
+
+      unless analysis&.can_resume_apply?
+        return render_json_error("当前没有可以恢复的应用任务（需要处于暂停或失败状态）")
+      end
+
+      Jobs.enqueue(
+        Jobs::DiscourseJournals::ApplyMapping,
+        analysis_id: analysis.id,
+        user_id: current_user.id,
+        resume: true,
+      )
+
+      render json: {
+        status: "resuming",
+        analysis_id: analysis.id,
+        message: "映射应用正在恢复...",
+      }
+    rescue StandardError => e
+      Rails.logger.error("[DiscourseJournals::Mapping] Failed to resume apply: #{e.message}")
+      render_json_error("恢复应用失败: #{e.message}")
+    end
+
+    # POST /admin/journals/mapping/apply_reset
+    def apply_reset
+      analysis = MappingAnalysis.current
+
+      if analysis&.sync_processing?
+        return render_json_error("请先暂停正在运行的应用任务")
+      end
+
+      unless analysis
+        return render_json_error("没有可以重置的分析记录")
+      end
+
+      analysis.reset_apply!
+      render json: { status: "reset", message: "应用状态已重置" }
+    rescue StandardError => e
+      Rails.logger.error("[DiscourseJournals::Mapping] Failed to reset apply: #{e.message}")
+      render_json_error("重置应用失败: #{e.message}")
+    end
+
+    # DELETE /admin/journals/delete_all
+    def delete_all
+      Jobs.enqueue(Jobs::DiscourseJournals::DeleteAllJournals, user_id: current_user.id)
+      render json: { status: "started", message: "删除任务已启动..." }
+    rescue StandardError => e
+      Rails.logger.error("[DiscourseJournals::Mapping] Failed to start delete_all: #{e.message}")
+      render_json_error("启动删除失败: #{e.message}")
+    end
+
     # GET /admin/journals/mapping/details?category=exact_1to1&page=1
     def details
       analysis = MappingAnalysis.current
@@ -140,6 +257,11 @@ module DiscourseJournals
         started_at: analysis.started_at,
         completed_at: analysis.completed_at,
         created_at: analysis.created_at,
+        apply_status: analysis.apply_status,
+        apply_stats: analysis.apply_stats || {},
+        apply_error_message: analysis.apply_error_message,
+        apply_started_at: analysis.apply_started_at,
+        apply_completed_at: analysis.apply_completed_at,
       }
     end
   end

@@ -8,6 +8,13 @@ module DiscourseJournals
     validates :status, presence: true
 
     enum :status, { pending: 0, processing: 1, completed: 2, failed: 3, paused: 4 }
+    enum :apply_status, {
+      not_applied: 0,
+      sync_processing: 1,
+      sync_completed: 2,
+      sync_failed: 3,
+      sync_paused: 4,
+    }
 
     CATEGORIES = %w[exact_1to1 forum_1_to_api_n forum_n_to_api_1 forum_n_to_api_m forum_only api_only].freeze
 
@@ -31,6 +38,25 @@ module DiscourseJournals
       50
     end
 
+    def can_apply?
+      completed? && %w[not_applied sync_completed sync_failed sync_paused].include?(apply_status)
+    end
+
+    def can_resume_apply?
+      completed? && (sync_paused? || sync_failed?)
+    end
+
+    def reset_apply!
+      update!(
+        apply_status: :not_applied,
+        apply_stats: {},
+        apply_checkpoint: {},
+        apply_error_message: nil,
+        apply_started_at: nil,
+        apply_completed_at: nil,
+      )
+    end
+
     def summary
       {
         total_forum_topics: total_forum_topics,
@@ -41,6 +67,21 @@ module DiscourseJournals
         forum_n_to_api_m: forum_n_to_api_m_count,
         forum_only: forum_only_count,
         api_only: api_only_count,
+      }
+    end
+
+    def apply_summary
+      stats = apply_stats || {}
+      {
+        status: apply_status,
+        deleted: stats["deleted"] || 0,
+        updated: stats["updated"] || 0,
+        created: stats["created"] || 0,
+        skipped: stats["skipped"] || 0,
+        errors: stats["errors"] || 0,
+        error_message: apply_error_message,
+        started_at: apply_started_at,
+        completed_at: apply_completed_at,
       }
     end
 

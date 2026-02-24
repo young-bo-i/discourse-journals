@@ -20,12 +20,11 @@ module Jobs
         # ============ 第一步：删除插件产生的中间数据 ============
         publish_progress(user_id, 0, 0, 0, 0, "正在清理插件数据...")
 
-        # 1.1 删除导入日志
-        import_log_count = ::DiscourseJournals::ImportLog.count
-        ::DiscourseJournals::ImportLog.delete_all
-        Rails.logger.info("[DiscourseJournals::DeleteAll] Deleted #{import_log_count} import logs")
+        mapping_count = ::DiscourseJournals::MappingAnalysis.count
+        ::DiscourseJournals::MappingAnalysis.delete_all
+        Rails.logger.info("[DiscourseJournals::DeleteAll] Deleted #{mapping_count} mapping analyses")
 
-        # 1.2 删除所有期刊相关的 TopicCustomField（以 discourse_journals_ 开头的）
+        # 删除所有期刊相关的 TopicCustomField（以 discourse_journals_ 开头的）
         custom_field_count = TopicCustomField
           .where("name LIKE ?", "discourse_journals_%")
           .delete_all
