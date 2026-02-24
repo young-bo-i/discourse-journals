@@ -6,13 +6,13 @@ require "json"
 module DiscourseJournals
   class MappingApplier
     class PausedError < StandardError; end
+    class FatalError < StandardError; end
 
     API_BASE_URL = "https://journal.scholay.com/api/open/journals"
     BYIDS_BATCH_SIZE = 50
     API_CONCURRENCY = 5
     DELETE_BATCH_SIZE = 200
     UPSERT_CONCURRENCY = 5
-    CHECKPOINT_INTERVAL = 50
 
     attr_reader :stats
 
@@ -24,9 +24,9 @@ module DiscourseJournals
       @api_actions = {}
       @topics_to_delete = []
       @stats = (resume_stats || { deleted: 0, updated: 0, created: 0, skipped: 0, errors: 0 }).transform_keys(&:to_sym)
-      @error_details = []
       @system_user = Discourse.system_user
       @stats_mutex = Mutex.new
+      @fatal_error = nil
     end
 
     def run!
@@ -49,6 +49,20 @@ module DiscourseJournals
 
     def check_cancelled!
       raise PausedError, "应用已被用户暂停" if @cancel_check&.call
+    end
+
+    def check_fatal!
+      err = @stats_mutex.synchronize { @fatal_error }
+      raise err if err
+    end
+
+    def set_fatal!(action, id, error)
+      @stats_mutex.synchronize do
+        return if @fatal_error
+        msg = "[#{action}] ID=#{id}: #{error.class} - #{error.message}"
+        Rails.logger.error("[DiscourseJournals::MappingApplier] FATAL: #{msg}\n#{error.backtrace&.first(5)&.join("\n")}")
+        @fatal_error = FatalError.new(msg)
+      end
     end
 
     def publish_progress(percent, message)
@@ -172,17 +186,10 @@ module DiscourseJournals
       batches.each_with_index do |batch_ids, batch_idx|
         check_cancelled!
 
-        begin
-          deleted_count = bulk_delete_topic_batch(batch_ids)
-          increment_stat(:deleted, deleted_count)
-          skipped = batch_ids.size - deleted_count
-          increment_stat(:skipped, skipped) if skipped > 0
-        rescue PausedError
-          raise
-        rescue StandardError => e
-          increment_stat(:errors, batch_ids.size)
-          log_error("bulk_delete", "batch_#{base_offset + batch_idx * DELETE_BATCH_SIZE}", e)
-        end
+        deleted_count = bulk_delete_topic_batch(batch_ids)
+        increment_stat(:deleted, deleted_count)
+        skipped = batch_ids.size - deleted_count
+        increment_stat(:skipped, skipped) if skipped > 0
 
         processed = base_offset + [((batch_idx + 1) * DELETE_BATCH_SIZE), remaining_ids.size].min
         processed = [processed, total].min
@@ -296,11 +303,13 @@ module DiscourseJournals
       connections = API_CONCURRENCY.times.map { create_persistent_connection }
 
       begin
-        batches.each_slice(API_CONCURRENCY).with_index do |concurrent_batches, batch_group_idx|
+        batches.each_slice(API_CONCURRENCY).with_index do |concurrent_batches, _batch_group_idx|
           check_cancelled!
+          check_fatal!
 
           rows = fetch_byids_concurrent(connections, concurrent_batches)
           process_rows_parallel(rows, processed, base_offset, total, start_time)
+          check_fatal!
 
           current = processed.value
           save_checkpoint("api_sync", "api_offset", base_offset + current)
@@ -327,6 +336,8 @@ module DiscourseJournals
       threads = [UPSERT_CONCURRENCY, rows.size].min.times.map do
         Thread.new do
           while (row = queue.pop(true) rescue nil)
+            break if @stats_mutex.synchronize { @fatal_error }
+
             unified = row["unified"] || {}
             api_id = unified["id"]
             next unless api_id
@@ -335,6 +346,7 @@ module DiscourseJournals
             next unless action_info
 
             begin
+              check_cancelled!
               journal_params = ApiDataTransformer.transform(row)
               upserter = JournalUpserter.new(system_user: @system_user)
 
@@ -346,9 +358,11 @@ module DiscourseJournals
                 upserter.upsert!(journal_params)
                 increment_stat(:created)
               end
+            rescue PausedError
+              break
             rescue StandardError => e
-              increment_stat(:errors)
-              log_error(action_info[:action].to_s, api_id, e)
+              set_fatal!(action_info[:action].to_s, api_id, e)
+              break
             end
 
             current = processed_counter.increment
@@ -458,11 +472,5 @@ module DiscourseJournals
       end
     end
 
-    def log_error(action, id, error)
-      Rails.logger.error(
-        "[DiscourseJournals::MappingApplier] #{action} failed for #{id}: #{error.class} - #{error.message}",
-      )
-      @error_details << { action: action, id: id, error: error.message }
-    end
   end
 end

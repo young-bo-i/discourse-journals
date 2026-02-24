@@ -7,7 +7,6 @@ module DiscourseJournals
       sources_raw = row["sources"] || {}
 
       {
-        primary_id: unified["issn_l"],
         name: unified["canonical_name"],
         unified_index: build_unified_index(unified, row),
         aliases: [],

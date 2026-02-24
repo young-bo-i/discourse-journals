@@ -91,7 +91,8 @@ module Jobs
             apply_error_message: e.message,
             apply_completed_at: Time.current,
           )
-          publish_progress(user_id, analysis, "failed", 0, "应用失败: #{e.message}", analysis.apply_stats || {})
+          stats = analysis.reload.apply_stats || {}
+          publish_progress(user_id, analysis, "failed", 0, "应用失败: #{e.message}", stats)
         end
       end
 
