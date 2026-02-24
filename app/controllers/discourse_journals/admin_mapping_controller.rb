@@ -152,6 +152,19 @@ module DiscourseJournals
       end
 
       analysis.update!(apply_status: :sync_paused)
+
+      MessageBus.publish(
+        "/journals/mapping-apply",
+        {
+          analysis_id: analysis.id,
+          status: "paused",
+          progress: 0,
+          message: "应用已暂停",
+          stats: analysis.apply_stats || {},
+        },
+        user_ids: [current_user.id],
+      )
+
       render json: { status: "paused", message: "应用已暂停" }
     rescue StandardError => e
       Rails.logger.error("[DiscourseJournals::Mapping] Failed to pause apply: #{e.message}")
