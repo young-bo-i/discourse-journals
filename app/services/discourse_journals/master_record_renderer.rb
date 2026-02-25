@@ -6,6 +6,7 @@ module DiscourseJournals
 
     def initialize(normalized_data)
       @d = normalized_data.is_a?(Hash) ? normalized_data : {}
+      @toggle_id = 0
     end
 
     def render
@@ -339,31 +340,53 @@ module DiscourseJournals
       cr_dois = (@d.dig(:crossref_quality, :dois_by_year) || []).reverse
 
       if scimago_data.size >= 2
-        charts << viz_card(t("chart_sjr"), "#e77642", SvgChartBuilder.from_time_series(scimago_data, value_key: :sjr, color: "#e77642"))
-        charts << viz_card(t("chart_total_docs"), "#7ac36a", SvgChartBuilder.from_time_series(scimago_data, value_key: :total_docs_year, color: "#7ac36a"))
-        charts << viz_card(t("chart_cites_per_doc"), "#3885c8", SvgChartBuilder.from_time_series(scimago_data, value_key: :citations_per_doc_2years, color: "#3885c8"))
-        charts << viz_card(t("chart_female_pct"), "#7ac36a", SvgChartBuilder.from_time_series(scimago_data, value_key: :female_pct, color: "#7ac36a"))
-        charts << viz_card(t("chart_refs_per_doc"), "#3885c8", SvgChartBuilder.from_time_series(scimago_data, value_key: :ref_per_doc, color: "#3885c8"))
-        charts << viz_card(t("chart_policy_docs"), "#7ac36a", SvgChartBuilder.from_time_series(scimago_data, value_key: :overton, color: "#7ac36a"))
-        charts << viz_card(t("chart_sdg_docs"), "#7ac36a", SvgChartBuilder.from_time_series(scimago_data, value_key: :sdg, color: "#7ac36a"))
+        charts << viz_card(t("chart_sjr"), "#e77642",
+          SvgChartBuilder.from_time_series(scimago_data, value_key: :sjr, color: "#e77642"),
+          data: scimago_data, value_key: :sjr)
+        charts << viz_card(t("chart_total_docs"), "#7ac36a",
+          SvgChartBuilder.from_time_series(scimago_data, value_key: :total_docs_year, color: "#7ac36a"),
+          data: scimago_data, value_key: :total_docs_year)
+        charts << viz_card(t("chart_cites_per_doc"), "#3885c8",
+          SvgChartBuilder.from_time_series(scimago_data, value_key: :citations_per_doc_2years, color: "#3885c8"),
+          data: scimago_data, value_key: :citations_per_doc_2years)
+        charts << viz_card(t("chart_female_pct"), "#7ac36a",
+          SvgChartBuilder.from_time_series(scimago_data, value_key: :female_pct, color: "#7ac36a"),
+          data: scimago_data, value_key: :female_pct)
+        charts << viz_card(t("chart_refs_per_doc"), "#3885c8",
+          SvgChartBuilder.from_time_series(scimago_data, value_key: :ref_per_doc, color: "#3885c8"),
+          data: scimago_data, value_key: :ref_per_doc)
+        charts << viz_card(t("chart_policy_docs"), "#7ac36a",
+          SvgChartBuilder.from_time_series(scimago_data, value_key: :overton, color: "#7ac36a"),
+          data: scimago_data, value_key: :overton)
+        charts << viz_card(t("chart_sdg_docs"), "#7ac36a",
+          SvgChartBuilder.from_time_series(scimago_data, value_key: :sdg, color: "#7ac36a"),
+          data: scimago_data, value_key: :sdg)
       end
 
       if oa_counts.size >= 2
-        charts << viz_card(t("chart_annual_citations"), "#3885c8", SvgChartBuilder.from_time_series(oa_counts, value_key: :cited_by_count, color: "#3885c8"))
+        charts << viz_card(t("chart_annual_citations"), "#3885c8",
+          SvgChartBuilder.from_time_series(oa_counts, value_key: :cited_by_count, color: "#3885c8"),
+          data: oa_counts, value_key: :cited_by_count)
         charts << viz_card(t("chart_works_vs_oa"), nil,
           SvgChartBuilder.area_from_time_series(oa_counts, key_a: :works_count, key_b: :oa_works_count),
+          data: oa_counts, value_keys: [:works_count, :oa_works_count],
           legends: [["#7ac36a", t("legend_works")], ["#3885c8", t("legend_oa_works")]])
         charts << viz_card_wide(t("chart_total_citations_wide"), "#3885c8",
           SvgChartBuilder.from_time_series(oa_counts, value_key: :cited_by_count, color: "#3885c8",
-            width: SvgChartBuilder::WIDE_W, height: SvgChartBuilder::WIDE_H))
+            width: SvgChartBuilder::WIDE_W, height: SvgChartBuilder::WIDE_H),
+          data: oa_counts, value_key: :cited_by_count)
       end
 
       if cr_dois.size >= 2
-        charts << viz_card(t("chart_dois_by_year"), "#7ac36a", SvgChartBuilder.from_time_series(cr_dois, value_key: :count, color: "#7ac36a"))
+        charts << viz_card(t("chart_dois_by_year"), "#7ac36a",
+          SvgChartBuilder.from_time_series(cr_dois, value_key: :count, color: "#7ac36a"),
+          data: cr_dois, value_key: :count)
       end
 
       if oa_counts.size >= 2
-        charts << viz_card(t("chart_oa_works_trend"), "#3885c8", SvgChartBuilder.from_time_series(oa_counts, value_key: :oa_works_count, color: "#3885c8"))
+        charts << viz_card(t("chart_oa_works_trend"), "#3885c8",
+          SvgChartBuilder.from_time_series(oa_counts, value_key: :oa_works_count, color: "#3885c8"),
+          data: oa_counts, value_key: :oa_works_count)
       end
 
       return nil if charts.empty?
@@ -376,7 +399,64 @@ module DiscourseJournals
       HTML
     end
 
-    def viz_card(title, dot_color, svg, legends: nil)
+    def next_toggle_id
+      @toggle_id += 1
+      "dj-toggle-#{@toggle_id}"
+    end
+
+    def toggle_icon_svg
+      '<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" xmlns="http://www.w3.org/2000/svg">' \
+        '<rect x="1" y="1" width="4" height="4" rx="0.5" opacity="0.7"/>' \
+        '<rect x="6" y="1" width="4" height="4" rx="0.5" opacity="0.7"/>' \
+        '<rect x="11" y="1" width="4" height="4" rx="0.5" opacity="0.7"/>' \
+        '<rect x="1" y="6" width="4" height="4" rx="0.5" opacity="0.7"/>' \
+        '<rect x="6" y="6" width="4" height="4" rx="0.5" opacity="0.7"/>' \
+        '<rect x="11" y="6" width="4" height="4" rx="0.5" opacity="0.7"/>' \
+        '<rect x="1" y="11" width="4" height="4" rx="0.5" opacity="0.7"/>' \
+        '<rect x="6" y="11" width="4" height="4" rx="0.5" opacity="0.7"/>' \
+        '<rect x="11" y="11" width="4" height="4" rx="0.5" opacity="0.7"/>' \
+      '</svg>'
+    end
+
+    COLUMN_I18N_MAP = {
+      sjr: "col_sjr",
+      total_docs_year: "col_total_docs",
+      citations_per_doc_2years: "col_cites_per_doc",
+      female_pct: "col_female_pct",
+      ref_per_doc: "col_refs_per_doc",
+      overton: "col_policy_docs",
+      sdg: "col_sdg_docs",
+      cited_by_count: "col_citations",
+      works_count: "col_works",
+      oa_works_count: "col_oa_works",
+      count: "col_count",
+    }.freeze
+
+    def build_table(data, value_key: nil, value_keys: nil)
+      return "" if data.nil? || data.empty?
+      keys = value_keys || [value_key].compact
+      return "" if keys.empty?
+
+      header_cells = keys.map { |k|
+        i18n_key = COLUMN_I18N_MAP[k]
+        label = i18n_key ? t(i18n_key) : k.to_s.tr("_", " ").capitalize
+        "<th>#{h(label)}</th>"
+      }.join
+      rows = data.map { |d|
+        yr = d[:year]
+        cells = keys.map { |k| "<td>#{d[k]}</td>" }.join
+        "<tr><td>#{yr}</td>#{cells}</tr>"
+      }.join
+
+      <<~HTML
+        <div class="dj-viz-table"><table>
+          <thead><tr><th>#{t("year")}</th>#{header_cells}</tr></thead>
+          <tbody>#{rows}</tbody>
+        </table></div>
+      HTML
+    end
+
+    def viz_card(title, dot_color, svg, data: nil, value_key: nil, value_keys: nil, legends: nil)
       return nil if svg.blank?
       dot = dot_color ? %(<span class="dj-legend-dot" style="background:#{dot_color}"></span>) : ""
       legend_html = if legends
@@ -386,22 +466,42 @@ module DiscourseJournals
       end
       title_content = legends ? legend_html : "#{dot}#{h(title)}"
 
+      tid = next_toggle_id
+      table_html = build_table(data, value_key: value_key, value_keys: value_keys)
+      input_html = table_html.present? ? %(<input type="checkbox" class="dj-viz-toggle-input" id="#{tid}" />) : ""
+      label_html = table_html.present? ? %(<label for="#{tid}" class="dj-viz-toggle-label" title="#{h(t("toggle_chart_table"))}">#{toggle_icon_svg}</label>) : ""
+
       <<~HTML
         <article class="dj-viz-card">
-          <div class="dj-viz-card__header"><div class="dj-viz-title">#{title_content}</div></div>
+          #{input_html}
+          <div class="dj-viz-card__header">
+            <div class="dj-viz-title">#{title_content}</div>
+            #{label_html}
+          </div>
           <div class="dj-viz-chart">#{svg}</div>
+          #{table_html}
         </article>
       HTML
     end
 
-    def viz_card_wide(title, dot_color, svg)
+    def viz_card_wide(title, dot_color, svg, data: nil, value_key: nil, value_keys: nil)
       return nil if svg.blank?
       dot = dot_color ? %(<span class="dj-legend-dot" style="background:#{dot_color}"></span>) : ""
 
+      tid = next_toggle_id
+      table_html = build_table(data, value_key: value_key, value_keys: value_keys)
+      input_html = table_html.present? ? %(<input type="checkbox" class="dj-viz-toggle-input" id="#{tid}" />) : ""
+      label_html = table_html.present? ? %(<label for="#{tid}" class="dj-viz-toggle-label" title="#{h(t("toggle_chart_table"))}">#{toggle_icon_svg}</label>) : ""
+
       <<~HTML
         <article class="dj-viz-card dj-viz-card--wide">
-          <div class="dj-viz-card__header"><div class="dj-viz-title">#{dot}#{h(title)}</div></div>
+          #{input_html}
+          <div class="dj-viz-card__header">
+            <div class="dj-viz-title">#{dot}#{h(title)}</div>
+            #{label_html}
+          </div>
           <div class="dj-viz-chart">#{svg}</div>
+          #{table_html}
         </article>
       HTML
     end
