@@ -76,11 +76,12 @@ module DiscourseJournals
       oa_id = h(id[:openalex_id])
       issn_l = h(id[:issn_l])
 
+      cover_initials = extract_initials(id[:title] || "")
       cover_html = if cover_url
         %(<img src="#{h(cover_url)}" alt="#{title}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />) +
-        %(<div class="dj-hero__cover-art" style="display:none"><span class="dj-cover-code">#{abbrev}</span></div>)
+        %(<div class="dj-hero__cover-art" style="display:none"><span class="dj-cover-code">#{h(cover_initials)}</span><span class="dj-cover-label">#{title}</span></div>)
       else
-        %(<div class="dj-hero__cover-art"><span class="dj-cover-code">#{abbrev.present? ? abbrev : title[0..3]}</span></div>)
+        %(<div class="dj-hero__cover-art"><span class="dj-cover-code">#{h(cover_initials)}</span><span class="dj-cover-label">#{title}</span></div>)
       end
 
       homepage_display = homepage.present? ? homepage.sub(%r{https?://}, "").sub(/\/\z/, "") : nil
@@ -519,6 +520,16 @@ module DiscourseJournals
       return nil if quartile_str.blank?
       match = quartile_str.to_s.match(/(\d+)/)
       match ? match[1] : nil
+    end
+
+    STOP_WORDS = Set.new(%w[of the and in for on a an to with]).freeze
+
+    def extract_initials(title)
+      return "?" if title.blank?
+      words = title.split(/[\s\-\/]+/).reject { |w| STOP_WORDS.include?(w.downcase) }
+      initials = words.filter_map { |w| w[0]&.upcase if w.match?(/\A[A-Za-z]/) }
+      result = initials.first(6).join
+      result.present? ? result : title[0..1].upcase
     end
   end
 end
