@@ -242,10 +242,10 @@ module DiscourseJournals
       doaj_status = oa[:is_in_doaj] ? t("narrative_doaj_yes") : t("narrative_doaj_no")
       parts << t("narrative_oa_status", oa_status: oa_status, doaj_status: doaj_status)
 
-      if jcr
+      if jcr && jcr[:impact_factor]
         parts << t("narrative_jcr", quartile: jcr[:quartile], impact: jcr[:impact_factor], year: jcr[:year])
       end
-      if sjr
+      if sjr && sjr[:sjr]
         parts << t("narrative_sjr", quartile: sjr[:best_quartile], sjr: format("%.3f", sjr[:sjr]))
       end
       if cas
