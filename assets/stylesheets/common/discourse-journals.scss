@@ -3,72 +3,40 @@
 // All journal-post visuals scoped under .dj-journal
 // ============================================================
 
-// ---------- Design tokens (light) ----------
+// ---------- Design tokens (theme-aware) ----------
+// Uses Discourse built-in CSS variables that auto-adapt to light/dark schemes.
+// Pyramid colors use dark-light-choose() which resolves at SCSS compile time.
 .dj-journal {
-  --dj-panel: rgba(255, 255, 255, 0.75);
-  --dj-stroke: rgba(36, 51, 102, 0.15);
-  --dj-text: var(--primary, #0b1633);
-  --dj-muted: var(--primary-medium, rgba(11, 22, 51, 0.6));
+  --dj-panel: var(--secondary);
+  --dj-stroke: var(--primary-low);
+  --dj-text: var(--primary);
+  --dj-muted: var(--primary-medium);
   --dj-accent: #f2683a;
-  --dj-accent-2: #3e6ff8;
-  --dj-green: #0f8b6a;
-  --dj-red: #c0392b;
-  --dj-bg-card: rgba(255, 255, 255, 0.85);
-  --dj-bg-metric: #fdfdfd;
-  --dj-shadow-sm: 0 12px 22px rgba(15, 22, 51, 0.08);
-  --dj-shadow-md: 0 18px 35px rgba(15, 22, 51, 0.08);
-  --dj-building-bg: #f0f0f0;
-  --dj-building-border: #dcdcdc;
-  --dj-building-active: #111;
-  --dj-building-active-shadow: rgba(0, 0, 0, 0.35);
-  --dj-building-base: rgba(0, 0, 0, 0.2);
-  --dj-pyramid-top: #fbfbfb;
-  --dj-pyramid-mid: #d6d6d6;
-  --dj-pyramid-bottom: #bfbfbf;
-  --dj-pyramid-border: #d4d4d4;
-  --dj-pyramid-cut: rgba(0, 0, 0, 0.14);
-  --dj-pyramid-ind-top: rgba(40, 40, 40, 0.9);
-  --dj-pyramid-ind-bottom: rgba(40, 40, 40, 0.25);
-  --dj-tier-jcr: #0f62fe;
-  --dj-tier-sjr: #6b34d8;
+  --dj-accent-2: var(--tertiary);
+  --dj-green: var(--success);
+  --dj-red: var(--danger);
+  --dj-bg-card: var(--secondary);
+  --dj-bg-metric: var(--secondary);
+  --dj-shadow-sm: 0 12px 22px rgba(var(--primary-rgb), 0.06);
+  --dj-shadow-md: 0 18px 35px rgba(var(--primary-rgb), 0.08);
+  --dj-building-bg: var(--primary-low);
+  --dj-building-border: var(--primary-low-mid);
+  --dj-building-active: var(--primary);
+  --dj-building-active-shadow: rgba(var(--primary-rgb), 0.35);
+  --dj-building-base: rgba(var(--primary-rgb), 0.2);
+  --dj-pyramid-top: #{dark-light-choose(#fbfbfb, rgba(60, 62, 70, 0.9))};
+  --dj-pyramid-mid: #{dark-light-choose(#d6d6d6, rgba(80, 82, 90, 0.8))};
+  --dj-pyramid-bottom: #{dark-light-choose(#bfbfbf, rgba(50, 52, 60, 0.9))};
+  --dj-pyramid-border: var(--primary-low);
+  --dj-pyramid-cut: rgba(var(--primary-rgb), 0.14);
+  --dj-pyramid-ind-top: rgba(var(--primary-rgb), 0.9);
+  --dj-pyramid-ind-bottom: rgba(var(--primary-rgb), 0.25);
+  --dj-tier-jcr: var(--tertiary);
+  --dj-tier-sjr: #{dark-light-choose(#6b34d8, #a87ee8)};
   --dj-tier-cas: var(--dj-text);
-  --dj-bg-info: rgba(245, 246, 250, 0.92);
-  --dj-topic-bg: rgba(15, 139, 106, 0.1);
-  --dj-topic-color: #0f5b43;
-}
-
-html.dark-theme .dj-journal,
-.dark-theme .dj-journal {
-  --dj-panel: rgba(30, 32, 40, 0.92);
-  --dj-stroke: rgba(255, 255, 255, 0.12);
-  --dj-text: var(--primary, #e8e8e8);
-  --dj-muted: var(--primary-medium, rgba(220, 220, 230, 0.65));
-  --dj-accent: #f79e75;
-  --dj-accent-2: #6d9dfd;
-  --dj-green: #3cc99b;
-  --dj-red: #e8655a;
-  --dj-bg-card: rgba(48, 50, 65, 0.92);
-  --dj-bg-metric: rgba(42, 44, 58, 0.95);
-  --dj-shadow-sm: 0 12px 22px rgba(0, 0, 0, 0.25);
-  --dj-shadow-md: 0 18px 35px rgba(0, 0, 0, 0.3);
-  --dj-building-bg: rgba(255, 255, 255, 0.14);
-  --dj-building-border: rgba(255, 255, 255, 0.2);
-  --dj-building-active: #8ab4f8;
-  --dj-building-active-shadow: rgba(138, 180, 248, 0.3);
-  --dj-building-base: rgba(255, 255, 255, 0.15);
-  --dj-pyramid-top: rgba(65, 68, 80, 0.9);
-  --dj-pyramid-mid: rgba(85, 88, 100, 0.8);
-  --dj-pyramid-bottom: rgba(55, 58, 68, 0.9);
-  --dj-pyramid-border: rgba(255, 255, 255, 0.12);
-  --dj-pyramid-cut: rgba(255, 255, 255, 0.14);
-  --dj-pyramid-ind-top: rgba(220, 220, 230, 0.85);
-  --dj-pyramid-ind-bottom: rgba(220, 220, 230, 0.25);
-  --dj-tier-jcr: #5e9dff;
-  --dj-tier-sjr: #a87ee8;
-  --dj-tier-cas: var(--dj-text);
-  --dj-bg-info: rgba(55, 58, 72, 0.9);
-  --dj-topic-bg: rgba(60, 201, 155, 0.15);
-  --dj-topic-color: #3cc99b;
+  --dj-bg-info: var(--primary-very-low);
+  --dj-topic-bg: #{dark-light-choose(rgba(15, 139, 106, 0.1), rgba(60, 201, 155, 0.15))};
+  --dj-topic-color: #{dark-light-choose(#0f5b43, #3cc99b)};
 }
 
 // ---------- Root wrapper ----------
@@ -234,7 +202,7 @@ html.dark-theme .dj-journal,
   align-items: center;
   padding: 0.35rem 0.75rem;
   border-radius: 999px;
-  background: rgba(62, 111, 248, 0.08);
+  background: rgba(var(--tertiary-rgb), 0.1);
   color: var(--dj-accent-2);
   font-weight: 500;
   font-size: 0.88rem;
@@ -246,7 +214,7 @@ html.dark-theme .dj-journal,
 
   &.dj-pill--flag {
     font-size: 1rem;
-    background: rgba(15, 139, 106, 0.12);
+    background: rgba(var(--success-rgb), 0.12);
     color: var(--dj-green);
   }
 }
@@ -382,7 +350,7 @@ html.dark-theme .dj-journal,
   clip-path: polygon(50% 0, 100% 100%, 0 100%);
   background: linear-gradient(180deg, var(--dj-pyramid-top) 0%, var(--dj-pyramid-mid) 60%, var(--dj-pyramid-bottom) 100%);
   border: 1px solid var(--dj-pyramid-border);
-  box-shadow: inset 0 -20px 35px rgba(0, 0, 0, 0.08);
+  box-shadow: inset 0 -20px 35px rgba(var(--primary-rgb), 0.08);
   overflow: hidden;
 }
 
@@ -534,7 +502,7 @@ html.dark-theme .dj-journal,
 
     &:hover { transform: translateY(-2px); }
 
-    &[data-weight="5"] { font-size: 1.35rem; background: rgba(15, 139, 106, 0.2); }
+    &[data-weight="5"] { font-size: 1.35rem; background: rgba(var(--success-rgb), 0.2); }
     &[data-weight="4"] { font-size: 1.15rem; }
     &[data-weight="3"] { font-size: 1.02rem; }
     &[data-weight="2"] { font-size: 0.92rem; opacity: 0.8; }
@@ -687,11 +655,11 @@ html.dark-theme .dj-journal,
   }
 
   tbody tr:nth-child(even) td {
-    background: rgba(128, 128, 128, 0.04);
+    background: rgba(var(--primary-rgb), 0.04);
   }
 
   tbody tr:hover td {
-    background: rgba(128, 128, 128, 0.08);
+    background: rgba(var(--primary-rgb), 0.08);
   }
 }
 
@@ -1060,7 +1028,7 @@ html.dark-theme .dj-journal,
     background: var(--secondary);
     border: 1px solid var(--primary-low);
     border-radius: var(--d-border-radius, 8px);
-    box-shadow: var(--shadow-dropdown, 0 4px 20px rgba(0, 0, 0, 0.15));
+    box-shadow: var(--shadow-dropdown, 0 4px 20px rgba(var(--primary-rgb), 0.15));
     max-height: 70vh;
     overflow-y: auto;
   }
