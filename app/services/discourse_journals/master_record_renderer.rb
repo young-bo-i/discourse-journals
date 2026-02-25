@@ -57,7 +57,7 @@ module DiscourseJournals
     end
 
     def fmt(num)
-      return "—" if num.nil?
+      return nil if num.nil?
       num.to_s.reverse.gsub(/(\d{3})(?=\d)/, '\\1,').reverse
     end
 
@@ -85,7 +85,7 @@ module DiscourseJournals
       end
 
       homepage_display = homepage.present? ? homepage.sub(%r{https?://}, "").sub(/\/\z/, "") : nil
-      homepage_link = homepage.present? ? %(<a href="#{h(homepage)}" target="_blank" rel="noopener">#{h(homepage_display)}</a>) : "—"
+      homepage_link = homepage.present? ? %(<a href="#{h(homepage)}" target="_blank" rel="noopener">#{h(homepage_display)}</a>) : nil
 
       <<~HTML
         <header class="dj-hero">
@@ -102,11 +102,7 @@ module DiscourseJournals
               #{"<span class=\"dj-pill\">ISSN-L #{issn_l}</span>" if issn_l.present?}
               #{"<span class=\"dj-pill\">OpenAlex #{oa_id}</span>" if oa_id.present?}
             </div>
-            <div class="dj-hero__footer">
-              <div><span class="dj-label">#{h(t("publisher"))}</span><strong>#{publisher}#{" (#{publisher_id})" if publisher_id.present?}</strong></div>
-              <div><span class="dj-label">#{h(t("homepage"))}</span>#{homepage_link}</div>
-              <div><span class="dj-label">#{h(t("country"))}</span><strong>#{country_name.present? ? country_name : country_code}</strong></div>
-            </div>
+            #{hero_footer(publisher, publisher_id, homepage, homepage_link, country_name, country_code)}
           </div>
         </header>
       HTML
@@ -279,12 +275,12 @@ module DiscourseJournals
 
       basic_cards = [
         info_card("ISSN-L", h(id[:issn_l])),
-        info_card(t("issns"), issns.present? ? issns : "—"),
-        info_card(t("aliases"), alternates.present? ? alternates : "—"),
+        info_card(t("issns"), issns.presence),
+        info_card(t("aliases"), alternates.presence),
         info_card(t("oa"), oa[:is_oa] ? yes_val : no_val),
         info_card(t("doaj"), oa[:is_in_doaj] ? yes_val : no_val),
         info_card(t("openalex_id"), h(id[:openalex_id])),
-      ]
+      ].compact
 
       oa_cards = [
         info_card(t("name"), h(id[:title])),
@@ -294,21 +290,34 @@ module DiscourseJournals
         info_card(t("works"), fmt(m[:works_count])),
         info_card(t("cited_by"), fmt(m[:cited_by_count])),
         info_card(t("oa_works"), fmt(m[:oa_works_count])),
-        info_card(t("first_year"), pub[:first_publication_year] || "—"),
-        info_card(t("last_year"), pub[:last_publication_year] || "—"),
+        info_card(t("first_year"), pub[:first_publication_year]&.to_s.presence),
+        info_card(t("last_year"), pub[:last_publication_year]&.to_s.presence),
         info_card(t("open_access"), oa[:is_oa] ? yes_val : no_val),
-      ]
+      ].compact
 
-      <<~HTML
-        <section class="dj-panel dj-compact-info">
+      groups = []
+      if basic_cards.any?
+        groups << <<~HTML
           <div class="dj-info-group">
             <div class="dj-info-group__title">#{h(t("basic_info"))}</div>
             <div class="dj-info-card-grid">#{basic_cards.join}</div>
           </div>
+        HTML
+      end
+      if oa_cards.any?
+        groups << <<~HTML
           <div class="dj-info-group">
             <div class="dj-info-group__title">#{h(t("openalex_data"))}</div>
             <div class="dj-info-card-grid">#{oa_cards.join}</div>
           </div>
+        HTML
+      end
+
+      return nil if groups.empty?
+
+      <<~HTML
+        <section class="dj-panel dj-compact-info">
+          #{groups.join}
         </section>
       HTML
     end
@@ -507,11 +516,28 @@ module DiscourseJournals
       HTML
     end
 
+    def hero_footer(publisher, publisher_id, homepage, homepage_link, country_name, country_code)
+      items = []
+      if publisher.present?
+        pub_text = "#{publisher}#{" (#{publisher_id})" if publisher_id.present?}"
+        items << %(<div><span class="dj-label">#{h(t("publisher"))}</span><strong>#{pub_text}</strong></div>)
+      end
+      if homepage.present?
+        items << %(<div><span class="dj-label">#{h(t("homepage"))}</span>#{homepage_link}</div>)
+      end
+      if country_name.present? || country_code.present?
+        items << %(<div><span class="dj-label">#{h(t("country"))}</span><strong>#{country_name.present? ? country_name : country_code}</strong></div>)
+      end
+      return "" if items.empty?
+      %(<div class="dj-hero__footer">#{items.join}</div>)
+    end
+
     def info_card(label, value)
+      return nil if value.blank? || value == "—"
       <<~HTML
         <article class="dj-info-card">
           <p class="dj-info-card__label">#{h(label)}</p>
-          <p class="dj-info-card__value">#{value || "—"}</p>
+          <p class="dj-info-card__value">#{value}</p>
         </article>
       HTML
     end
