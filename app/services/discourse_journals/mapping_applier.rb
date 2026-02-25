@@ -11,6 +11,7 @@ module DiscourseJournals
     BYIDS_BATCH_SIZE = 50
     API_CONCURRENCY = 4
     DELETE_BATCH_SIZE = BulkTopicDeleter::BATCH_SIZE
+    GC_EVERY_N_GROUPS = 2
 
     attr_reader :stats
 
@@ -20,7 +21,8 @@ module DiscourseJournals
       @cancel_check = cancel_check
       @rate_limiter = ApiRateLimiter.new
       @checkpoint = (resume_checkpoint || {}).transform_keys(&:to_s)
-      @api_actions = {}
+      @update_map = {}
+      @create_ids = []
       @topics_to_delete = []
       @stats = (resume_stats || { deleted: 0, updated: 0, created: 0, skipped: 0, errors: 0 }).transform_keys(&:to_sym)
       @system_user = Discourse.system_user
@@ -30,11 +32,12 @@ module DiscourseJournals
       build_action_plan
 
       resume_phase = @checkpoint["phase"]
+      total_actions = @update_map.size + @create_ids.size
 
       Rails.logger.info(
         "[DiscourseJournals::MappingApplier] run! phase=#{resume_phase.inspect}, " \
         "checkpoint=#{@checkpoint.inspect}, stats=#{@stats.inspect}, " \
-        "api_actions=#{@api_actions.size}, deletes=#{@topics_to_delete.size}",
+        "api_actions=#{total_actions}, deletes=#{@topics_to_delete.size}",
       )
 
       if resume_phase == "api_sync"
@@ -71,7 +74,10 @@ module DiscourseJournals
 
     def build_action_plan
       publish_progress(0, "正在构建执行计划...")
-      details = @analysis.details_data || {}
+
+      details = MappingAnalysis
+        .where(id: @analysis.id)
+        .pick(:details_data) || {}
 
       process_exact_matches(details["exact_1to1"] || [])
       process_forum_1_to_api_n(details["forum_1_to_api_n"] || [])
@@ -80,7 +86,10 @@ module DiscourseJournals
       process_forum_only(details["forum_only"] || [])
       process_api_only(details["api_only"] || [])
 
-      total_actions = @api_actions.size
+      details = nil
+      GC.start
+
+      total_actions = @update_map.size + @create_ids.size
       total_deletes = @topics_to_delete.size
       publish_progress(
         1,
@@ -93,7 +102,7 @@ module DiscourseJournals
         forum = entry["forum"]&.first
         api = entry["api"]&.first
         next unless forum && api
-        @api_actions[api["api_id"]] = { action: :update, topic_id: forum["topic_id"] }
+        @update_map[api["api_id"]] = forum["topic_id"]
       end
     end
 
@@ -105,9 +114,9 @@ module DiscourseJournals
 
         apis.each_with_index do |api, idx|
           if idx == 0
-            @api_actions[api["api_id"]] = { action: :update, topic_id: forum["topic_id"] }
+            @update_map[api["api_id"]] = forum["topic_id"]
           else
-            @api_actions[api["api_id"]] = { action: :create }
+            @create_ids << api["api_id"]
           end
         end
       end
@@ -119,7 +128,7 @@ module DiscourseJournals
         api = entry["api"]&.first
         next unless forums.any? && api
 
-        @api_actions[api["api_id"]] = { action: :update, topic_id: forums.first["topic_id"] }
+        @update_map[api["api_id"]] = forums.first["topic_id"]
         forums[1..].each do |f|
           @topics_to_delete << f["topic_id"]
         end
@@ -135,7 +144,7 @@ module DiscourseJournals
         pair_count = [forums.size, apis.size].min
 
         pair_count.times do |i|
-          @api_actions[apis[i]["api_id"]] = { action: :update, topic_id: forums[i]["topic_id"] }
+          @update_map[apis[i]["api_id"]] = forums[i]["topic_id"]
         end
 
         if forums.size > pair_count
@@ -143,7 +152,7 @@ module DiscourseJournals
         end
 
         if apis.size > pair_count
-          apis[pair_count..].each { |a| @api_actions[a["api_id"]] = { action: :create } }
+          apis[pair_count..].each { |a| @create_ids << a["api_id"] }
         end
       end
     end
@@ -156,12 +165,24 @@ module DiscourseJournals
 
     def process_api_only(entries)
       entries.each do |entry|
-        (entry["api"] || []).each { |a| @api_actions[a["api_id"]] = { action: :create } }
+        (entry["api"] || []).each { |a| @create_ids << a["api_id"] }
+      end
+    end
+
+    def all_api_ids
+      @update_map.keys + @create_ids
+    end
+
+    def lookup_action(api_id)
+      topic_id = @update_map[api_id]
+      if topic_id
+        [:update, topic_id]
+      else
+        [:create, nil]
       end
     end
 
     # ──── Phase 1: Bulk SQL delete of orphaned / excess topics ────
-    # Uses direct SQL instead of PostDestroyer for ~50x speedup on imported journal topics.
     def execute_deletes(skip_offset: 0)
       total = @topics_to_delete.size
       return if total.zero?
@@ -172,9 +193,8 @@ module DiscourseJournals
       publish_progress(2, "开始批量删除多余话题 (共 #{total} 个，从 ##{skip_offset + 1} 继续)...")
 
       base_offset = skip_offset
-      batches = remaining_ids.each_slice(DELETE_BATCH_SIZE).to_a
 
-      batches.each_with_index do |batch_ids, batch_idx|
+      remaining_ids.each_slice(DELETE_BATCH_SIZE).with_index do |batch_ids, batch_idx|
         check_cancelled!
 
         deleted_count = bulk_delete_topic_batch(batch_ids)
@@ -208,11 +228,11 @@ module DiscourseJournals
 
     # ──── Phase 2: Concurrent fetch + serial upsert ────
     def execute_api_sync(skip_offset: 0)
-      all_api_ids = @api_actions.keys
-      total = all_api_ids.size
+      ids = all_api_ids
+      total = ids.size
       return if total.zero?
 
-      remaining_ids = all_api_ids[skip_offset..] || []
+      remaining_ids = ids[skip_offset..] || []
       return if remaining_ids.empty?
 
       Rails.logger.info(
@@ -220,7 +240,6 @@ module DiscourseJournals
       )
       publish_progress(5, "开始同步 API 数据 (共 #{total} 条，从 ##{skip_offset + 1} 继续)...")
 
-      batches = remaining_ids.each_slice(BYIDS_BATCH_SIZE).to_a
       processed = 0
       base_offset = skip_offset
       start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
@@ -228,7 +247,7 @@ module DiscourseJournals
       connections = API_CONCURRENCY.times.map { create_persistent_connection }
 
       begin
-        batches.each_slice(API_CONCURRENCY).with_index do |concurrent_batches, _batch_group_idx|
+        remaining_ids.each_slice(BYIDS_BATCH_SIZE).each_slice(API_CONCURRENCY).with_index do |concurrent_batches, batch_group_idx|
           check_cancelled!
 
           rows = fetch_byids_concurrent(connections, concurrent_batches)
@@ -238,16 +257,16 @@ module DiscourseJournals
             api_id = unified["id"]
             next unless api_id
 
-            action_info = @api_actions[api_id]
-            next unless action_info
+            action, topic_id = lookup_action(api_id)
+            next unless action
 
             check_cancelled!
             journal_params = ApiDataTransformer.transform(row)
             upserter = JournalUpserter.new(system_user: @system_user)
 
-            case action_info[:action]
+            case action
             when :update
-              upserter.upsert!(journal_params, existing_topic_id: action_info[:topic_id])
+              upserter.upsert!(journal_params, existing_topic_id: topic_id)
               increment_stat(:updated)
             when :create
               upserter.upsert!(journal_params)
@@ -270,8 +289,12 @@ module DiscourseJournals
             end
           end
 
+          rows = nil
+
           save_checkpoint("api_sync", "api_offset", base_offset + processed)
           persist_stats
+
+          GC.start if batch_group_idx % GC_EVERY_N_GROUPS == 0
         end
       ensure
         connections.each do |conn|

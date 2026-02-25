@@ -87,8 +87,8 @@ module DiscourseJournals
       fields["discourse_journals_publisher"] = prepared[:publisher].to_s if prepared[:publisher].present?
       fields["discourse_journals_cover_url"] = prepared[:cover_url].to_s if prepared[:cover_url].present?
 
-      if prepared[:normalized_json].present?
-        fields["discourse_journals_data"] = prepared[:normalized_json]
+      if prepared[:normalized].present?
+        fields["discourse_journals_data"] = prepared[:normalized].to_json
       end
 
       return if fields.empty?
@@ -139,7 +139,6 @@ module DiscourseJournals
         html: html,
         raw_text: raw_text,
         normalized: normalized,
-        normalized_json: normalized.to_json,
         issn_l: normalized.dig(:identity, :issn_l),
         publisher: normalized.dig(:publication, :publisher_name),
         cover_url: normalized.dig(:identity, :cover_url),
