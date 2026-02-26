@@ -21,4 +21,20 @@ plugins:
     default: true
   discourse_journals_bypass_bump:
     default: true
+  discourse_journals_suggested_mode:
+    default: "custom_first"
+    type: enum
+    choices:
+      - default
+      - custom_first
+      - custom_only
+  discourse_journals_suggested_criteria:
+    default: "tags|publisher"
+  discourse_journals_suggested_count:
+    default: 5
+    type: integer
+    min: 1
+    max: 20
+  discourse_journals_download_covers:
+    default: true
 

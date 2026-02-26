@@ -8,6 +8,10 @@ en:
     discourse_journals_auto_recover_deleted: "Auto-recover deleted journal topics during sync"
     discourse_journals_close_topics: "Close journal topics after upsert"
     discourse_journals_bypass_bump: "Bypass bump when updating topics"
+    discourse_journals_suggested_mode: "Suggested topics mode for journals. default: use Discourse defaults; custom_first: show custom matches first, fill with defaults; custom_only: only show custom matches"
+    discourse_journals_suggested_criteria: "Matching criteria separated by |. Options: tags, publisher, country"
+    discourse_journals_suggested_count: "Number of custom suggested journal topics to show"
+    discourse_journals_download_covers: "Download journal cover images and set as topic thumbnails for topic list display"
   discourse_journals:
     title: "Journals"
     errors:

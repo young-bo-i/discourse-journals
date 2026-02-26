@@ -31,6 +31,7 @@ after_initialize do
   require_relative "app/services/discourse_journals/api_data_transformer"
   require_relative "app/services/discourse_journals/svg_chart_builder"
   require_relative "app/services/discourse_journals/mapping_applier"
+  require_relative "app/services/discourse_journals/journal_suggested_provider"
   require_relative "app/jobs/regular/discourse_journals/analyze_mapping"
   require_relative "app/jobs/regular/discourse_journals/apply_mapping"
   require_relative "app/jobs/regular/discourse_journals/delete_all_journals"
@@ -39,6 +40,8 @@ after_initialize do
   Topic.register_custom_field_type("discourse_journals_publisher", :string)
   Topic.register_custom_field_type("discourse_journals_data", :string)
   Topic.register_custom_field_type("discourse_journals_cover_url", :string)
+  Topic.register_custom_field_type("discourse_journals_country", :string)
+  Topic.register_custom_field_type("discourse_journals_cover_url_hash", :string)
 
   module ::DiscourseJournals
     CUSTOM_FIELD_NAMES = %w[
@@ -46,6 +49,7 @@ after_initialize do
       discourse_journals_publisher
       discourse_journals_data
       discourse_journals_cover_url
+      discourse_journals_country
     ].freeze
 
     def self.resolve_seo_placeholders(template, topic)
@@ -148,6 +152,22 @@ after_initialize do
 
   register_html_builder("server:before-head-close-crawler", &keywords_html)
   register_html_builder("server:before-head-close", &keywords_html)
+
+  DiscoursePluginRegistry.register_list_suggested_for_provider(
+    DiscourseJournals::JournalSuggestedProvider.method(:call),
+    self,
+  )
+
+  register_modifier(:topic_view_suggested_topics_options) do |options, topic_view|
+    next options unless SiteSetting.discourse_journals_enabled
+    next options unless SiteSetting.discourse_journals_suggested_mode == "custom_only"
+
+    category_id = SiteSetting.discourse_journals_category_id.to_i
+    next options if category_id.zero?
+    next options unless topic_view.topic.category_id == category_id
+
+    options.merge(include_random: false)
+  end
 
   on(:before_post_process_cooked) do |doc, post|
     next unless post&.topic

@@ -7,6 +7,7 @@ module DiscourseJournals
       discourse_journals_publisher
       discourse_journals_data
       discourse_journals_cover_url
+      discourse_journals_country
     ].freeze
 
     def initialize(system_user: Discourse.system_user)
@@ -58,6 +59,7 @@ module DiscourseJournals
 
       store_custom_fields!(topic, prepared)
       ensure_closed!(topic)
+      update_topic_image!(topic, prepared[:cover_url])
       topic
     end
 
@@ -78,6 +80,7 @@ module DiscourseJournals
       store_custom_fields!(topic, prepared)
       update_tags!(topic, journal_data)
       ensure_closed!(topic)
+      update_topic_image!(topic, prepared[:cover_url])
       topic
     end
 
@@ -86,6 +89,7 @@ module DiscourseJournals
       fields["discourse_journals_issn_l"] = prepared[:issn_l].to_s if prepared[:issn_l].present?
       fields["discourse_journals_publisher"] = prepared[:publisher].to_s if prepared[:publisher].present?
       fields["discourse_journals_cover_url"] = prepared[:cover_url].to_s if prepared[:cover_url].present?
+      fields["discourse_journals_country"] = prepared[:country].to_s if prepared[:country].present?
 
       if prepared[:normalized].present?
         fields["discourse_journals_data"] = prepared[:normalized].to_json
@@ -142,6 +146,7 @@ module DiscourseJournals
         issn_l: normalized.dig(:identity, :issn_l),
         publisher: normalized.dig(:publication, :publisher_name),
         cover_url: normalized.dig(:identity, :cover_url),
+        country: normalized.dig(:publication, :country_name) || normalized.dig(:publication, :country_code),
       }
     end
 
@@ -177,6 +182,57 @@ module DiscourseJournals
       end
 
       tags.compact.reject(&:blank?).uniq
+    end
+
+    def update_topic_image!(topic, cover_url)
+      return unless SiteSetting.discourse_journals_download_covers
+      return if cover_url.blank?
+
+      full_url =
+        if cover_url.start_with?("http")
+          cover_url
+        else
+          "https://journal.scholay.com#{cover_url}"
+        end
+
+      url_hash = Digest::SHA1.hexdigest(full_url)
+      existing_hash =
+        TopicCustomField.where(
+          topic_id: topic.id,
+          name: "discourse_journals_cover_url_hash",
+        ).pick(:value)
+      return if existing_hash == url_hash
+
+      tempfile =
+        FileHelper.download(
+          full_url,
+          max_file_size: 5.megabytes,
+          tmp_file_name: "journal_cover",
+          follow_redirect: true,
+        )
+      return if tempfile.nil?
+
+      upload =
+        UploadCreator.new(tempfile, "journal_cover_#{topic.id}.jpg", origin: full_url).create_for(
+          Discourse.system_user.id,
+        )
+
+      if upload.persisted? && !upload.errors.any?
+        topic.update_column(:image_upload_id, upload.id)
+        topic.generate_thumbnails! if topic.respond_to?(:generate_thumbnails!)
+        TopicCustomField.where(topic_id: topic.id, name: "discourse_journals_cover_url_hash").delete_all
+        TopicCustomField.create!(
+          topic_id: topic.id,
+          name: "discourse_journals_cover_url_hash",
+          value: url_hash,
+        )
+      end
+    rescue StandardError => e
+      Rails.logger.warn(
+        "[DiscourseJournals] Failed to download cover for topic #{topic.id}: #{e.message}",
+      )
+    ensure
+      tempfile&.close! if tempfile.respond_to?(:close!)
     end
 
     def titleize_subject(subject)

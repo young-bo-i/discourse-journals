@@ -8,6 +8,10 @@ zh_CN:
     discourse_journals_auto_recover_deleted: "自动恢复已删除的期刊话题"
     discourse_journals_close_topics: "创建后关闭期刊话题"
     discourse_journals_bypass_bump: "更新时不顶帖"
+    discourse_journals_suggested_mode: "期刊推荐话题模式。default：使用默认推荐；custom_first：优先自定义匹配，不足时补充默认；custom_only：仅显示自定义匹配"
+    discourse_journals_suggested_criteria: "匹配条件，用 | 分隔。可选：tags（共享标签）、publisher（相同出版商）、country（相同国家）"
+    discourse_journals_suggested_count: "自定义推荐期刊话题的数量"
+    discourse_journals_download_covers: "下载期刊封面图片并设为话题缩略图，用于话题列表卡片展示"
   discourse_journals:
     title: "期刊库"
     errors:
