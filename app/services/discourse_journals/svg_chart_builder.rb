@@ -102,6 +102,77 @@ module DiscourseJournals
       area_chart(series_a, series_b, years: years.size == series_a.size ? years : nil, **opts)
     end
 
+    DONUT_COLORS = %w[#e77642 #3885c8 #7ac36a #9b59b6 #f1c40f #1abc9c #e74c3c #34495e].freeze
+
+    def self.donut(segments, size: 150, thickness: 28)
+      return "" if segments.nil? || segments.empty?
+
+      total = segments.sum { |s| s[:value].to_f }
+      return "" if total <= 0
+
+      r = (size / 2.0) - 2
+      inner_r = r - thickness
+      cx = cy = size / 2.0
+      circumference = 2 * Math::PI * r
+
+      parts = []
+      offset = 0.0
+
+      segments.each_with_index do |seg, i|
+        pct = seg[:value].to_f / total
+        dash = pct * circumference
+        gap = circumference - dash
+        color = DONUT_COLORS[i % DONUT_COLORS.size]
+
+        parts << %(<circle cx="#{cx}" cy="#{cx}" r="#{r.round(1)}" fill="none" stroke="#{color}" stroke-width="#{thickness}" ) +
+          %(stroke-dasharray="#{dash.round(2)} #{gap.round(2)}" stroke-dashoffset="#{(-offset).round(2)}" ) +
+          %(transform="rotate(-90 #{cx} #{cy})" />)
+        offset += dash
+      end
+
+      parts << %(<circle cx="#{cx}" cy="#{cy}" r="#{inner_r.round(1)}" fill="var(--secondary, #fff)" />)
+
+      %(<svg viewBox="0 0 #{size} #{size}" width="#{size}" height="#{size}" role="img" xmlns="http://www.w3.org/2000/svg">\n    #{parts.join("\n    ")}\n  </svg>)
+    end
+
+    def self.progress_bar(percent, color: "#3885c8", width: 200, height: 18)
+      pct = percent.to_f.clamp(0, 100)
+      fill_w = (pct / 100.0 * width).round(1)
+      r = (height / 2.0).round(1)
+
+      %(<svg viewBox="0 0 #{width} #{height}" width="100%" height="#{height}" role="img" xmlns="http://www.w3.org/2000/svg" style="font-family:system-ui,sans-serif">) +
+        %(<rect x="0" y="0" width="#{width}" height="#{height}" rx="#{r}" fill="currentColor" opacity="0.08" />) +
+        %(<rect x="0" y="0" width="#{fill_w}" height="#{height}" rx="#{r}" fill="#{color}" opacity="0.85" />) +
+        %(</svg>)
+    end
+
+    def self.star_rating(value, max: 5, size: 16)
+      val = value.to_f.clamp(0, max)
+      stars = (0...max).map { |i|
+        fill = if val >= i + 1
+          "currentColor"
+        elsif val > i
+          "url(#dj-star-half-#{i})"
+        else
+          "none"
+        end
+        stroke = "currentColor"
+        half_pct = ((val - i).clamp(0, 1) * 100).round(0)
+
+        defs = if val > i && val < i + 1
+          %(<defs><linearGradient id="dj-star-half-#{i}"><stop offset="#{half_pct}%" stop-color="currentColor"/><stop offset="#{half_pct}%" stop-color="transparent"/></linearGradient></defs>)
+        else
+          ""
+        end
+
+        x_offset = i * (size + 3)
+        %(<svg x="#{x_offset}" y="0" width="#{size}" height="#{size}" viewBox="0 0 24 24">#{defs}<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" fill="#{fill}" stroke="#{stroke}" stroke-width="1.5" opacity="0.8"/></svg>)
+      }.join
+
+      total_w = max * (size + 3) - 3
+      %(<svg viewBox="0 0 #{total_w} #{size}" width="#{total_w}" height="#{size}" role="img" xmlns="http://www.w3.org/2000/svg">#{stars}</svg>)
+    end
+
     class << self
       private
 

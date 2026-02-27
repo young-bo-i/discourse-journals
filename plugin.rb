@@ -30,6 +30,7 @@ after_initialize do
   require_relative "app/services/discourse_journals/title_matcher"
   require_relative "app/services/discourse_journals/api_data_transformer"
   require_relative "app/services/discourse_journals/svg_chart_builder"
+  require_relative "app/services/discourse_journals/cover_image_generator"
   require_relative "app/services/discourse_journals/mapping_applier"
   require_relative "app/services/discourse_journals/journal_suggested_provider"
   require_relative "app/jobs/regular/discourse_journals/analyze_mapping"

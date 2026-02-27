@@ -22,6 +22,10 @@ module DiscourseJournals
         open_access: build_open_access,
         subjects_topics: build_subjects,
         crossref_quality: build_crossref,
+        scirev: build_scirev,
+        ccf: build_ccf,
+        wikidata_meta: build_wikidata_meta,
+        preservation: build_preservation,
       }
     end
 
@@ -214,19 +218,33 @@ module DiscourseJournals
     end
 
     def build_open_access
+      diamond_oa = to_bool(scimago_main[:open_access_diamond])
       {
         is_oa: to_bool(unified[:openalex_is_oa]) || to_bool(oa_main[:is_oa]),
         is_in_doaj: to_bool(unified[:doaj_is_in_doaj]) || to_bool(oa_main[:is_in_doaj]),
         has_apc: to_bool(unified[:doaj_has_apc]) || to_bool(doaj_main[:apc_has_apc]),
+        diamond_oa: diamond_oa,
+        boai: to_bool(doaj_main[:boai]),
+        copyright_author_retains: to_bool(doaj_main[:copyright_author_retains]),
+        plagiarism_detection: to_bool(doaj_main[:plagiarism_detection]),
+        has_preservation: to_bool(doaj_main[:preservation_has_preservation]),
+        has_deposit_policy: to_bool(doaj_main[:deposit_policy_has_policy]),
+        has_waiver: to_bool(doaj_main[:waiver_has_waiver]),
+        has_other_charges: to_bool(doaj_main[:other_charges_has_other_charges]),
+        publication_time_weeks: doaj_main[:publication_time_weeks],
         apc_usd: oa_main[:apc_usd],
         apc_prices: sources.dig(:openalex, :apc_prices) || [],
         doaj_apc_max: sources.dig(:doaj, :apc_max) || [],
         licenses: sources.dig(:doaj, :licenses) || [],
+        cas_review: fqb_main[:review],
+        cas_oaj: fqb_main[:oaj],
+        cas_top: fqb_main[:top],
       }
     end
 
     def build_subjects
       oa_topics = sources.dig(:openalex, :topics) || []
+      oa_topic_shares = sources.dig(:openalex, :topic_shares) || []
       doaj_keywords = sources.dig(:doaj, :keywords) || []
       doaj_subjects = sources.dig(:doaj, :subjects) || []
 
@@ -241,6 +259,17 @@ module DiscourseJournals
               score: t[:score],
               field: t[:field_display_name],
               domain: t[:domain_display_name],
+            }
+          },
+        topic_shares: oa_topic_shares
+          .select { |ts| ts[:display_name] && ts[:value] }
+          .first(8)
+          .map { |ts|
+            {
+              name: ts[:display_name],
+              value: ts[:value].to_f,
+              field: ts[:field_display_name],
+              domain: ts[:domain_display_name],
             }
           },
         keywords: doaj_keywords.map { |k| k[:keyword] }.compact,
@@ -266,6 +295,77 @@ module DiscourseJournals
         current_dois: main[:counts_current_dois],
         dois_by_year: dois_by_year,
         coverage: coverage ? extract_coverage(coverage) : nil,
+      }
+    end
+
+    def build_scirev
+      sr = sources.dig(:scirev, :main) || {}
+      return nil if sr.empty?
+
+      {
+        first_review_months: sr[:first_review_round_months],
+        total_handling_months: sr[:total_handling_months],
+        immediate_rejection_days: sr[:immediate_rejection_days],
+        avg_review_rounds: sr[:avg_review_rounds],
+        avg_review_reports: sr[:avg_review_reports],
+        report_difficulty: sr[:report_difficulty],
+        report_quality: sr[:report_quality],
+        overall_rating: sr[:overall_rating],
+        review_count: sr[:review_count],
+      }
+    end
+
+    def build_ccf
+      ccf = sources.dig(:ccf, :main) || {}
+      return nil if ccf.empty?
+
+      {
+        rank: ccf[:ccf_rank],
+        field: ccf[:field],
+        category: ccf[:ccf_category],
+        abbreviation: ccf[:abbreviation],
+        source_type: ccf[:source_type],
+      }
+    end
+
+    def build_wikidata_meta
+      wd = wd_main
+      return nil if wd.empty?
+
+      indexed_in = (sources.dig(:wikidata, :indexed_in) || []).filter_map { |db|
+        db[:database_label] if db[:database_label]
+      }
+      editors = (sources.dig(:wikidata, :editors) || []).filter_map { |e|
+        e[:editor_label] || e[:label]
+      }
+      languages = (sources.dig(:wikidata, :languages) || []).filter_map { |l|
+        l[:language_label] || l[:label]
+      }
+
+      {
+        description_en: wd[:description_en],
+        description_zh: wd[:description_zh],
+        inception: wd[:inception],
+        frequency: wd[:frequency_label],
+        coden: wd[:coden],
+        indexed_in: indexed_in,
+        editors: editors,
+        languages: languages,
+      }
+    end
+
+    def build_preservation
+      preservation_services = (sources.dig(:doaj, :preservation_services) || []).filter_map { |ps|
+        ps[:service_name]
+      }
+      deposit_services = (sources.dig(:doaj, :deposit_policy_services) || []).filter_map { |ds|
+        ds[:service_name]
+      }
+      return nil if preservation_services.empty? && deposit_services.empty?
+
+      {
+        preservation_services: preservation_services,
+        deposit_services: deposit_services,
       }
     end
 

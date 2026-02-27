@@ -186,41 +186,75 @@ module DiscourseJournals
 
     def update_topic_image!(topic, cover_url)
       return unless SiteSetting.discourse_journals_download_covers
-      return if cover_url.blank?
 
-      full_url =
-        if cover_url.start_with?("http")
-          cover_url
-        else
-          "https://journal.scholay.com#{cover_url}"
-        end
-
-      url_hash = Digest::SHA1.hexdigest(full_url)
       existing_hash =
         TopicCustomField.where(
           topic_id: topic.id,
           name: "discourse_journals_cover_url_hash",
         ).pick(:value)
-      return if existing_hash == url_hash
 
-      tempfile =
-        FileHelper.download(
-          full_url,
-          max_file_size: 5.megabytes,
-          tmp_file_name: "journal_cover",
-          follow_redirect: true,
-        )
+      tempfile = nil
+      url_hash = nil
+
+      if cover_url.present?
+        full_url =
+          if cover_url.start_with?("http")
+            cover_url
+          else
+            "https://journal.scholay.com#{cover_url}"
+          end
+        url_hash = Digest::SHA1.hexdigest(full_url)
+        return if existing_hash == url_hash
+
+        tempfile =
+          begin
+            FileHelper.download(
+              full_url,
+              max_file_size: 5.megabytes,
+              tmp_file_name: "journal_cover",
+              follow_redirect: true,
+            )
+          rescue StandardError => e
+            Rails.logger.warn(
+              "[DiscourseJournals] Cover download failed for topic #{topic.id}: #{e.message}",
+            )
+            nil
+          end
+      end
+
+      if tempfile.nil?
+        generated_hash = Digest::SHA1.hexdigest("generated:#{topic.title}")
+        return if existing_hash == generated_hash
+        url_hash = generated_hash
+
+        issn =
+          TopicCustomField.where(
+            topic_id: topic.id,
+            name: "discourse_journals_issn_l",
+          ).pick(:value)
+        country =
+          TopicCustomField.where(
+            topic_id: topic.id,
+            name: "discourse_journals_country",
+          ).pick(:value)
+        tempfile = CoverImageGenerator.generate(title: topic.title, issn: issn, country: country)
+      end
+
       return if tempfile.nil?
 
+      ext = tempfile.respond_to?(:path) && tempfile.path.end_with?(".png") ? "png" : "jpg"
       upload =
-        UploadCreator.new(tempfile, "journal_cover_#{topic.id}.jpg", origin: full_url).create_for(
+        UploadCreator.new(tempfile, "journal_cover_#{topic.id}.#{ext}").create_for(
           Discourse.system_user.id,
         )
 
       if upload.persisted? && !upload.errors.any?
         topic.update_column(:image_upload_id, upload.id)
         topic.generate_thumbnails! if topic.respond_to?(:generate_thumbnails!)
-        TopicCustomField.where(topic_id: topic.id, name: "discourse_journals_cover_url_hash").delete_all
+        TopicCustomField.where(
+          topic_id: topic.id,
+          name: "discourse_journals_cover_url_hash",
+        ).delete_all
         TopicCustomField.create!(
           topic_id: topic.id,
           name: "discourse_journals_cover_url_hash",
@@ -229,7 +263,7 @@ module DiscourseJournals
       end
     rescue StandardError => e
       Rails.logger.warn(
-        "[DiscourseJournals] Failed to download cover for topic #{topic.id}: #{e.message}",
+        "[DiscourseJournals] Failed to set cover for topic #{topic.id}: #{e.message}",
       )
     ensure
       tempfile&.close! if tempfile.respond_to?(:close!)
