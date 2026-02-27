@@ -12,6 +12,7 @@ zh_CN:
     discourse_journals_suggested_criteria: "匹配条件，用 | 分隔。可选：tags（共享标签）、publisher（相同出版商）、country（相同国家）"
     discourse_journals_suggested_count: "自定义推荐期刊话题的数量"
     discourse_journals_download_covers: "下载期刊封面图片并设为话题缩略图，用于话题列表卡片展示"
+    discourse_journals_major_publishers: "逗号分隔的主要出版商列表。仅匹配这些出版商的期刊会打上出版商标签。"
   discourse_journals:
     title: "期刊库"
     errors:

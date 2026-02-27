@@ -12,6 +12,7 @@ en:
     discourse_journals_suggested_criteria: "Matching criteria separated by |. Options: tags, publisher, country"
     discourse_journals_suggested_count: "Number of custom suggested journal topics to show"
     discourse_journals_download_covers: "Download journal cover images and set as topic thumbnails for topic list display"
+    discourse_journals_major_publishers: "Comma-separated list of major publishers to tag. Only journals matching these publishers will receive a publisher tag."
   discourse_journals:
     title: "Journals"
     errors:

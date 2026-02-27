@@ -37,4 +37,7 @@ plugins:
     max: 20
   discourse_journals_download_covers:
     default: true
+  discourse_journals_major_publishers:
+    default: "Elsevier,Springer Nature,Wiley,Taylor & Francis,SAGE,Oxford University Press,Cambridge University Press,IEEE,ACM,MDPI,Frontiers,PLOS,BMJ,Wolters Kluwer,American Chemical Society,Royal Society of Chemistry,De Gruyter,Emerald,IOP Publishing,Nature Publishing Group"
+    type: text_area
 

@@ -21,12 +21,12 @@ module DiscourseJournals
       if existing_topic_id
         topic = Topic.find_by(id: existing_topic_id)
         if topic
-          update_topic!(topic, journal_data, prepared)
+          update_topic!(topic, prepared)
           return :updated
         end
       end
 
-      create_topic!(journal_data, prepared)
+      create_topic!(prepared)
       :created
     end
 
@@ -34,9 +34,8 @@ module DiscourseJournals
 
     attr_reader :system_user
 
-    def create_topic!(journal_data, prepared)
+    def create_topic!(prepared)
       category = journal_category
-      tags = build_tags(journal_data)
 
       creator =
         PostCreator.new(
@@ -44,7 +43,6 @@ module DiscourseJournals
           title: prepared[:title],
           raw: prepared[:raw_text],
           category: category.id,
-          tags: tags,
           skip_validations: true,
           skip_jobs: true,
         )
@@ -58,12 +56,13 @@ module DiscourseJournals
       )
 
       store_custom_fields!(topic, prepared)
+      JournalTagManager.apply_tags!(topic, prepared[:normalized])
       ensure_closed!(topic)
       update_topic_image!(topic, prepared[:cover_url])
       topic
     end
 
-    def update_topic!(topic, journal_data, prepared)
+    def update_topic!(topic, prepared)
       first_post = topic.first_post
       if first_post
         first_post.update_columns(
@@ -78,7 +77,7 @@ module DiscourseJournals
       topic.update_columns(title: prepared[:title], fancy_title: nil) if topic.title != prepared[:title]
 
       store_custom_fields!(topic, prepared)
-      update_tags!(topic, journal_data)
+      JournalTagManager.apply_tags!(topic, prepared[:normalized])
       ensure_closed!(topic)
       update_topic_image!(topic, prepared[:cover_url])
       topic
@@ -108,13 +107,6 @@ module DiscourseJournals
       return unless SiteSetting.discourse_journals_close_topics
       return if topic.closed?
       topic.update_status("closed", true, system_user)
-    end
-
-    def update_tags!(topic, journal_data)
-      return unless SiteSetting.tagging_enabled
-      tags = build_tags(journal_data)
-      return if tags.empty?
-      DiscourseTagging.add_or_create_tags_by_name(topic, tags)
     end
 
     def journal_category
@@ -148,40 +140,6 @@ module DiscourseJournals
         cover_url: normalized.dig(:identity, :cover_url),
         country: normalized.dig(:publication, :country_name) || normalized.dig(:publication, :country_code),
       }
-    end
-
-    def build_tags(journal_data)
-      journal_data = journal_data.deep_symbolize_keys if journal_data.is_a?(Hash)
-      tags = []
-
-      jcr_data = journal_data.dig(:sources, :jcr, :all_years) || []
-      jcr_data = [journal_data.dig(:sources, :jcr, :main)].compact if jcr_data.empty?
-      latest_jcr = jcr_data.first
-      if latest_jcr
-        if (category = latest_jcr[:category]&.to_s)
-          if (match = category.match(/\(([^)]+)\)\s*$/))
-            tags << "jcr:#{match[1].strip}"
-          end
-          subject = category.gsub(/\([^)]*\)\s*$/, "").strip
-          tags << "jcr:#{titleize_subject(subject)}" if subject.present?
-        end
-        tags << "jcr:#{latest_jcr[:if_quartile]}" if latest_jcr[:if_quartile]
-      end
-
-      fqb_data = journal_data.dig(:sources, :fqb, :all_years) || []
-      fqb_data = [journal_data.dig(:sources, :fqb, :main)].compact if fqb_data.empty?
-      latest_fqb = fqb_data.first
-      if latest_fqb
-        tags << "cas:#{latest_fqb[:web_of_science]}" if latest_fqb[:web_of_science].present?
-        if (partition = latest_fqb[:major_quartile]&.to_s)
-          if (pm = partition.match(/(\d+)/))
-            tags << "cas:#{I18n.t("discourse_journals.render.cas_tag_suffix", num: pm[1])}"
-          end
-        end
-        tags << "cas:#{latest_fqb[:major_category]}" if latest_fqb[:major_category].present?
-      end
-
-      tags.compact.reject(&:blank?).uniq
     end
 
     def update_topic_image!(topic, cover_url)
@@ -269,10 +227,5 @@ module DiscourseJournals
       tempfile&.close! if tempfile.respond_to?(:close!)
     end
 
-    def titleize_subject(subject)
-      return subject if subject.blank?
-      return subject if subject.match?(/[\u4e00-\u9fa5]/)
-      subject.split(/\s+/).map(&:capitalize).join(" ")
-    end
   end
 end
