@@ -40,11 +40,11 @@ module DiscourseJournals
     end
 
     def can_apply?
-      completed? && not_applied?
+      completed? && (not_applied? || sync_processing?)
     end
 
     def can_resume_apply?
-      completed? && (sync_paused? || sync_failed?)
+      completed? && (sync_paused? || sync_failed? || sync_processing?)
     end
 
     def summary

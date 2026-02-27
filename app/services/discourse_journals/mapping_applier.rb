@@ -12,6 +12,7 @@ module DiscourseJournals
     API_CONCURRENCY = 4
     DELETE_BATCH_SIZE = BulkTopicDeleter::BATCH_SIZE
     GC_EVERY_N_GROUPS = 2
+    COVER_JOB_BATCH_SIZE = 200
 
     attr_reader :stats
 
@@ -26,6 +27,7 @@ module DiscourseJournals
       @topics_to_delete = []
       @stats = (resume_stats || { deleted: 0, updated: 0, created: 0, skipped: 0, errors: 0 }).transform_keys(&:to_sym)
       @system_user = Discourse.system_user
+      @cover_topic_ids = []
     end
 
     def run!
@@ -49,6 +51,9 @@ module DiscourseJournals
         execute_deletes(skip_offset: delete_offset)
         execute_api_sync(skip_offset: 0)
       end
+
+      enqueue_cover_jobs
+      JournalTagManager.reset_cache!
 
       @stats
     end
@@ -264,7 +269,7 @@ module DiscourseJournals
 
             check_cancelled!
             journal_params = ApiDataTransformer.transform(row)
-            upserter = JournalUpserter.new(system_user: @system_user)
+            upserter = JournalUpserter.new(system_user: @system_user, defer_images: true)
 
             case action
             when :update
@@ -274,6 +279,8 @@ module DiscourseJournals
               upserter.upsert!(journal_params)
               increment_stat(:created)
             end
+
+            @cover_topic_ids << upserter.last_topic_id if upserter.last_topic_id
 
             processed += 1
             if processed % 20 == 0
@@ -382,6 +389,20 @@ module DiscourseJournals
         end
         raise "API byIds 请求失败 (重试 #{max_retries} 次后): #{e.message}"
       end
+    end
+
+    def enqueue_cover_jobs
+      return if @cover_topic_ids.empty?
+
+      publish_progress(100, "正在排队封面图片处理任务 (#{@cover_topic_ids.size} 个话题)...")
+
+      @cover_topic_ids.uniq.each_slice(COVER_JOB_BATCH_SIZE) do |batch|
+        Jobs.enqueue(:discourse_journals_process_journal_covers, topic_ids: batch)
+      end
+
+      Rails.logger.info(
+        "[DiscourseJournals::MappingApplier] Enqueued cover processing for #{@cover_topic_ids.size} topics",
+      )
     end
 
     def format_eta(seconds)

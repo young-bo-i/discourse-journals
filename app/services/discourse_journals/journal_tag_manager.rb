@@ -133,8 +133,12 @@ module DiscourseJournals
       all_tag_names = assignments.values.flatten.compact.uniq
       return if all_tag_names.empty?
 
-      ensure_tag_groups!
-      assignments.each { |group_key, tag_names| ensure_tags_in_group!(group_key, tag_names) }
+      warm_caches!
+
+      all_tag_names.each { |name| ensure_tag_cached!(name) }
+      assignments.each do |group_key, tag_names|
+        tag_names.each { |name| ensure_membership_cached!(group_key, name) }
+      end
 
       DiscourseTagging.add_or_create_tags_by_name(topic, all_tag_names, unlimited: true)
     end
@@ -164,65 +168,88 @@ module DiscourseJournals
       assignments
     end
 
-    def self.ensure_tag_groups!
-      @_groups_ensured ||= begin
-        TAG_GROUP_DEFS.each do |_key, defn|
-          group = find_or_create_tag_group!(defn[:name], defn[:one_per_topic])
+    # ── Cache management ──
 
-          defn[:predefined].each do |tag_name|
-            tag = find_or_create_tag!(tag_name)
-            add_tag_to_group!(group, tag)
-          end
-        end
-        true
+    def self.warm_caches!
+      return if @_caches_warm
+
+      @_tag_cache = {}
+      Tag.find_each { |t| @_tag_cache[t.name] = t }
+
+      @_group_cache = {}
+      TagGroup.all.each { |g| @_group_cache[g.name] = g }
+
+      @_membership_set = Set.new
+      TagGroupMembership.pluck(:tag_group_id, :tag_id).each do |gid, tid|
+        @_membership_set.add([gid, tid])
       end
+
+      TAG_GROUP_DEFS.each do |_key, defn|
+        group = @_group_cache[defn[:name]]
+        unless group
+          group = TagGroup.find_or_create_by!(name: defn[:name]) do |g|
+            g.one_per_topic = defn[:one_per_topic]
+          end
+          @_group_cache[group.name] = group
+        end
+        if group.one_per_topic != defn[:one_per_topic]
+          group.update!(one_per_topic: defn[:one_per_topic])
+        end
+
+        defn[:predefined].each do |tag_name|
+          ensure_tag_cached!(tag_name)
+          ensure_membership_cached!(_key, tag_name)
+        end
+      end
+
+      @_caches_warm = true
     end
 
-    def self.ensure_tags_in_group!(group_key, tag_names)
-      return if tag_names.blank?
+    def self.ensure_tag_cached!(name)
+      cleaned = DiscourseTagging.clean_tag(name.to_s)
+      return nil if cleaned.blank?
+
+      unless @_tag_cache.key?(cleaned)
+        tag = Tag.find_by(name: cleaned)
+        unless tag
+          tag = Tag.create!(name: cleaned)
+        end
+        @_tag_cache[cleaned] = tag
+      end
+      @_tag_cache[cleaned]
+    rescue ActiveRecord::RecordNotUnique, ActiveRecord::RecordInvalid
+      tag = Tag.find_by(name: cleaned)
+      @_tag_cache[cleaned] = tag if tag
+      tag
+    end
+
+    def self.ensure_membership_cached!(group_key, tag_name)
+      cleaned = DiscourseTagging.clean_tag(tag_name.to_s)
+      return if cleaned.blank?
+
+      tag = @_tag_cache[cleaned]
+      return unless tag
 
       defn = TAG_GROUP_DEFS[group_key]
       return unless defn
 
-      group = TagGroup.find_by(name: defn[:name])
+      group = @_group_cache[defn[:name]]
       return unless group
 
-      tag_names.each do |tag_name|
-        tag = find_or_create_tag!(tag_name)
-        add_tag_to_group!(group, tag)
-      end
-    end
+      pair = [group.id, tag.id]
+      return if @_membership_set.include?(pair)
 
-    def self.find_or_create_tag_group!(name, one_per_topic)
-      group = TagGroup.find_by(name: name)
-      unless group
-        group = TagGroup.create!(name: name, one_per_topic: one_per_topic)
-      end
-      group.update!(one_per_topic: one_per_topic) unless group.one_per_topic == one_per_topic
-      group
-    rescue ActiveRecord::RecordNotUnique
-      TagGroup.find_by!(name: name)
-    end
-
-    def self.find_or_create_tag!(name)
-      cleaned = DiscourseTagging.clean_tag(name.to_s)
-      return nil if cleaned.blank?
-
-      Tag.find_by(name: cleaned) || Tag.create!(name: cleaned)
-    rescue ActiveRecord::RecordNotUnique, ActiveRecord::RecordInvalid
-      Tag.find_by!(name: cleaned)
-    end
-
-    def self.add_tag_to_group!(group, tag)
-      return if tag.nil?
-      return if TagGroupMembership.exists?(tag_group_id: group.id, tag_id: tag.id)
       TagGroupMembership.create!(tag_group_id: group.id, tag_id: tag.id)
+      @_membership_set.add(pair)
     rescue ActiveRecord::RecordNotUnique
-      nil
+      @_membership_set.add(pair)
     end
 
     def self.reset_cache!
-      @_groups_ensured = nil
+      @_caches_warm = nil
+      @_tag_cache = nil
+      @_group_cache = nil
+      @_membership_set = nil
     end
 
     # --- Tag extraction methods ---
@@ -481,8 +508,7 @@ module DiscourseJournals
                          :match_major_publisher,
                          :major_publisher_list,
                          :sanitize_tag_name,
-                         :find_or_create_tag_group!,
-                         :find_or_create_tag!,
-                         :add_tag_to_group!
+                         :ensure_tag_cached!,
+                         :ensure_membership_cached!
   end
 end

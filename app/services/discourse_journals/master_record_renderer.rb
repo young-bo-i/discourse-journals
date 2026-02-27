@@ -54,7 +54,21 @@ module DiscourseJournals
     end
 
     def t(key, **opts)
-      I18n.t("discourse_journals.render.#{key}", **opts)
+      if opts.empty?
+        self.class.cached_translations[key] ||= I18n.t("discourse_journals.render.#{key}")
+      else
+        I18n.t("discourse_journals.render.#{key}", **opts)
+      end
+    end
+
+    def self.cached_translations
+      locale = I18n.locale
+      @_i18n_cache = {} if !defined?(@_i18n_cache) || @_i18n_cache.nil?
+      @_i18n_cache[locale] ||= {}
+    end
+
+    def self.reset_i18n_cache!
+      @_i18n_cache = nil
     end
 
     def h(text)

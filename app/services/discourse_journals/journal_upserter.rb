@@ -10,9 +10,13 @@ module DiscourseJournals
       discourse_journals_country
     ].freeze
 
-    def initialize(system_user: Discourse.system_user)
+    attr_reader :last_topic_id
+
+    def initialize(system_user: Discourse.system_user, defer_images: false)
       @system_user = system_user
       @category_cache = nil
+      @defer_images = defer_images
+      @last_topic_id = nil
     end
 
     def upsert!(journal_data, existing_topic_id: nil)
@@ -22,6 +26,7 @@ module DiscourseJournals
         topic = Topic.find_by(id: existing_topic_id)
         if topic
           update_topic!(topic, prepared)
+          @last_topic_id = topic.id
           return :updated
         end
       end
@@ -29,10 +34,12 @@ module DiscourseJournals
       existing = find_existing_topic(prepared)
       if existing
         update_topic!(existing, prepared)
+        @last_topic_id = existing.id
         return :updated
       end
 
-      create_topic!(prepared)
+      topic = create_topic!(prepared)
+      @last_topic_id = topic.id
       :created
     end
 
@@ -64,7 +71,11 @@ module DiscourseJournals
       store_custom_fields!(topic, prepared)
       JournalTagManager.apply_tags!(topic, prepared[:normalized])
       ensure_closed!(topic)
-      update_topic_image!(topic, prepared[:cover_url])
+
+      unless @defer_images
+        update_topic_image!(topic, prepared[:cover_url])
+      end
+
       topic
     end
 
@@ -77,15 +88,20 @@ module DiscourseJournals
           baked_version: Post::BAKED_VERSION,
           updated_at: Time.current,
         )
-        SearchIndexer.index(first_post) if first_post.topic_id
       end
 
       topic.update_columns(title: prepared[:title], fancy_title: nil) if topic.title != prepared[:title]
 
+      SearchIndexer.queue_post_reindex(topic.id)
+
       store_custom_fields!(topic, prepared)
       JournalTagManager.apply_tags!(topic, prepared[:normalized])
       ensure_closed!(topic)
-      update_topic_image!(topic, prepared[:cover_url])
+
+      unless @defer_images
+        update_topic_image!(topic, prepared[:cover_url])
+      end
+
       topic
     end
 
@@ -97,12 +113,23 @@ module DiscourseJournals
       fields["discourse_journals_country"] = prepared[:country].to_s if prepared[:country].present?
 
       if prepared[:normalized].present?
-        fields["discourse_journals_data"] = prepared[:normalized].to_json
+        new_json = prepared[:normalized].to_json
+        existing_json = TopicCustomField.where(
+          topic_id: topic.id,
+          name: "discourse_journals_data",
+        ).pick(:value)
+
+        if existing_json.present? && Digest::MD5.hexdigest(new_json) == Digest::MD5.hexdigest(existing_json)
+          fields.delete("discourse_journals_data")
+        else
+          fields["discourse_journals_data"] = new_json
+        end
       end
 
       return if fields.empty?
 
-      TopicCustomField.where(topic_id: topic.id, name: CUSTOM_FIELD_NAMES).delete_all
+      names_to_update = fields.keys
+      TopicCustomField.where(topic_id: topic.id, name: names_to_update).delete_all
       rows = fields.map do |name, value|
         { topic_id: topic.id, name: name, value: value, created_at: Time.current, updated_at: Time.current }
       end
@@ -112,7 +139,7 @@ module DiscourseJournals
     def ensure_closed!(topic)
       return unless SiteSetting.discourse_journals_close_topics
       return if topic.closed?
-      topic.update_status("closed", true, system_user)
+      topic.update_column(:closed, true)
     end
 
     def find_existing_topic(prepared)
