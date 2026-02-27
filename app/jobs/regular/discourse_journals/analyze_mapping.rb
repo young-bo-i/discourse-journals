@@ -39,30 +39,45 @@ module Jobs
 
         results = matcher.run!
 
+        counts = {
+          exact_1to1: results[:exact_1to1].size,
+          forum_1_to_api_n: results[:forum_1_to_api_n].size,
+          forum_n_to_api_1: results[:forum_n_to_api_1].size,
+          forum_n_to_api_m: results[:forum_n_to_api_m].size,
+          forum_only: results[:forum_only].size,
+          api_only: results[:api_only].size,
+        }
+
         analysis.update!(
           status: :completed,
-          total_forum_topics: matcher.forum_index.values.sum(&:size),
-          total_api_records: matcher.api_index.values.sum(&:size),
-          exact_1to1_count: results[:exact_1to1].size,
-          forum_1_to_api_n_count: results[:forum_1_to_api_n].size,
-          forum_n_to_api_1_count: results[:forum_n_to_api_1].size,
-          forum_n_to_api_m_count: results[:forum_n_to_api_m].size,
-          forum_only_count: results[:forum_only].size,
-          api_only_count: results[:api_only].size,
-          details_data: build_details(results),
+          total_forum_topics: matcher.total_forum_topics,
+          total_api_records: matcher.total_api_records,
+          exact_1to1_count: counts[:exact_1to1],
+          forum_1_to_api_n_count: counts[:forum_1_to_api_n],
+          forum_n_to_api_1_count: counts[:forum_n_to_api_1],
+          forum_n_to_api_m_count: counts[:forum_n_to_api_m],
+          forum_only_count: counts[:forum_only],
+          api_only_count: counts[:api_only],
           completed_at: Time.current,
         )
+
+        details = build_details(results)
+        results = nil
+        GC.start
+        analysis.update_column(:details_data, details)
+        details = nil
+        GC.start
 
         publish_progress(user_id, analysis, "completed", 100, "映射分析完成！")
 
         Rails.logger.info(
           "[DiscourseJournals::Mapping] Completed: " \
-          "1:1=#{results[:exact_1to1].size}, " \
-          "1:N=#{results[:forum_1_to_api_n].size}, " \
-          "N:1=#{results[:forum_n_to_api_1].size}, " \
-          "N:M=#{results[:forum_n_to_api_m].size}, " \
-          "forum_only=#{results[:forum_only].size}, " \
-          "api_only=#{results[:api_only].size}"
+          "1:1=#{counts[:exact_1to1]}, " \
+          "1:N=#{counts[:forum_1_to_api_n]}, " \
+          "N:1=#{counts[:forum_n_to_api_1]}, " \
+          "N:M=#{counts[:forum_n_to_api_m]}, " \
+          "forum_only=#{counts[:forum_only]}, " \
+          "api_only=#{counts[:api_only]}"
         )
       rescue ::DiscourseJournals::TitleMatcher::PausedError => e
         Rails.logger.info("[DiscourseJournals::Mapping] Paused by user: analysis #{analysis_id}")
@@ -117,11 +132,13 @@ module Jobs
         )
       end
 
+      DETAILS_LIMIT = 500
+
       def build_details(results)
         details = {}
 
         results.each do |category, entries|
-          details[category.to_s] = entries.map do |entry|
+          items = entries.first(DETAILS_LIMIT).map do |entry|
             detail = { normalized_title: entry[:normalized_title] }
 
             if entry[:forum]
@@ -138,6 +155,7 @@ module Jobs
 
             detail
           end
+          details[category.to_s] = items
         end
 
         details

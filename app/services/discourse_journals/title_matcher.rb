@@ -13,7 +13,8 @@ module DiscourseJournals
     API_CONCURRENCY = 5
     PROGRESS_BATCH_INTERVAL = 5
 
-    attr_reader :forum_index, :api_index, :results
+    attr_reader :forum_index, :api_index, :results,
+                :total_forum_topics, :total_api_records
 
     def initialize(progress_callback: nil, cancel_check: nil)
       @progress_callback = progress_callback
@@ -24,6 +25,8 @@ module DiscourseJournals
       @forum_issn_index = {}
       @api_issn_index = {}
       @api_seen_issns = Set.new
+      @total_forum_topics = 0
+      @total_api_records = 0
       @results = {
         exact_1to1: [],
         forum_1_to_api_n: [],
@@ -45,6 +48,7 @@ module DiscourseJournals
       build_forum_index
       build_api_index
       cross_match
+      release_indexes!
       results
     end
 
@@ -56,6 +60,18 @@ module DiscourseJournals
 
     def check_cancelled!
       raise PausedError, "分析已被用户暂停" if @cancel_check&.call
+    end
+
+    def release_indexes!
+      @total_forum_topics = @forum_index.values.sum(&:size)
+      @total_api_records = @api_index.values.sum(&:size)
+
+      @forum_index = {}
+      @api_index = {}
+      @forum_issn_index = {}
+      @api_issn_index = {}
+      @api_seen_issns = nil
+      GC.start
     end
 
     def build_forum_index
