@@ -21,6 +21,9 @@ module DiscourseJournals
       @rate_limiter = ApiRateLimiter.new
       @forum_index = {}
       @api_index = {}
+      @forum_issn_index = {}
+      @api_issn_index = {}
+      @api_seen_issns = Set.new
       @results = {
         exact_1to1: [],
         forum_1_to_api_n: [],
@@ -31,19 +34,11 @@ module DiscourseJournals
       }
     end
 
-    # 论坛标题规范化：HTML 反转义 + 小写（标题已经过 Discourse TextCleaner 处理）
-    def self.normalize_forum_title(title)
+    def self.normalize(title)
       return "" if title.blank?
-
-      CGI.unescapeHTML(title).strip.downcase
-    end
-
-    # API 标题规范化：模拟 Discourse 保存标题时的清洗逻辑 + 小写
-    def self.normalize_api_title(title)
-      return "" if title.blank?
-
-      cleaned = TextCleaner.clean_title(TextSentinel.title_sentinel(title).text)
-      cleaned.strip.downcase
+      text = CGI.unescapeHTML(title.to_s)
+      text = TextCleaner.clean_title(TextSentinel.title_sentinel(text).text)
+      text.strip.downcase
     end
 
     def run!
@@ -76,15 +71,25 @@ module DiscourseJournals
       topics = base_scope.select(:id, :title)
       publish_progress(:forum, 0, total, "正在建立论坛标题索引 (#{total} 个话题)...")
 
+      issn_map = TopicCustomField
+        .where(name: "discourse_journals_issn_l", topic_id: base_scope.select(:id))
+        .pluck(:topic_id, :value)
+        .to_h
+
       topics.find_each.with_index do |topic, idx|
-        normalized = self.class.normalize_forum_title(topic.title)
+        normalized = self.class.normalize(topic.title)
         next if normalized.blank?
 
+        entry = { topic_id: topic.id, title: topic.title }
+
         @forum_index[normalized] ||= []
-        @forum_index[normalized] << {
-          topic_id: topic.id,
-          title: topic.title,
-        }
+        @forum_index[normalized] << entry
+
+        issn_l = issn_map[topic.id]
+        if issn_l.present?
+          @forum_issn_index[issn_l] ||= []
+          @forum_issn_index[issn_l] << entry
+        end
 
         if (idx + 1) % 10_000 == 0
           check_cancelled!
@@ -92,7 +97,12 @@ module DiscourseJournals
         end
       end
 
-      publish_progress(:forum, total, total, "论坛索引构建完成：#{total} 个话题，#{@forum_index.size} 个唯一标题")
+      publish_progress(
+        :forum,
+        total,
+        total,
+        "论坛索引构建完成：#{total} 个话题，#{@forum_index.size} 个唯一标题，#{@forum_issn_index.size} 个 ISSN-L",
+      )
     end
 
     def build_api_index
@@ -163,7 +173,7 @@ module DiscourseJournals
         :api,
         fetched,
         total_records,
-        "API 索引构建完成：#{fetched} 条记录，#{@api_index.size} 个唯一标题 (耗时 #{elapsed}s)",
+        "API 索引构建完成：#{fetched} 条记录，#{@api_index.size} 个唯一标题，#{@api_issn_index.size} 个 ISSN-L (耗时 #{elapsed}s)",
       )
     end
 
@@ -291,15 +301,28 @@ module DiscourseJournals
         canonical_name = unified["canonical_name"]
         next if canonical_name.blank?
 
-        normalized = self.class.normalize_api_title(canonical_name)
+        issn_l = unified["issn_l"]
+
+        if issn_l.present? && @api_seen_issns.include?(issn_l)
+          next
+        end
+
+        normalized = self.class.normalize(canonical_name)
         next if normalized.blank?
 
-        @api_index[normalized] ||= []
-        @api_index[normalized] << {
+        entry = {
           api_id: unified["id"],
           canonical_name: canonical_name,
-          issn_l: unified["issn_l"],
+          issn_l: issn_l,
         }
+
+        @api_index[normalized] ||= []
+        @api_index[normalized] << entry
+
+        if issn_l.present?
+          @api_seen_issns.add(issn_l)
+          @api_issn_index[issn_l] = entry
+        end
 
         count += 1
       end
@@ -323,14 +346,63 @@ module DiscourseJournals
     end
 
     def cross_match
-      publish_progress(:match, 0, 0, "正在进行标题交叉比对...")
+      publish_progress(:match, 0, 0, "正在进行 ISSN-L 和标题交叉比对...")
 
+      issn_matched_forum_ids = Set.new
+      issn_matched_api_ids = Set.new
+      match_issn_l(issn_matched_forum_ids, issn_matched_api_ids)
+
+      match_by_title(issn_matched_forum_ids, issn_matched_api_ids)
+
+      publish_progress(:match, 1, 1, "比对完成！")
+    end
+
+    def match_issn_l(matched_forum_ids, matched_api_ids)
+      common_issns = @forum_issn_index.keys & @api_issn_index.keys
+      return if common_issns.empty?
+
+      common_issns.each do |issn_l|
+        forum_entries = @forum_issn_index[issn_l]
+        api_entry = @api_issn_index[issn_l]
+        next unless forum_entries&.any? && api_entry
+
+        normalized_title = self.class.normalize(api_entry[:canonical_name])
+
+        entry = {
+          normalized_title: normalized_title,
+          forum: forum_entries,
+          api: [api_entry],
+        }
+
+        forum_count = forum_entries.size
+        if forum_count == 1
+          @results[:exact_1to1] << entry
+        else
+          @results[:forum_n_to_api_1] << entry
+        end
+
+        forum_entries.each { |f| matched_forum_ids.add(f[:topic_id]) }
+        matched_api_ids.add(api_entry[:api_id])
+      end
+
+      Rails.logger.info(
+        "[DiscourseJournals::TitleMatcher] ISSN-L phase: #{common_issns.size} matched " \
+        "(#{matched_forum_ids.size} forum topics, #{matched_api_ids.size} API records)",
+      )
+    end
+
+    def match_by_title(matched_forum_ids, matched_api_ids)
       all_normalized_titles = (@forum_index.keys + @api_index.keys).uniq
       total = all_normalized_titles.size
 
       all_normalized_titles.each_with_index do |normalized_title, idx|
         forum_entries = @forum_index[normalized_title]
+          &.reject { |f| matched_forum_ids.include?(f[:topic_id]) }
         api_entries = @api_index[normalized_title]
+          &.reject { |a| matched_api_ids.include?(a[:api_id]) }
+
+        forum_entries = nil if forum_entries&.empty?
+        api_entries = nil if api_entries&.empty?
 
         if forum_entries && api_entries
           forum_count = forum_entries.size
@@ -365,11 +437,9 @@ module DiscourseJournals
 
         if (idx + 1) % 50_000 == 0 || idx + 1 == total
           check_cancelled!
-          publish_progress(:match, idx + 1, total, "比对进行中... #{idx + 1}/#{total}")
+          publish_progress(:match, idx + 1, total, "标题比对中... #{idx + 1}/#{total}")
         end
       end
-
-      publish_progress(:match, total, total, "比对完成！")
     end
   end
 end

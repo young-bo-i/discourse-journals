@@ -26,6 +26,12 @@ module DiscourseJournals
         end
       end
 
+      existing = find_existing_topic(prepared)
+      if existing
+        update_topic!(existing, prepared)
+        return :updated
+      end
+
       create_topic!(prepared)
       :created
     end
@@ -107,6 +113,27 @@ module DiscourseJournals
       return unless SiteSetting.discourse_journals_close_topics
       return if topic.closed?
       topic.update_status("closed", true, system_user)
+    end
+
+    def find_existing_topic(prepared)
+      category = journal_category
+
+      if prepared[:issn_l].present?
+        topic_id = TopicCustomField
+          .joins("INNER JOIN topics ON topics.id = topic_custom_fields.topic_id")
+          .where(name: "discourse_journals_issn_l", value: prepared[:issn_l].to_s)
+          .where(topics: { category_id: category.id, deleted_at: nil })
+          .pick(:topic_id)
+        return Topic.find_by(id: topic_id) if topic_id
+      end
+
+      if prepared[:title].present?
+        normalized = TitleMatcher.normalize(prepared[:title])
+        return nil if normalized.blank?
+        Topic
+          .where(category_id: category.id, deleted_at: nil)
+          .find_by("LOWER(title) = ?", normalized)
+      end
     end
 
     def journal_category

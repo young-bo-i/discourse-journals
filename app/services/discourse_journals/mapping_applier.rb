@@ -165,7 +165,9 @@ module DiscourseJournals
 
     def process_api_only(entries)
       entries.each do |entry|
-        (entry["api"] || []).each { |a| @create_ids << a["api_id"] }
+        apis = entry["api"] || []
+        next if apis.empty?
+        @create_ids << apis.first["api_id"]
       end
     end
 

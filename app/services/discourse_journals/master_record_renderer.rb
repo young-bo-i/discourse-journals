@@ -10,7 +10,7 @@ module DiscourseJournals
     end
 
     def render
-      sections = []
+        sections = []
       sections << render_hero
       sections << render_metric_visuals
       sections << render_status_grid
