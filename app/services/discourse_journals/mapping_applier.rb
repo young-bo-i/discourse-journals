@@ -397,7 +397,7 @@ module DiscourseJournals
       publish_progress(100, "正在排队封面图片处理任务 (#{@cover_topic_ids.size} 个话题)...")
 
       @cover_topic_ids.uniq.each_slice(COVER_JOB_BATCH_SIZE) do |batch|
-        Jobs.enqueue(:discourse_journals_process_journal_covers, topic_ids: batch)
+        Jobs.enqueue(Jobs::DiscourseJournals::ProcessJournalCovers, topic_ids: batch)
       end
 
       Rails.logger.info(
