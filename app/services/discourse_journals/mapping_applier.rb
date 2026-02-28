@@ -257,7 +257,18 @@ module DiscourseJournals
         remaining_ids.each_slice(BYIDS_BATCH_SIZE).each_slice(API_CONCURRENCY).with_index do |concurrent_batches, batch_group_idx|
           check_cancelled!
 
-          rows = fetch_byids_concurrent(connections, concurrent_batches)
+          rows =
+            begin
+              fetch_byids_concurrent(connections, concurrent_batches)
+            rescue StandardError => e
+              batch_ids = concurrent_batches.flatten
+              Rails.logger.error(
+                "[DiscourseJournals::MappingApplier] Batch fetch failed (#{batch_ids.size} ids), skipping: #{e.class}: #{e.message}",
+              )
+              increment_stat(:errors, batch_ids.size)
+              connections = reconnect_all!(connections)
+              []
+            end
 
           rows.each do |row|
             unified = row["unified"] || {}
@@ -268,19 +279,27 @@ module DiscourseJournals
             next unless action
 
             check_cancelled!
-            journal_params = ApiDataTransformer.transform(row)
-            upserter = JournalUpserter.new(system_user: @system_user, defer_images: true)
 
-            case action
-            when :update
-              upserter.upsert!(journal_params, existing_topic_id: topic_id)
-              increment_stat(:updated)
-            when :create
-              upserter.upsert!(journal_params)
-              increment_stat(:created)
+            begin
+              journal_params = ApiDataTransformer.transform(row)
+              upserter = JournalUpserter.new(system_user: @system_user, defer_images: true)
+
+              case action
+              when :update
+                upserter.upsert!(journal_params, existing_topic_id: topic_id)
+                increment_stat(:updated)
+              when :create
+                upserter.upsert!(journal_params)
+                increment_stat(:created)
+              end
+
+              @cover_topic_ids << upserter.last_topic_id if upserter.last_topic_id
+            rescue StandardError => e
+              Rails.logger.error(
+                "[DiscourseJournals::MappingApplier] Upsert failed for api_id=#{api_id}: #{e.class}: #{e.message}",
+              )
+              increment_stat(:errors)
             end
-
-            @cover_topic_ids << upserter.last_topic_id if upserter.last_topic_id
 
             processed += 1
             if processed % 20 == 0
@@ -342,6 +361,16 @@ module DiscourseJournals
       http.start
     end
 
+    def reconnect_all!(connections)
+      connections.map do |conn|
+        conn&.finish rescue nil
+        create_persistent_connection
+      rescue StandardError => e
+        Rails.logger.warn("[DiscourseJournals::MappingApplier] Reconnect failed: #{e.message}")
+        nil
+      end
+    end
+
     def fetch_byids_concurrent(connections, id_batches)
       threads = id_batches.each_with_index.map do |ids, idx|
         conn = connections[idx % connections.size]
@@ -355,7 +384,7 @@ module DiscourseJournals
       ids_param = api_ids.join(",")
       path = "/api/open/journals/byIds?ids=#{ids_param}&full=1"
       retries = 0
-      max_retries = 3
+      max_retries = 5
 
       begin
         @rate_limiter.throttle!
