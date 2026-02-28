@@ -19,9 +19,16 @@ module DiscourseJournals
       @last_topic_id = nil
     end
 
+    def normalize_and_render(journal_data)
+      normalize_and_render!(journal_data)
+    end
+
     def upsert!(journal_data, existing_topic_id: nil)
       prepared = normalize_and_render!(journal_data)
+      upsert_prepared!(prepared, existing_topic_id: existing_topic_id)
+    end
 
+    def upsert_prepared!(prepared, existing_topic_id: nil)
       if existing_topic_id
         topic = Topic.find_by(id: existing_topic_id)
         if topic

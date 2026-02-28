@@ -71,7 +71,6 @@ module DiscourseJournals
       @forum_issn_index = {}
       @api_issn_index = {}
       @api_seen_issns = nil
-      GC.start
     end
 
     def build_forum_index

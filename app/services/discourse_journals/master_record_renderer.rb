@@ -4,6 +4,8 @@ module DiscourseJournals
   class MasterRecordRenderer
     API_COVER_BASE = "https://journal.scholay.com"
 
+    EXTERNAL_LINK_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3.5H3a1 1 0 0 0-1 1V13a1 1 0 0 0 1 1h8.5a1 1 0 0 0 1-1V9.5"/><path d="M9.5 2h4.5v4.5"/><path d="M14 2L7.5 8.5"/></svg>'
+
     def initialize(normalized_data)
       @d = normalized_data.is_a?(Hash) ? normalized_data : {}
       @toggle_id = 0
@@ -105,7 +107,7 @@ module DiscourseJournals
       end
 
       homepage_display = homepage.present? ? homepage.sub(%r{https?://}, "").sub(/\/\z/, "") : nil
-      homepage_link = homepage.present? ? %(<a href="#{h(homepage)}" target="_blank" rel="noopener">#{h(homepage_display)}</a>) : nil
+      homepage_link = homepage.present? ? %(<a href="#{h(homepage)}" target="_blank" rel="noopener" class="dj-link-pill">#{EXTERNAL_LINK_SVG}<span>#{h(homepage_display)}</span></a>) : nil
 
       <<~HTML
         <header class="dj-hero">
@@ -299,7 +301,7 @@ module DiscourseJournals
 
       homepage_link = if id[:homepage_url].present?
         short = id[:homepage_url].sub(%r{https?://}, "").sub(/\/\z/, "")
-        %(<a href="#{h(id[:homepage_url])}" target="_blank" rel="noopener">#{h(short)}</a>)
+        %(<a href="#{h(id[:homepage_url])}" target="_blank" rel="noopener" class="dj-link-pill">#{EXTERNAL_LINK_SVG}<span>#{h(short)}</span></a>)
       end
 
       basic_cards = [

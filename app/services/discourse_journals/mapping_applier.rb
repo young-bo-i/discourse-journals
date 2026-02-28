@@ -10,6 +10,7 @@ module DiscourseJournals
     API_BASE_URL = "https://journal.scholay.com/api/open/journals"
     BYIDS_BATCH_SIZE = 50
     API_CONCURRENCY = 4
+    UPSERT_CONCURRENCY = 4
     DELETE_BATCH_SIZE = BulkTopicDeleter::BATCH_SIZE
     GC_EVERY_N_GROUPS = 2
     COVER_JOB_BATCH_SIZE = 200
@@ -28,6 +29,7 @@ module DiscourseJournals
       @stats = (resume_stats || { deleted: 0, updated: 0, created: 0, skipped: 0, errors: 0 }).transform_keys(&:to_sym)
       @system_user = Discourse.system_user
       @cover_topic_ids = []
+      @mutex = Mutex.new
     end
 
     def run!
@@ -74,7 +76,7 @@ module DiscourseJournals
     end
 
     def increment_stat(key, amount = 1)
-      @stats[key] += amount
+      @mutex.synchronize { @stats[key] += amount }
     end
 
     def build_action_plan
@@ -233,7 +235,7 @@ module DiscourseJournals
       BulkTopicDeleter.update_category_stats(SiteSetting.discourse_journals_category_id)
     end
 
-    # ──── Phase 2: Concurrent fetch + serial upsert ────
+    # ──── Phase 2: Pipeline fetch + parallel transform/upsert ────
     def execute_api_sync(skip_offset: 0)
       ids = all_api_ids
       total = ids.size
@@ -247,6 +249,8 @@ module DiscourseJournals
       )
       publish_progress(5, "开始同步 API 数据 (共 #{total} 条，从 ##{skip_offset + 1} 继续)...")
 
+      JournalTagManager.warm_caches!
+
       processed = 0
       base_offset = skip_offset
       start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
@@ -254,87 +258,174 @@ module DiscourseJournals
       connections = API_CONCURRENCY.times.map { create_persistent_connection }
 
       begin
-        remaining_ids.each_slice(BYIDS_BATCH_SIZE).each_slice(API_CONCURRENCY).with_index do |concurrent_batches, batch_group_idx|
+        batch_groups = remaining_ids.each_slice(BYIDS_BATCH_SIZE).each_slice(API_CONCURRENCY).to_a
+        prefetch_rows = nil
+        prefetch_thread = nil
+
+        batch_groups.each_with_index do |concurrent_batches, batch_group_idx|
           check_cancelled!
 
-          rows =
-            begin
-              fetch_byids_concurrent(connections, concurrent_batches)
-            rescue StandardError => e
-              batch_ids = concurrent_batches.flatten
-              Rails.logger.error(
-                "[DiscourseJournals::MappingApplier] Batch fetch failed (#{batch_ids.size} ids), skipping: #{e.class}: #{e.message}",
-              )
-              increment_stat(:errors, batch_ids.size)
-              connections = reconnect_all!(connections)
-              []
-            end
+          rows = if prefetch_thread
+            prefetch_thread.join
+            r = prefetch_rows
+            prefetch_thread = nil
+            prefetch_rows = nil
+            r
+          else
+            safe_fetch(connections, concurrent_batches)
+          end
 
-          rows.each do |row|
-            unified = row["unified"] || {}
-            api_id = unified["id"]
-            next unless api_id
-
-            action, topic_id = lookup_action(api_id)
-            next unless action
-
-            check_cancelled!
-
-            begin
-              journal_params = ApiDataTransformer.transform(row)
-              upserter = JournalUpserter.new(system_user: @system_user, defer_images: true)
-
-              case action
-              when :update
-                upserter.upsert!(journal_params, existing_topic_id: topic_id)
-                increment_stat(:updated)
-              when :create
-                upserter.upsert!(journal_params)
-                increment_stat(:created)
-              end
-
-              @cover_topic_ids << upserter.last_topic_id if upserter.last_topic_id
-            rescue StandardError => e
-              Rails.logger.error(
-                "[DiscourseJournals::MappingApplier] Upsert failed for api_id=#{api_id}: #{e.class}: #{e.message}",
-              )
-              increment_stat(:errors)
-            end
-
-            processed += 1
-            if processed % 20 == 0
-              elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start_time
-              speed = (processed.to_f / elapsed).round(0)
-              remaining = total - (base_offset + processed)
-              eta = speed > 0 ? (remaining.to_f / speed).round(0) : 0
-              eta_str = format_eta(eta)
-
-              pct = (5 + (base_offset + processed).to_f / total * 95).round(1)
-              publish_progress(
-                pct,
-                "同步中... #{base_offset + processed}/#{total} (#{@stats[:updated]} 更新, #{@stats[:created]} 新建, #{speed} 条/秒#{eta_str})",
-              )
+          next_group = batch_groups[batch_group_idx + 1]
+          if next_group
+            prefetch_thread = Thread.new do
+              prefetch_rows = safe_fetch(connections, next_group)
             end
           end
 
+          prepared_items = parallel_transform(rows)
           rows = nil
+
+          updates, creates = prepared_items.partition { |item| item[:action] == :update }
+
+          parallel_upsert(updates)
+          creates.each { |item| serial_upsert(item) }
+
+          processed += prepared_items.size
+          report_progress(processed, base_offset, total, start_time)
 
           save_checkpoint("api_sync", "api_offset", base_offset + processed)
           persist_stats
 
           GC.start if batch_group_idx % GC_EVERY_N_GROUPS == 0
         end
+
+        if prefetch_thread
+          prefetch_thread.join
+          prefetch_thread = nil
+        end
       ensure
+        prefetch_thread&.join rescue nil
         connections.each do |conn|
-          conn.finish
-        rescue StandardError
-          nil
+          conn&.finish rescue nil
         end
       end
 
       publish_progress(
         100,
         "同步完成：#{@stats[:updated]} 更新, #{@stats[:created]} 新建, #{@stats[:deleted]} 删除, #{@stats[:errors]} 错误",
+      )
+    end
+
+    def safe_fetch(connections, concurrent_batches)
+      fetch_byids_concurrent(connections, concurrent_batches)
+    rescue StandardError => e
+      batch_ids = concurrent_batches.flatten
+      Rails.logger.error(
+        "[DiscourseJournals::MappingApplier] Batch fetch failed (#{batch_ids.size} ids), skipping: #{e.class}: #{e.message}",
+      )
+      increment_stat(:errors, batch_ids.size)
+      connections.replace(reconnect_all!(connections))
+      []
+    end
+
+    def parallel_transform(rows)
+      return [] if rows.empty?
+
+      queue = Queue.new
+      rows.each { |r| queue << r }
+      UPSERT_CONCURRENCY.times { queue << :done }
+
+      result = []
+      result_mutex = Mutex.new
+
+      threads = UPSERT_CONCURRENCY.times.map do
+        Thread.new do
+          while (row = queue.pop) != :done
+            api_id = row.dig("unified", "id")
+            next unless api_id
+
+            action, topic_id = lookup_action(api_id)
+            next unless action
+
+            begin
+              journal_params = ApiDataTransformer.transform(row)
+              prepared = JournalUpserter.new(
+                system_user: @system_user,
+                defer_images: true,
+              ).normalize_and_render(journal_params)
+
+              result_mutex.synchronize do
+                result << { api_id: api_id, action: action, topic_id: topic_id, prepared: prepared }
+              end
+            rescue StandardError => e
+              Rails.logger.error(
+                "[DiscourseJournals::MappingApplier] Transform failed for api_id=#{api_id}: #{e.class}: #{e.message}",
+              )
+              increment_stat(:errors)
+            end
+          end
+        end
+      end
+
+      threads.each(&:join)
+      result
+    end
+
+    def parallel_upsert(items)
+      return if items.empty?
+
+      queue = Queue.new
+      items.each { |item| queue << item }
+      UPSERT_CONCURRENCY.times { queue << :done }
+
+      threads = UPSERT_CONCURRENCY.times.map do
+        Thread.new do
+          while (item = queue.pop) != :done
+            begin
+              upserter = JournalUpserter.new(system_user: @system_user, defer_images: true)
+              upserter.upsert_prepared!(item[:prepared], existing_topic_id: item[:topic_id])
+              increment_stat(:updated)
+              tid = upserter.last_topic_id
+              @mutex.synchronize { @cover_topic_ids << tid } if tid
+            rescue StandardError => e
+              Rails.logger.error(
+                "[DiscourseJournals::MappingApplier] Upsert failed for api_id=#{item[:api_id]}: #{e.class}: #{e.message}",
+              )
+              increment_stat(:errors)
+            end
+          end
+        end
+      end
+
+      threads.each(&:join)
+    end
+
+    def serial_upsert(item)
+      upserter = JournalUpserter.new(system_user: @system_user, defer_images: true)
+      upserter.upsert_prepared!(item[:prepared])
+      increment_stat(:created)
+      tid = upserter.last_topic_id
+      @mutex.synchronize { @cover_topic_ids << tid } if tid
+    rescue StandardError => e
+      Rails.logger.error(
+        "[DiscourseJournals::MappingApplier] Create failed for api_id=#{item[:api_id]}: #{e.class}: #{e.message}",
+      )
+      increment_stat(:errors)
+    end
+
+    def report_progress(processed, base_offset, total, start_time)
+      return if processed % 20 != 0
+
+      elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start_time
+      speed = (processed.to_f / elapsed).round(0)
+      remaining = total - (base_offset + processed)
+      eta = speed > 0 ? (remaining.to_f / speed).round(0) : 0
+      eta_str = format_eta(eta)
+
+      pct = (5 + (base_offset + processed).to_f / total * 95).round(1)
+      publish_progress(
+        pct,
+        "同步中... #{base_offset + processed}/#{total} (#{@stats[:updated]} 更新, #{@stats[:created]} 新建, #{speed} 条/秒#{eta_str})",
       )
     end
 
@@ -368,7 +459,7 @@ module DiscourseJournals
       rescue StandardError => e
         Rails.logger.warn("[DiscourseJournals::MappingApplier] Reconnect failed: #{e.message}")
         nil
-      end
+      end.compact
     end
 
     def fetch_byids_concurrent(connections, id_batches)

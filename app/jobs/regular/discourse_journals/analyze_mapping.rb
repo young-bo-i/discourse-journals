@@ -39,6 +39,8 @@ module Jobs
 
         results = matcher.run!
 
+        publish_progress(user_id, analysis, "processing", 100, "正在整理分析结果...")
+
         counts = {
           exact_1to1: results[:exact_1to1].size,
           forum_1_to_api_n: results[:forum_1_to_api_n].size,
@@ -61,12 +63,12 @@ module Jobs
           completed_at: Time.current,
         )
 
+        publish_progress(user_id, analysis, "processing", 100, "正在保存详细数据...")
+
         details = build_details(results)
         results = nil
-        GC.start
         analysis.update_column(:details_data, details)
         details = nil
-        GC.start
 
         publish_progress(user_id, analysis, "completed", 100, "映射分析完成！")
 
