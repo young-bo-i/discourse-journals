@@ -222,12 +222,11 @@ module DiscourseJournals
         <article class="dj-metric-card dj-metric-card--cas">
           <h4 class="dj-metric-heading">#{h(t("cas_heading"))}</h4>
           <div class="dj-metric-structure dj-pyramid #{zone_class}">
-            <div class="dj-pyramid-outline">
-              <div class="dj-pyramid-indicator"></div>
-              <div class="dj-pyramid-cut dj-pyramid-cut--1"></div>
-              <div class="dj-pyramid-cut dj-pyramid-cut--2"></div>
-              <div class="dj-pyramid-cut dj-pyramid-cut--3"></div>
-              <div class="dj-pyramid-cut dj-pyramid-cut--4"></div>
+            <div class="dj-pyramid-segments">
+              <div class="dj-pyr-seg dj-pyr-seg--1"><span>1</span></div>
+              <div class="dj-pyr-seg dj-pyr-seg--2"><span>2</span></div>
+              <div class="dj-pyr-seg dj-pyr-seg--3"><span>3</span></div>
+              <div class="dj-pyr-seg dj-pyr-seg--4"><span>4</span></div>
             </div>
             <div class="dj-pyramid-shadow"></div>
           </div>
