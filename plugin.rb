@@ -167,8 +167,7 @@ after_initialize do
     next "" if category_id.zero? || topic.category_id != category_id
 
     <<~HTML
-      <style id="dj-hide-sidebar">.sidebar-wrapper{display:none !important}#main-outlet-wrapper{grid-template-columns:0 minmax(0,1fr) !important}</style>
-      <script>(function(){var s=document.getElementById("dj-hide-sidebar");if(!s)return;var fn=function(){s.remove();document.removeEventListener("click",fn,true)};document.addEventListener("click",fn,true)})()</script>
+      <script>(function(){try{var k="discourse_sidebar-hidden";if(!localStorage.getItem(k)){localStorage.setItem(k,"true");sessionStorage.setItem("dj_sidebar_was_open","1")}}catch(e){}})()</script>
     HTML
   end
 
