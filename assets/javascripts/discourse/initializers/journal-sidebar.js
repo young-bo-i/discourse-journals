@@ -10,14 +10,29 @@ export default {
     const categoryId = parseInt(siteSettings.discourse_journals_category_id, 10);
     if (!categoryId) return;
 
+    const meta = document.querySelector('meta[name="dj-journal-page"]');
+    const isExternalToJournal = !!meta;
+    if (meta) {
+      meta.remove();
+    }
+
     withPluginApi("1.2.0", (api) => {
       let weHidSidebar = false;
 
-      try {
-        if (sessionStorage.getItem("dj_sidebar_was_open")) {
-          weHidSidebar = true;
-        }
-      } catch (e) {}
+      if (isExternalToJournal) {
+        try {
+          const appController =
+            api.container.lookup("controller:application");
+          if (appController && appController.showSidebar) {
+            appController.set("showSidebar", false);
+            weHidSidebar = true;
+          }
+          const style = document.getElementById("dj-hide-sidebar");
+          if (style) {
+            style.remove();
+          }
+        } catch (e) {}
+      }
 
       api.onPageChange(() => {
         const topicController = api.container.lookup("controller:topic");
@@ -32,14 +47,10 @@ export default {
         if (weHidSidebar) {
           weHidSidebar = false;
           try {
-            sessionStorage.removeItem("dj_sidebar_was_open");
-            if (localStorage.getItem("discourse_sidebar-hidden")) {
-              localStorage.removeItem("discourse_sidebar-hidden");
-              const appController =
-                api.container.lookup("controller:application");
-              if (appController && !appController.showSidebar) {
-                appController.set("showSidebar", true);
-              }
+            const appController =
+              api.container.lookup("controller:application");
+            if (appController && !appController.showSidebar) {
+              appController.set("showSidebar", true);
             }
           } catch (e) {}
         }

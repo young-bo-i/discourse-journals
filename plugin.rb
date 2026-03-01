@@ -171,7 +171,8 @@ after_initialize do
     next "" unless topic_cat == category_id
 
     <<~HTML
-      <script>(function(){try{var k="discourse_sidebar-hidden";if(!localStorage.getItem(k)){localStorage.setItem(k,"true");sessionStorage.setItem("dj_sidebar_was_open","1")}}catch(e){}})()</script>
+      <style id="dj-hide-sidebar">.sidebar-wrapper{display:none !important}</style>
+      <meta name="dj-journal-page" content="1">
     HTML
   end
 
