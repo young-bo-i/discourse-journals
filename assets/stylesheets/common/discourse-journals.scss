@@ -304,6 +304,17 @@
   margin-bottom: 6px;
 }
 
+// Generic active bar highlight (fallback for old HTML without card-specific classes)
+.dj-building--q1 .dj-building-level:nth-of-type(1),
+.dj-building--q2 .dj-building-level:nth-of-type(2),
+.dj-building--q3 .dj-building-level:nth-of-type(3),
+.dj-building--q4 .dj-building-level:nth-of-type(4) {
+  background: var(--tertiary);
+  border-color: var(--tertiary);
+  box-shadow: 0 8px 18px rgba(var(--tertiary-rgb), 0.35);
+}
+
+// Card-specific overrides (higher specificity, for new HTML)
 .dj-metric-card--jcr {
   .dj-building--q1 .dj-building-level:nth-of-type(1),
   .dj-building--q2 .dj-building-level:nth-of-type(2),
@@ -403,6 +414,44 @@
 
   span { opacity: 1; font-weight: 700; }
 }
+
+// Legacy pyramid support (old HTML still in DB until re-render)
+.dj-pyramid-outline {
+  position: relative;
+  width: 100px;
+  height: 130px;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  background: linear-gradient(180deg, rgba(var(--primary-rgb), 0.12) 0%, rgba(var(--primary-rgb), 0.06) 100%);
+  overflow: hidden;
+}
+
+.dj-pyramid-indicator {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+  transform-origin: top center;
+  opacity: 0;
+}
+
+.dj-pyramid--zone1 .dj-pyramid-indicator { background: var(--dj-zone-1); opacity: 1; transform: scaleY(0.25); }
+.dj-pyramid--zone2 .dj-pyramid-indicator { background: var(--dj-zone-2); opacity: 1; transform: scaleY(0.50); }
+.dj-pyramid--zone3 .dj-pyramid-indicator { background: var(--dj-zone-3); opacity: 1; transform: scaleY(0.75); }
+.dj-pyramid--zone4 .dj-pyramid-indicator { background: var(--dj-zone-4); opacity: 1; transform: scaleY(1.00); }
+
+.dj-pyramid-cut {
+  position: absolute;
+  left: 50%;
+  height: 1px;
+  background: rgba(var(--primary-rgb), 0.14);
+  transform: translateX(-50%);
+}
+
+.dj-pyramid-cut--1 { width: 60%; top: 26px; }
+.dj-pyramid-cut--2 { width: 78%; top: 52px; }
+.dj-pyramid-cut--3 { width: 92%; top: 78px; }
+.dj-pyramid-cut--4 { width: 105%; top: 108px; }
 
 .dj-pyramid-shadow {
   width: 80%;
