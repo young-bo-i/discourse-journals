@@ -5,6 +5,7 @@ module DiscourseJournals
     TAG_WEIGHT = 3
     PUBLISHER_WEIGHT = 2
     COUNTRY_WEIGHT = 1
+    CACHE_TTL = 30.minutes
 
     def self.call(topic, _pm_params, _topic_query)
       return nil unless SiteSetting.discourse_journals_enabled
@@ -21,8 +22,12 @@ module DiscourseJournals
 
       limit = SiteSetting.discourse_journals_suggested_count
 
-      topic_ids = find_related_topic_ids(topic, category_id, criteria, limit)
-      return nil if topic_ids.empty?
+      cache_key = "dj_suggested_v1_#{topic.id}_#{limit}_#{criteria.sort.join}"
+      topic_ids = Discourse.cache.fetch(cache_key, expires_in: CACHE_TTL) do
+        find_related_topic_ids(topic, category_id, criteria, limit)
+      end
+
+      return nil if topic_ids.blank?
 
       { result: Topic.where(id: topic_ids).order(DB.sql_fragment("array_position(ARRAY[?], topics.id)", topic_ids)) }
     end

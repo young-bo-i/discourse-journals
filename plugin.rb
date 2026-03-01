@@ -157,14 +157,18 @@ after_initialize do
 
   sidebar_hide_html = ->(controller) do
     next "" unless SiteSetting.discourse_journals_enabled
-    next "" unless controller.instance_of?(TopicsController)
 
-    topic_view = controller.instance_variable_get(:@topic_view)
-    next "" unless topic_view
-
-    topic = topic_view.topic
     category_id = SiteSetting.discourse_journals_category_id.to_i
-    next "" if category_id.zero? || topic.category_id != category_id
+    next "" if category_id.zero?
+
+    path = controller.request.path rescue nil
+    next "" if path.blank?
+
+    topic_id = path[%r{/t/(?:[^/]+/)?(\d+)}, 1]&.to_i
+    next "" unless topic_id&.positive?
+
+    topic_cat = Topic.where(id: topic_id).pick(:category_id)
+    next "" unless topic_cat == category_id
 
     <<~HTML
       <script>(function(){try{var k="discourse_sidebar-hidden";if(!localStorage.getItem(k)){localStorage.setItem(k,"true");sessionStorage.setItem("dj_sidebar_was_open","1")}}catch(e){}})()</script>
