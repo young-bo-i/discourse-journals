@@ -86,12 +86,20 @@ module DiscourseJournals
         .where(id: @analysis.id)
         .pick(:details_data) || {}
 
-      process_exact_matches(details["exact_1to1"] || [])
-      process_forum_1_to_api_n(details["forum_1_to_api_n"] || [])
-      process_forum_n_to_api_1(details["forum_n_to_api_1"] || [])
-      process_forum_n_to_api_m(details["forum_n_to_api_m"] || [])
-      process_forum_only(details["forum_only"] || [])
-      process_api_only(details["api_only"] || [])
+      plan = details["_action_plan"]
+
+      if plan
+        @update_map = (plan["updates"] || {}).transform_keys(&:to_i).transform_values(&:to_i)
+        @create_ids = (plan["creates"] || []).map(&:to_i)
+        @topics_to_delete = (plan["deletes"] || []).map(&:to_i)
+      else
+        process_exact_matches(details["exact_1to1"] || [])
+        process_forum_1_to_api_n(details["forum_1_to_api_n"] || [])
+        process_forum_n_to_api_1(details["forum_n_to_api_1"] || [])
+        process_forum_n_to_api_m(details["forum_n_to_api_m"] || [])
+        process_forum_only(details["forum_only"] || [])
+        process_api_only(details["api_only"] || [])
+      end
 
       details = nil
       GC.start

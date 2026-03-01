@@ -66,6 +66,7 @@ module Jobs
         publish_progress(user_id, analysis, "processing", 100, "正在保存详细数据...")
 
         details = build_details(results)
+        details["_action_plan"] = build_action_plan_data(results)
         results = nil
         analysis.update_column(:details_data, details)
         details = nil
@@ -135,6 +136,56 @@ module Jobs
       end
 
       DETAILS_LIMIT = 500
+
+      def build_action_plan_data(results)
+        updates = {}
+        creates = []
+        deletes = []
+
+        results[:exact_1to1].each do |e|
+          forum = e[:forum]&.first
+          api = e[:api]&.first
+          updates[api[:api_id]] = forum[:topic_id] if forum && api
+        end
+
+        results[:forum_1_to_api_n].each do |e|
+          forum = e[:forum]&.first
+          apis = e[:api] || []
+          next unless forum && apis.any?
+          apis.each_with_index do |api, idx|
+            idx == 0 ? (updates[api[:api_id]] = forum[:topic_id]) : (creates << api[:api_id])
+          end
+        end
+
+        results[:forum_n_to_api_1].each do |e|
+          forums = e[:forum] || []
+          api = e[:api]&.first
+          next unless forums.any? && api
+          updates[api[:api_id]] = forums.first[:topic_id]
+          forums[1..].each { |f| deletes << f[:topic_id] }
+        end
+
+        results[:forum_n_to_api_m].each do |e|
+          forums = e[:forum] || []
+          apis = e[:api] || []
+          next if forums.empty? || apis.empty?
+          pair_count = [forums.size, apis.size].min
+          pair_count.times { |i| updates[apis[i][:api_id]] = forums[i][:topic_id] }
+          forums[pair_count..].each { |f| deletes << f[:topic_id] } if forums.size > pair_count
+          apis[pair_count..].each { |a| creates << a[:api_id] } if apis.size > pair_count
+        end
+
+        results[:forum_only].each do |e|
+          (e[:forum] || []).each { |f| deletes << f[:topic_id] }
+        end
+
+        results[:api_only].each do |e|
+          apis = e[:api] || []
+          creates << apis.first[:api_id] if apis.any?
+        end
+
+        { "updates" => updates, "creates" => creates, "deletes" => deletes }
+      end
 
       def build_details(results)
         details = {}
