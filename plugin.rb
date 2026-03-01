@@ -155,6 +155,25 @@ after_initialize do
   register_html_builder("server:before-head-close-crawler", &keywords_html)
   register_html_builder("server:before-head-close", &keywords_html)
 
+  sidebar_hide_html = ->(controller) do
+    next "" unless SiteSetting.discourse_journals_enabled
+    next "" unless controller.instance_of?(TopicsController)
+
+    topic_view = controller.instance_variable_get(:@topic_view)
+    next "" unless topic_view
+
+    topic = topic_view.topic
+    category_id = SiteSetting.discourse_journals_category_id.to_i
+    next "" if category_id.zero? || topic.category_id != category_id
+
+    <<~HTML
+      <style id="dj-hide-sidebar">.sidebar-wrapper{display:none !important}#main-outlet-wrapper{grid-template-columns:0 minmax(0,1fr) !important}</style>
+      <script>(function(){var s=document.getElementById("dj-hide-sidebar");if(!s)return;var fn=function(){s.remove();document.removeEventListener("click",fn,true)};document.addEventListener("click",fn,true)})()</script>
+    HTML
+  end
+
+  register_html_builder("server:before-head-close", &sidebar_hide_html)
+
   DiscoursePluginRegistry.register_list_suggested_for_provider(
     DiscourseJournals::JournalSuggestedProvider.method(:call),
     self,
@@ -190,6 +209,30 @@ after_initialize do
         )
       end
     end
+  end
+
+  reloadable_patch do
+    sitemap_patch = Module.new do
+      def topics
+        if name == RECENT_SITEMAP_NAME
+          sitemap_topics.pluck(
+            :id, :slug,
+            Arel.sql("GREATEST(topics.bumped_at, topics.updated_at)"),
+            :updated_at, :posts_count,
+          )
+        elsif name == NEWS_SITEMAP_NAME
+          sitemap_topics.pluck(:id, :title, :slug, :created_at)
+        else
+          sitemap_topics.pluck(
+            :id, :slug,
+            Arel.sql("GREATEST(topics.bumped_at, topics.updated_at)"),
+            :updated_at,
+          )
+        end
+      end
+    end
+
+    ::Sitemap.prepend(sitemap_patch)
   end
 
   Discourse::Application.routes.append do

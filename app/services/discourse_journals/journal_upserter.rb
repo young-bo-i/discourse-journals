@@ -98,6 +98,7 @@ module DiscourseJournals
       end
 
       topic.update_columns(title: prepared[:title], fancy_title: nil) if topic.title != prepared[:title]
+      topic.update_column(:updated_at, Time.current)
 
       SearchIndexer.queue_post_reindex(topic.id)
 
