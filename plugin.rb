@@ -234,13 +234,13 @@ after_initialize do
   reloadable_patch do
     sitemap_patch = Module.new do
       def topics
-        if name == RECENT_SITEMAP_NAME
+        if name == ::Sitemap::RECENT_SITEMAP_NAME
           sitemap_topics.pluck(
             :id, :slug,
             Arel.sql("GREATEST(topics.bumped_at, topics.updated_at)"),
             :updated_at, :posts_count,
           )
-        elsif name == NEWS_SITEMAP_NAME
+        elsif name == ::Sitemap::NEWS_SITEMAP_NAME
           sitemap_topics.pluck(:id, :title, :slug, :created_at)
         else
           sitemap_topics.pluck(
@@ -261,11 +261,11 @@ after_initialize do
         indexable_topics =
           Topic.where(visible: true).joins(:category).where(categories: { read_restricted: false })
 
-        if name == RECENT_SITEMAP_NAME
+        if name == ::Sitemap::RECENT_SITEMAP_NAME
           indexable_topics
             .where("topics.bumped_at > :since OR topics.updated_at > :since", since: 3.days.ago)
             .order(Arel.sql("GREATEST(topics.bumped_at, topics.updated_at) DESC"))
-        elsif name == NEWS_SITEMAP_NAME
+        elsif name == ::Sitemap::NEWS_SITEMAP_NAME
           indexable_topics
             .where("topics.bumped_at > :since OR topics.updated_at > :since", since: 72.hours.ago)
             .order(Arel.sql("GREATEST(topics.bumped_at, topics.updated_at) DESC"))
