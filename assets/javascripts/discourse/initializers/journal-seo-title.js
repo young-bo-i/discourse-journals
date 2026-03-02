@@ -61,49 +61,18 @@ export default {
         },
       });
 
-      // 监听页面变化
-      api.onPageChange(() => {
+      api.onPageChange((url) => {
+        if (!url || !url.startsWith("/t/")) {
+          return;
+        }
+
         const topicController = container.lookup("controller:topic");
         if (topicController && topicController.model) {
           setTimeout(() => {
-            const topic = topicController.model;
-            const categoryId = parseInt(
-              siteSettings.discourse_journals_category_id,
-              10
-            );
-
-            if (
-              topic &&
-              topic.category_id === categoryId &&
-              suffix &&
-              !document.title.includes(suffix)
-            ) {
-              document.title = `${document.title} - ${suffix}`;
-            }
+            topicController._modifyTitleWithSuffix();
           }, 100);
         }
       });
     });
-
-    // 立即执行一次（用于页面刷新的情况）
-    setTimeout(() => {
-      const topicController = container.lookup("controller:topic");
-      if (topicController && topicController.model) {
-        const topic = topicController.model;
-        const categoryId = parseInt(
-          siteSettings.discourse_journals_category_id,
-          10
-        );
-
-        if (
-          topic &&
-          topic.category_id === categoryId &&
-          suffix &&
-          !document.title.includes(suffix)
-        ) {
-          document.title = `${document.title} - ${suffix}`;
-        }
-      }
-    }, 200);
   },
 };

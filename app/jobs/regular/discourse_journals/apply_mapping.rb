@@ -60,7 +60,6 @@ module Jobs
           resume_checkpoint: resume_checkpoint,
           resume_stats: resume ? resume_stats : nil,
           progress_callback: ->(percent, message, stats) {
-            analysis.update_columns(apply_stats: stats.transform_keys(&:to_s))
             publish_progress(user_id, analysis, "processing", percent, message, stats)
           },
           cancel_check: -> {

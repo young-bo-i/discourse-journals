@@ -12,9 +12,9 @@ module DiscourseJournals
 
     attr_reader :last_topic_id
 
-    def initialize(system_user: Discourse.system_user, defer_images: false)
+    def initialize(system_user: Discourse.system_user, defer_images: false, category: nil)
       @system_user = system_user
-      @category_cache = nil
+      @category_cache = category
       @defer_images = defer_images
       @last_topic_id = nil
     end
@@ -97,8 +97,10 @@ module DiscourseJournals
         )
       end
 
-      topic.update_columns(title: prepared[:title], fancy_title: nil) if topic.title != prepared[:title]
-      topic.update_column(:updated_at, Time.current)
+      attrs = { updated_at: Time.current }
+      attrs[:title] = prepared[:title] if topic.title != prepared[:title]
+      attrs[:fancy_title] = nil if attrs.key?(:title)
+      topic.update_columns(attrs)
 
       SearchIndexer.queue_post_reindex(topic.id)
 
@@ -114,31 +116,33 @@ module DiscourseJournals
     end
 
     def store_custom_fields!(topic, prepared)
-      fields = {}
-      fields["discourse_journals_issn_l"] = prepared[:issn_l].to_s if prepared[:issn_l].present?
-      fields["discourse_journals_publisher"] = prepared[:publisher].to_s if prepared[:publisher].present?
-      fields["discourse_journals_cover_url"] = prepared[:cover_url].to_s if prepared[:cover_url].present?
-      fields["discourse_journals_country"] = prepared[:country].to_s if prepared[:country].present?
+      desired = {}
+      desired["discourse_journals_issn_l"] = prepared[:issn_l].to_s if prepared[:issn_l].present?
+      desired["discourse_journals_publisher"] = prepared[:publisher].to_s if prepared[:publisher].present?
+      desired["discourse_journals_cover_url"] = prepared[:cover_url].to_s if prepared[:cover_url].present?
+      desired["discourse_journals_country"] = prepared[:country].to_s if prepared[:country].present?
+      desired["discourse_journals_data"] = prepared[:normalized].to_json if prepared[:normalized].present?
 
-      if prepared[:normalized].present?
-        new_json = prepared[:normalized].to_json
-        existing_json = TopicCustomField.where(
-          topic_id: topic.id,
-          name: "discourse_journals_data",
-        ).pick(:value)
+      return if desired.empty?
 
-        if existing_json.present? && Digest::MD5.hexdigest(new_json) == Digest::MD5.hexdigest(existing_json)
-          fields.delete("discourse_journals_data")
+      existing = TopicCustomField
+        .where(topic_id: topic.id, name: desired.keys)
+        .pluck(:name, :value)
+        .to_h
+
+      changed = desired.reject do |name, value|
+        old = existing[name]
+        if name == "discourse_journals_data" && old.present?
+          Digest::MD5.hexdigest(value) == Digest::MD5.hexdigest(old)
         else
-          fields["discourse_journals_data"] = new_json
+          old == value
         end
       end
 
-      return if fields.empty?
+      return if changed.empty?
 
-      names_to_update = fields.keys
-      TopicCustomField.where(topic_id: topic.id, name: names_to_update).delete_all
-      rows = fields.map do |name, value|
+      TopicCustomField.where(topic_id: topic.id, name: changed.keys).delete_all
+      rows = changed.map do |name, value|
         { topic_id: topic.id, name: name, value: value, created_at: Time.current, updated_at: Time.current }
       end
       TopicCustomField.insert_all(rows)

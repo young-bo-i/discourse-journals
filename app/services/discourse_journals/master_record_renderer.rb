@@ -683,60 +683,65 @@ module DiscourseJournals
       oa_counts = (metrics[:counts_by_year] || []).reverse
       cr_dois = (@d.dig(:crossref_quality, :dois_by_year) || []).reverse
 
+      scimago_years = scimago_data.map { |d| d[:year] }.compact if scimago_data.size >= 2
+      oa_years = oa_counts.map { |d| d[:year] }.compact if oa_counts.size >= 2
+      cr_years = cr_dois.map { |d| d[:year] }.compact if cr_dois.size >= 2
+
       if scimago_data.size >= 2
         charts << viz_card(t("chart_sjr"), "#e77642",
-          SvgChartBuilder.from_time_series(scimago_data, value_key: :sjr, color: "#e77642"),
+          SvgChartBuilder.from_time_series(scimago_data, value_key: :sjr, color: "#e77642", years: scimago_years),
           data: scimago_data, value_key: :sjr)
         charts << viz_card(t("chart_total_docs"), "#7ac36a",
-          SvgChartBuilder.from_time_series(scimago_data, value_key: :total_docs_year, color: "#7ac36a"),
+          SvgChartBuilder.from_time_series(scimago_data, value_key: :total_docs_year, color: "#7ac36a", years: scimago_years),
           data: scimago_data, value_key: :total_docs_year)
         charts << viz_card(t("chart_cites_per_doc"), "#3885c8",
-          SvgChartBuilder.from_time_series(scimago_data, value_key: :citations_per_doc_2years, color: "#3885c8"),
+          SvgChartBuilder.from_time_series(scimago_data, value_key: :citations_per_doc_2years, color: "#3885c8", years: scimago_years),
           data: scimago_data, value_key: :citations_per_doc_2years)
         charts << viz_card(t("chart_female_pct"), "#7ac36a",
-          SvgChartBuilder.from_time_series(scimago_data, value_key: :female_pct, color: "#7ac36a"),
+          SvgChartBuilder.from_time_series(scimago_data, value_key: :female_pct, color: "#7ac36a", years: scimago_years),
           data: scimago_data, value_key: :female_pct)
         charts << viz_card(t("chart_refs_per_doc"), "#3885c8",
-          SvgChartBuilder.from_time_series(scimago_data, value_key: :ref_per_doc, color: "#3885c8"),
+          SvgChartBuilder.from_time_series(scimago_data, value_key: :ref_per_doc, color: "#3885c8", years: scimago_years),
           data: scimago_data, value_key: :ref_per_doc)
         charts << viz_card(t("chart_policy_docs"), "#7ac36a",
-          SvgChartBuilder.from_time_series(scimago_data, value_key: :overton, color: "#7ac36a"),
+          SvgChartBuilder.from_time_series(scimago_data, value_key: :overton, color: "#7ac36a", years: scimago_years),
           data: scimago_data, value_key: :overton)
         charts << viz_card(t("chart_sdg_docs"), "#7ac36a",
-          SvgChartBuilder.from_time_series(scimago_data, value_key: :sdg, color: "#7ac36a"),
+          SvgChartBuilder.from_time_series(scimago_data, value_key: :sdg, color: "#7ac36a", years: scimago_years),
           data: scimago_data, value_key: :sdg)
       end
 
       if oa_counts.size >= 2
         charts << viz_card(t("chart_annual_citations"), "#3885c8",
-          SvgChartBuilder.from_time_series(oa_counts, value_key: :cited_by_count, color: "#3885c8"),
+          SvgChartBuilder.from_time_series(oa_counts, value_key: :cited_by_count, color: "#3885c8", years: oa_years),
           data: oa_counts, value_key: :cited_by_count)
         charts << viz_card(t("chart_works_vs_oa"), nil,
-          SvgChartBuilder.area_from_time_series(oa_counts, key_a: :works_count, key_b: :oa_works_count),
+          SvgChartBuilder.area_from_time_series(oa_counts, key_a: :works_count, key_b: :oa_works_count, years: oa_years),
           data: oa_counts, value_keys: [:works_count, :oa_works_count],
           legends: [["#7ac36a", t("legend_works")], ["#3885c8", t("legend_oa_works")]])
         charts << viz_card_wide(t("chart_total_citations_wide"), "#3885c8",
           SvgChartBuilder.from_time_series(oa_counts, value_key: :cited_by_count, color: "#3885c8",
-            width: SvgChartBuilder::WIDE_W, height: SvgChartBuilder::WIDE_H),
+            width: SvgChartBuilder::WIDE_W, height: SvgChartBuilder::WIDE_H, years: oa_years),
           data: oa_counts, value_key: :cited_by_count)
       end
 
       if cr_dois.size >= 2
         charts << viz_card(t("chart_dois_by_year"), "#7ac36a",
-          SvgChartBuilder.from_time_series(cr_dois, value_key: :count, color: "#7ac36a"),
+          SvgChartBuilder.from_time_series(cr_dois, value_key: :count, color: "#7ac36a", years: cr_years),
           data: cr_dois, value_key: :count)
       end
 
       if oa_counts.size >= 2
         charts << viz_card(t("chart_oa_works_trend"), "#3885c8",
-          SvgChartBuilder.from_time_series(oa_counts, value_key: :oa_works_count, color: "#3885c8"),
+          SvgChartBuilder.from_time_series(oa_counts, value_key: :oa_works_count, color: "#3885c8", years: oa_years),
           data: oa_counts, value_key: :oa_works_count)
       end
 
       jcr_data = (@d.dig(:jcr, :data) || []).select { |j| j[:impact_factor] }.reverse
       if jcr_data.size >= 2
+        jcr_years = jcr_data.map { |d| d[:year] }.compact
         charts << viz_card(t("chart_jcr_if"), "#e77642",
-          SvgChartBuilder.from_time_series(jcr_data, value_key: :impact_factor, color: "#e77642"),
+          SvgChartBuilder.from_time_series(jcr_data, value_key: :impact_factor, color: "#e77642", years: jcr_years),
           data: jcr_data, value_key: :impact_factor)
       end
 

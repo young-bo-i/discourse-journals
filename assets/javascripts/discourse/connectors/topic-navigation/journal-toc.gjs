@@ -37,9 +37,12 @@ export default class JournalToc extends Component {
 
   _observer = null;
   _scanTimer = null;
+  _scanRetries = 0;
+  _maxScanRetries = 20;
 
   @action
   setup() {
+    this._scanRetries = 0;
     this._scanTimer = setTimeout(() => this._scanSections(), 300);
   }
 
@@ -58,7 +61,9 @@ export default class JournalToc extends Component {
   _scanSections() {
     const nodes = document.querySelectorAll("[data-dj-nav]");
     if (!nodes.length) {
-      this._scanTimer = setTimeout(() => this._scanSections(), 500);
+      if (++this._scanRetries < this._maxScanRetries) {
+        this._scanTimer = setTimeout(() => this._scanSections(), 500);
+      }
       return;
     }
 
@@ -85,11 +90,16 @@ export default class JournalToc extends Component {
 
     this._observer = new IntersectionObserver(
       (entries) => {
+        let best = null;
         for (const entry of entries) {
           if (entry.isIntersecting) {
-            this.activeId = entry.target.id;
-            break;
+            if (!best || entry.boundingClientRect.top < best.boundingClientRect.top) {
+              best = entry;
+            }
           }
+        }
+        if (best) {
+          this.activeId = best.target.id;
         }
       },
       { rootMargin: "-10% 0px -70% 0px", threshold: 0 }

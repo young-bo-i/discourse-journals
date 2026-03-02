@@ -231,6 +231,7 @@ module DiscourseJournals
         @_tag_cache = nil
         @_group_cache = nil
         @_membership_set = nil
+        @_publisher_list_cache = nil
       end
     end
 
@@ -381,11 +382,13 @@ module DiscourseJournals
     end
 
     def self.major_publisher_list
-      custom = SiteSetting.discourse_journals_major_publishers
-      if custom.present?
-        custom.split(",").map(&:strip).reject(&:blank?)
-      else
-        MAJOR_PUBLISHERS_DEFAULT
+      @_publisher_list_cache ||= begin
+        custom = SiteSetting.discourse_journals_major_publishers
+        if custom.present?
+          custom.split(",").map(&:strip).reject(&:blank?).freeze
+        else
+          MAJOR_PUBLISHERS_DEFAULT
+        end
       end
     end
 

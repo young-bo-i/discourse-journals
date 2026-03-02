@@ -12,7 +12,7 @@ module DiscourseJournals
     API_CONCURRENCY = 4
     UPSERT_CONCURRENCY = 4
     DELETE_BATCH_SIZE = BulkTopicDeleter::BATCH_SIZE
-    GC_EVERY_N_GROUPS = 2
+    GC_EVERY_N_GROUPS = 10
     COVER_JOB_BATCH_SIZE = 200
 
     attr_reader :stats
@@ -30,6 +30,7 @@ module DiscourseJournals
       @system_user = Discourse.system_user
       @cover_topic_ids = []
       @mutex = Mutex.new
+      @last_cancel_check_at = 0.0
     end
 
     def run!
@@ -63,7 +64,11 @@ module DiscourseJournals
     private
 
     def check_cancelled!
-      raise PausedError, "应用已被用户暂停" if @cancel_check&.call
+      return unless @cancel_check
+      now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      return if (now - @last_cancel_check_at) < 5.0
+      @last_cancel_check_at = now
+      raise PausedError, "应用已被用户暂停" if @cancel_check.call
     end
 
     def publish_progress(percent, message)
@@ -72,7 +77,7 @@ module DiscourseJournals
 
     def save_checkpoint(phase, offset_key, offset_value)
       cp = { "phase" => phase, offset_key => offset_value }
-      @analysis.update_columns(apply_checkpoint: cp)
+      @analysis.update_columns(apply_checkpoint: cp, apply_stats: @stats.transform_keys(&:to_s))
     end
 
     def increment_stat(key, amount = 1)
@@ -223,14 +228,12 @@ module DiscourseJournals
         processed = [processed, total].min
 
         save_checkpoint("deletes", "delete_offset", processed)
-        persist_stats
 
         pct = (2 + processed.to_f / total * 3).round(1)
         publish_progress(pct, "批量删除中... #{processed}/#{total} (已删除 #{@stats[:deleted]})")
       end
 
       save_checkpoint("deletes", "delete_offset", total)
-      persist_stats
       update_category_stats_after_delete
       publish_progress(5, "删除完成：#{@stats[:deleted]} 个话题已永久删除")
     end
@@ -259,11 +262,15 @@ module DiscourseJournals
 
       JournalTagManager.warm_caches!
 
+      cid = SiteSetting.discourse_journals_category_id.to_i
+      @journal_category = Category.find_by(id: cid) if cid > 0
+
       processed = 0
       base_offset = skip_offset
       start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
       connections = API_CONCURRENCY.times.map { create_persistent_connection }
+      prefetch_connections = API_CONCURRENCY.times.map { create_persistent_connection }
 
       begin
         batch_groups = remaining_ids.each_slice(BYIDS_BATCH_SIZE).each_slice(API_CONCURRENCY).to_a
@@ -286,7 +293,7 @@ module DiscourseJournals
           next_group = batch_groups[batch_group_idx + 1]
           if next_group
             prefetch_thread = Thread.new do
-              prefetch_rows = safe_fetch(connections, next_group)
+              prefetch_rows = safe_fetch(prefetch_connections, next_group)
             end
           end
 
@@ -302,7 +309,6 @@ module DiscourseJournals
           report_progress(processed, base_offset, total, start_time)
 
           save_checkpoint("api_sync", "api_offset", base_offset + processed)
-          persist_stats
 
           GC.start if batch_group_idx % GC_EVERY_N_GROUPS == 0
         end
@@ -313,7 +319,7 @@ module DiscourseJournals
         end
       ensure
         prefetch_thread&.join rescue nil
-        connections.each do |conn|
+        (connections + prefetch_connections).each do |conn|
           conn&.finish rescue nil
         end
       end
@@ -360,6 +366,7 @@ module DiscourseJournals
               prepared = JournalUpserter.new(
                 system_user: @system_user,
                 defer_images: true,
+                category: @journal_category,
               ).normalize_and_render(journal_params)
 
               result_mutex.synchronize do
@@ -390,7 +397,7 @@ module DiscourseJournals
         Thread.new do
           while (item = queue.pop) != :done
             begin
-              upserter = JournalUpserter.new(system_user: @system_user, defer_images: true)
+              upserter = JournalUpserter.new(system_user: @system_user, defer_images: true, category: @journal_category)
               upserter.upsert_prepared!(item[:prepared], existing_topic_id: item[:topic_id])
               increment_stat(:updated)
               tid = upserter.last_topic_id
@@ -409,7 +416,7 @@ module DiscourseJournals
     end
 
     def serial_upsert(item)
-      upserter = JournalUpserter.new(system_user: @system_user, defer_images: true)
+      upserter = JournalUpserter.new(system_user: @system_user, defer_images: true, category: @journal_category)
       upserter.upsert_prepared!(item[:prepared])
       increment_stat(:created)
       tid = upserter.last_topic_id

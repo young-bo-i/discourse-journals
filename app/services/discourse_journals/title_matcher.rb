@@ -407,7 +407,7 @@ module DiscourseJournals
     end
 
     def match_by_title(matched_forum_ids, matched_api_ids)
-      all_normalized_titles = (@forum_index.keys + @api_index.keys).uniq
+      all_normalized_titles = (@forum_index.keys.to_set | @api_index.keys).to_a
       total = all_normalized_titles.size
 
       all_normalized_titles.each_with_index do |normalized_title, idx|

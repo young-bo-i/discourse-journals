@@ -167,7 +167,13 @@ after_initialize do
     topic_id = path[%r{/t/(?:[^/]+/)?(\d+)}, 1]&.to_i
     next "" unless topic_id&.positive?
 
-    topic_cat = Topic.where(id: topic_id).pick(:category_id)
+    topic_cat = begin
+      tv = controller.instance_variable_get(:@topic_view)
+      tv&.topic&.category_id
+    rescue StandardError
+      nil
+    end
+    topic_cat ||= Topic.where(id: topic_id).pick(:category_id)
     next "" unless topic_cat == category_id
 
     <<~HTML

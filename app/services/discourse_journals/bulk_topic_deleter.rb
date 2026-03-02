@@ -69,11 +69,13 @@ module DiscourseJournals
       category = Category.find_by(id: category_id)
       return unless category
 
-      Category.update_stats
-      category.update_column(
-        :topic_count,
-        Topic.where(category_id: category_id, visible: true).count,
-      )
+      topic_count = Topic.where(category_id: category_id, visible: true, deleted_at: nil).count
+      post_count = Post.joins(:topic)
+        .where(topics: { category_id: category_id, visible: true, deleted_at: nil })
+        .where(posts: { deleted_at: nil })
+        .count
+
+      category.update_columns(topic_count: topic_count, post_count: post_count)
     rescue StandardError => e
       Rails.logger.warn(
         "[DiscourseJournals::BulkTopicDeleter] Category stats update failed: #{e.message}",

@@ -56,10 +56,10 @@ module DiscourseJournals
       end
     end
 
-    def self.from_time_series(data, value_key:, **opts)
+    def self.from_time_series(data, value_key:, years: nil, **opts)
       return "" if data.nil? || data.size < 2
       values = data.map { |d| d[value_key].to_f }
-      years = data.map { |d| d[:year] }.compact
+      years ||= data.map { |d| d[:year] }.compact
       line_chart(values, years: years.size == values.size ? years : nil, **opts)
     end
 
@@ -94,11 +94,11 @@ module DiscourseJournals
       end
     end
 
-    def self.area_from_time_series(data, key_a:, key_b:, **opts)
+    def self.area_from_time_series(data, key_a:, key_b:, years: nil, **opts)
       return "" if data.nil? || data.size < 2
       series_a = data.map { |d| d[key_a].to_f }
       series_b = data.map { |d| d[key_b].to_f }
-      years = data.map { |d| d[:year] }.compact
+      years ||= data.map { |d| d[:year] }.compact
       area_chart(series_a, series_b, years: years.size == series_a.size ? years : nil, **opts)
     end
 

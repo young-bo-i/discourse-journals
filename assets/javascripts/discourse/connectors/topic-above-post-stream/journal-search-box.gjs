@@ -88,26 +88,38 @@ export default class JournalSearchBox extends Component {
     }
   }
 
+  _searchGeneration = 0;
+
   @action
   async performSearch() {
-    if (!this.searchQuery.trim()) {
+    const query = this.searchQuery.trim();
+    if (!query) {
       return;
     }
 
+    const generation = ++this._searchGeneration;
     this.loading = true;
     this.showResults = true;
 
     try {
-      // 使用 searchForTerm 来正确处理数据，自动关联 topic 到 post
-      const results = await searchForTerm(`${this.searchQuery} category:${this.categoryId}`, {
+      const results = await searchForTerm(`${query} category:${this.categoryId}`, {
         typeFilter: "topic",
       });
 
+      if (this._searchGeneration !== generation) {
+        return;
+      }
+
       this.results = (results?.posts || []).slice(0, 8);
     } catch (e) {
+      if (this._searchGeneration !== generation) {
+        return;
+      }
       this.results = [];
     } finally {
-      this.loading = false;
+      if (this._searchGeneration === generation) {
+        this.loading = false;
+      }
     }
   }
 
