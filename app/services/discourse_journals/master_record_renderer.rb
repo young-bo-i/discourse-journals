@@ -226,7 +226,6 @@ module DiscourseJournals
               <div class="dj-pyr-seg dj-pyr-seg--3"><span>3</span></div>
               <div class="dj-pyr-seg dj-pyr-seg--4"><span>4</span></div>
             </div>
-            <div class="dj-pyramid-shadow"></div>
           </div>
           <div class="dj-metric-content">
             <p class="dj-metric-tier dj-metric-tier--cas">#{h(zone_label)}</p>
@@ -534,8 +533,10 @@ module DiscourseJournals
       if first_months
         callouts << <<~HTML
           <div class="dj-pr-callout">
-            <span class="dj-pr-number">#{format("%.1f", first_months)}</span>
-            <span class="dj-pr-unit">#{h(t("pr_months"))}</span>
+            <div class="dj-pr-callout__top">
+              <span class="dj-pr-number">#{format("%.1f", first_months)}</span>
+              <span class="dj-pr-unit">#{h(t("pr_months"))}</span>
+            </div>
             <span class="dj-pr-label">#{h(t("pr_first_decision"))}</span>
           </div>
         HTML
@@ -543,8 +544,10 @@ module DiscourseJournals
       if total_months
         callouts << <<~HTML
           <div class="dj-pr-callout">
-            <span class="dj-pr-number">#{format("%.1f", total_months)}</span>
-            <span class="dj-pr-unit">#{h(t("pr_months"))}</span>
+            <div class="dj-pr-callout__top">
+              <span class="dj-pr-number">#{format("%.1f", total_months)}</span>
+              <span class="dj-pr-unit">#{h(t("pr_months"))}</span>
+            </div>
             <span class="dj-pr-label">#{h(t("pr_total_handling"))}</span>
           </div>
         HTML
@@ -566,9 +569,13 @@ module DiscourseJournals
       <<~HTML
         <section class="dj-panel dj-peer-review">
           <h3>#{h(t("pr_title"))}</h3>
-          <div class="dj-pr-callouts">#{callouts.join}</div>
-          #{rating_html}
-          #{meta_html}
+          <div class="dj-pr-body">
+            <div class="dj-pr-callouts">#{callouts.join}</div>
+            <div class="dj-pr-aside">
+              #{rating_html}
+              #{meta_html}
+            </div>
+          </div>
         </section>
       HTML
     end
