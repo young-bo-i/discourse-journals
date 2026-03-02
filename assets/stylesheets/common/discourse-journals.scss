@@ -337,14 +337,10 @@
   }
 }
 
-.dj-building-base {
-  width: 100%;
-  height: 10px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, var(--dj-building-base), transparent);
-}
-
 // ---------- Pyramid (CAS) – segmented zones ----------
+// 4 segments with trapezoid clip-paths that tile into a continuous pyramid.
+// Heights: seg-1 28px, seg-2/3/4 24px → total 100px.
+// Width tapers linearly: 0% at apex → 100% at base.
 .dj-pyramid {
   width: 110px;
   display: flex;
@@ -358,51 +354,47 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 3px;
+  gap: 0;
   width: 100%;
 }
 
 .dj-pyr-seg {
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 3px;
   font-size: 0.7rem;
   font-weight: 600;
   letter-spacing: 0.03em;
-  transition: opacity 0.2s, box-shadow 0.2s;
-  opacity: 0.25;
+  transition: opacity 0.2s, filter 0.2s;
+  opacity: 0.3;
+  color: #fff;
 
   span { opacity: 0.6; }
 }
 
 .dj-pyr-seg--1 {
-  width: 30%;
   height: 28px;
-  clip-path: polygon(20% 100%, 50% 0%, 80% 100%);
+  clip-path: polygon(50% 0%, 64% 100%, 36% 100%);
   background: var(--dj-zone-1);
-  color: #fff;
 }
 
 .dj-pyr-seg--2 {
-  width: 55%;
   height: 24px;
+  clip-path: polygon(36% 0%, 64% 0%, 76% 100%, 24% 100%);
   background: var(--dj-zone-2);
-  color: #fff;
 }
 
 .dj-pyr-seg--3 {
-  width: 75%;
   height: 24px;
+  clip-path: polygon(24% 0%, 76% 0%, 88% 100%, 12% 100%);
   background: var(--dj-zone-3);
-  color: #fff;
 }
 
 .dj-pyr-seg--4 {
-  width: 95%;
   height: 24px;
+  clip-path: polygon(12% 0%, 88% 0%, 100% 100%, 0% 100%);
   background: var(--dj-zone-4);
-  color: #fff;
 }
 
 .dj-pyramid--zone1 .dj-pyr-seg--1,
@@ -410,7 +402,7 @@
 .dj-pyramid--zone3 .dj-pyr-seg--3,
 .dj-pyramid--zone4 .dj-pyr-seg--4 {
   opacity: 1;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.25));
 
   span { opacity: 1; font-weight: 700; }
 }
@@ -1580,4 +1572,92 @@
 
 @media (max-width: 924px) {
   .journal-search-box { margin-right: 0; }
+}
+
+// ---------- Journal TOC Navigation (replaces timeline) ----------
+.dj-journal-nav {
+  width: 100%;
+
+  ~ .timeline-container {
+    display: none !important;
+  }
+}
+
+.dj-journal-nav__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+.dj-journal-nav__item {
+  margin: 0;
+
+  a {
+    display: block;
+    padding: 0.45rem 0.75rem;
+    color: var(--primary-medium);
+    font-size: 0.9rem;
+    line-height: 1.4;
+    text-decoration: none;
+    border-left: 3px solid transparent;
+    border-radius: 0 4px 4px 0;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+
+    &:hover {
+      color: var(--primary);
+      background: var(--primary-very-low);
+    }
+  }
+}
+
+.dj-journal-nav__item--active a {
+  color: var(--tertiary);
+  font-weight: 600;
+  border-left-color: var(--tertiary);
+  background: var(--tertiary-very-low, rgba(var(--tertiary-rgb), 0.08));
+}
+
+// ---------- Journal Suggested Topics (sidebar) ----------
+.dj-journal-suggested {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--primary-low);
+}
+
+.dj-journal-suggested__title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--primary-medium);
+  padding: 0 0.75rem 0.35rem;
+  letter-spacing: 0.03em;
+}
+
+.dj-journal-suggested__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.dj-journal-suggested__item {
+  margin: 0;
+
+  a {
+    display: block;
+    padding: 0.3rem 0.75rem;
+    color: var(--primary-high);
+    font-size: 0.85rem;
+    line-height: 1.35;
+    text-decoration: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: color 0.15s, background 0.15s;
+
+    &:hover {
+      color: var(--tertiary);
+      background: var(--primary-very-low);
+    }
+  }
 }

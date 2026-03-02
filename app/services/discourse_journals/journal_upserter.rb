@@ -187,9 +187,13 @@ module DiscourseJournals
       title = normalized.dig(:identity, :title)
       raise ArgumentError, "Missing title in normalized data" if title.blank?
 
-      renderer = MasterRecordRenderer.new(normalized)
-      html = renderer.render
-      raw_text = renderer.render_plain_text
+      html = nil
+      raw_text = nil
+      I18n.with_locale(SiteSetting.default_locale) do
+        renderer = MasterRecordRenderer.new(normalized)
+        html = renderer.render
+        raw_text = renderer.render_plain_text
+      end
       raise ArgumentError, "Empty content generated" if html.blank?
 
       {

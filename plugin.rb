@@ -171,7 +171,7 @@ after_initialize do
     next "" unless topic_cat == category_id
 
     <<~HTML
-      <style id="dj-hide-sidebar">.sidebar-wrapper{display:none !important}</style>
+      <style id="dj-hide-sidebar">.sidebar-wrapper{display:none !important}@media(min-width:925px){.more-topics__container{display:none !important}}</style>
       <meta name="dj-journal-page" content="1">
     HTML
   end
@@ -205,7 +205,9 @@ after_initialize do
     if json_field&.value.present?
       begin
         normalized = JSON.parse(json_field.value).deep_symbolize_keys
-        html = ::DiscourseJournals::MasterRecordRenderer.new(normalized).render
+        html = I18n.with_locale(SiteSetting.default_locale) do
+          ::DiscourseJournals::MasterRecordRenderer.new(normalized).render
+        end
         post.update_columns(cooked: html, baked_version: Post::BAKED_VERSION)
       rescue JSON::ParserError => e
         Rails.logger.warn(

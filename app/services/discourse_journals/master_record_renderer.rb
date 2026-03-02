@@ -110,7 +110,7 @@ module DiscourseJournals
       homepage_link = homepage.present? ? %(<a href="#{h(homepage)}" target="_blank" rel="noopener" class="dj-link-pill">#{EXTERNAL_LINK_SVG}<span>#{h(homepage_display)}</span></a>) : nil
 
       <<~HTML
-        <header class="dj-hero">
+        <header class="dj-hero" id="dj-nav-hero" data-dj-nav="#{h(t("nav_hero"))}">
           <div class="dj-hero__cover">
             #{cover_html}
           </div>
@@ -145,7 +145,7 @@ module DiscourseJournals
       ccf_card = render_ccf_card(ccf_data) if ccf_data
 
       <<~HTML
-        <section class="dj-panel dj-metric-visuals">
+        <section class="dj-panel dj-metric-visuals" id="dj-nav-metrics" data-dj-nav="#{h(t("nav_metrics"))}">
           <div class="dj-metric-visuals__header">
             <div>
               <h3>#{h(t("metrics_overview"))}</h3>
@@ -174,7 +174,6 @@ module DiscourseJournals
             <div class="dj-building-level"></div>
             <div class="dj-building-level"></div>
             <div class="dj-building-level"></div>
-            <div class="dj-building-base"></div>
           </div>
           <div class="dj-metric-content">
             <p class="dj-metric-tier dj-metric-tier--jcr">#{quartile}</p>
@@ -197,7 +196,6 @@ module DiscourseJournals
             <div class="dj-building-level"></div>
             <div class="dj-building-level"></div>
             <div class="dj-building-level"></div>
-            <div class="dj-building-base"></div>
           </div>
           <div class="dj-metric-content">
             <p class="dj-metric-tier dj-metric-tier--sjr">#{quartile}</p>
@@ -278,7 +276,7 @@ module DiscourseJournals
       return nil if parts.empty?
 
       <<~HTML
-        <section class="dj-panel dj-stats-narrative">
+        <section class="dj-panel dj-stats-narrative" id="dj-nav-overview" data-dj-nav="#{h(t("nav_overview"))}">
           <h3>#{h(t("overview"))}</h3>
           <p>#{parts.join(" ")}</p>
         </section>
@@ -379,10 +377,10 @@ module DiscourseJournals
       ].compact
 
       groups = []
-      add_group = ->(title, cards) {
+      add_group = ->(title, cards, extra_attrs: "") {
         return if cards.empty?
         groups << <<~HTML
-          <div class="dj-info-group">
+          <div class="dj-info-group"#{extra_attrs}>
             <div class="dj-info-group__title">#{h(title)}</div>
             <div class="dj-info-card-grid">#{cards.join}</div>
           </div>
@@ -390,7 +388,7 @@ module DiscourseJournals
       }
 
       add_group.call(t("basic_info"), basic_cards)
-      add_group.call(t("openalex_data"), oa_cards)
+      add_group.call(t("openalex_data"), oa_cards, extra_attrs: %( id="dj-nav-openalex" data-dj-nav="#{h(t("nav_openalex"))}"))
       add_group.call(t("oa_apc_title"), oa_apc_cards)
       add_group.call(t("ranking_details"), detail_cards)
       add_group.call(t("keywords_subjects"), kw_cards)
@@ -398,7 +396,7 @@ module DiscourseJournals
       return nil if groups.empty?
 
       <<~HTML
-        <section class="dj-panel dj-compact-info">
+        <section class="dj-panel dj-compact-info" id="dj-nav-info" data-dj-nav="#{h(t("nav_info"))}">
           #{groups.join}
         </section>
       HTML
@@ -591,7 +589,7 @@ module DiscourseJournals
       }.join
 
       <<~HTML
-        <section class="dj-panel dj-topic-donut-panel">
+        <section class="dj-panel dj-topic-donut-panel" id="dj-nav-topics" data-dj-nav="#{h(t("nav_topics"))}">
           <h3>#{h(t("topic_distribution"))}</h3>
           <div class="dj-donut-layout">
             <div class="dj-donut-chart">#{donut_svg}</div>
@@ -745,7 +743,7 @@ module DiscourseJournals
       return nil if charts.empty?
 
       <<~HTML
-        <section class="dj-panel dj-visual-dashboard">
+        <section class="dj-panel dj-visual-dashboard" id="dj-nav-charts" data-dj-nav="#{h(t("nav_charts"))}">
           <header class="dj-viz-header"><h3>#{h(t("chart_insights"))}</h3></header>
           <div class="dj-viz-grid">#{charts.compact.join("\n")}</div>
         </section>
