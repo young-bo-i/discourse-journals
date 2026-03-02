@@ -524,6 +524,10 @@
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
+
+  &--wide {
+    grid-column: 1 / -1;
+  }
 }
 
 .dj-info-card__label {
@@ -823,22 +827,21 @@
 
 // ========================== INDEXING PANEL ==========================
 .dj-indexing-panel {
-  > h3 { margin-bottom: 0.6rem; }
+  > h3 { margin-bottom: 0.5rem; }
 }
 
 .dj-idx-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr;
   align-items: baseline;
-  gap: 0.75rem;
-  margin-bottom: 0.75rem;
-  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 0.5rem;
 }
 
 .dj-idx-label {
   font-size: 0.82rem;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   color: var(--dj-muted);
   white-space: nowrap;
 }
@@ -846,12 +849,18 @@
 .dj-idx-pills {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.4rem;
+  gap: 0.35rem;
+}
+
+.dj-idx-value {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--dj-text);
 }
 
 .dj-pill--index {
   font-size: 0.82rem;
-  padding: 0.25rem 0.65rem;
+  padding: 0.2rem 0.6rem;
   background: rgba(var(--tertiary-rgb), 0.08);
   color: var(--dj-accent-2);
 }
@@ -992,9 +1001,24 @@
 
 .dj-viz-table {
   display: none;
-  max-height: 280px;
+  max-height: 170px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: var(--primary-low-mid) transparent;
+
+  &::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: var(--primary-low-mid);
+    border-radius: 2px;
+  }
 
   table {
     width: 100%;

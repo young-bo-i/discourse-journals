@@ -95,7 +95,6 @@ module DiscourseJournals
       country_name = h(pub[:country_name])
       homepage = id[:homepage_url]
       oa_type = h(id[:openalex_type]).presence || t("type_journal")
-      oa_id = h(id[:openalex_id])
       issn_l = h(id[:issn_l])
 
       cover_initials = extract_initials(id[:title] || "")
@@ -122,7 +121,6 @@ module DiscourseJournals
               <span class="dj-pill dj-pill--type">#{oa_type}</span>
               #{"<span class=\"dj-pill dj-pill--flag\">#{country_code}</span>" if country_code.present?}
               #{"<span class=\"dj-pill\">ISSN-L #{issn_l}</span>" if issn_l.present?}
-              #{"<span class=\"dj-pill\">OpenAlex #{oa_id}</span>" if oa_id.present?}
             </div>
             #{hero_footer(publisher, publisher_id, homepage, homepage_link, country_name, country_code)}
           </div>
@@ -303,14 +301,9 @@ module DiscourseJournals
       basic_cards = [
         info_card("ISSN-L", h(id[:issn_l])),
         info_card(t("issns"), issns.presence),
-        info_card(t("aliases"), alternates.presence),
+        info_card(t("aliases"), alternates.presence, wide: true),
         info_card(t("abbreviation"), h(id[:abbreviation])),
-        info_card(t("openalex_id"), h(id[:openalex_id])),
-        info_card(t("wikidata_id"), h(id[:wikidata_qid])),
         info_card(t("homepage"), homepage_link),
-      ].compact
-
-      oa_cards = [
         info_card(t("type"), h(id[:openalex_type])),
         info_card(t("publisher"), h(pub[:publisher_name])),
         info_card(t("country"), h(pub[:country_name] || pub[:country_code])),
@@ -349,17 +342,17 @@ module DiscourseJournals
       sjr_cats_text = sjr_cats.is_a?(Array) ? sjr_cats.join(", ") : sjr_cats&.to_s
 
       detail_cards = [
-        info_card(t("subject_category"), h(jcr_latest&.dig(:category))),
+        info_card(t("subject_category"), h(jcr_latest&.dig(:category)), wide: true),
         info_card(t("rank"), h(jcr_latest&.dig(:rank))),
         info_card(t("major_discipline"), h(cas_latest&.dig(:major_category))),
         info_card(t("wos_index"), cas_latest&.dig(:web_of_science).present? ? h(cas_latest[:web_of_science]) : nil),
-        info_card(t("minor_partitions"), minor_cats.presence),
+        info_card(t("minor_partitions"), minor_cats.presence, wide: true),
         info_card(t("scimago_h_index"), sjr_latest&.dig(:h_index).present? ? fmt(sjr_latest[:h_index]) : nil),
         info_card(t("total_docs_3years"), sjr_latest&.dig(:total_docs_3years).present? ? fmt(sjr_latest[:total_docs_3years]) : nil),
         info_card(t("total_refs"), sjr_latest&.dig(:total_refs).present? ? fmt(sjr_latest[:total_refs]) : nil),
         info_card(t("total_citations_3years"), sjr_latest&.dig(:total_citations_3years).present? ? fmt(sjr_latest[:total_citations_3years]) : nil),
         info_card(t("citable_docs_3years"), sjr_latest&.dig(:citable_docs_3years).present? ? fmt(sjr_latest[:citable_docs_3years]) : nil),
-        info_card(t("scimago_categories"), h(sjr_cats_text)),
+        info_card(t("scimago_categories"), h(sjr_cats_text), wide: true),
       ].compact
 
       keywords_text = (st[:keywords] || []).map { |k| h(k) }.join(", ")
@@ -370,9 +363,9 @@ module DiscourseJournals
       }.uniq.join(", ")
 
       kw_cards = [
-        info_card(t("keywords"), keywords_text.presence),
-        info_card(t("subjects"), subjects_text.presence),
-        info_card(t("topic_fields"), topics_fields.presence),
+        info_card(t("keywords"), keywords_text.presence, wide: true),
+        info_card(t("subjects"), subjects_text.presence, wide: true),
+        info_card(t("topic_fields"), topics_fields.presence, wide: true),
       ].compact
 
       groups = []
@@ -387,7 +380,6 @@ module DiscourseJournals
       }
 
       add_group.call(t("basic_info"), basic_cards)
-      add_group.call(t("openalex_data"), oa_cards, extra_attrs: %( id="dj-nav-openalex" data-dj-nav="#{h(t("nav_openalex"))}"))
       add_group.call(t("oa_apc_title"), oa_apc_cards)
       add_group.call(t("ranking_details"), detail_cards)
       add_group.call(t("keywords_subjects"), kw_cards)
@@ -647,13 +639,17 @@ module DiscourseJournals
       languages = wd_meta[:languages] || []
       editors = wd_meta[:editors] || []
 
-      return nil if indexed_in.empty? && pres_services.empty? && deposit_services.empty? && languages.empty? && editors.empty?
+      rows = []
 
-      sections = []
       add_pill_row = ->(title, items) {
         return if items.empty?
         pills = items.map { |item| %(<span class="dj-pill dj-pill--index">#{h(item)}</span>) }.join
-        sections << %(<div class="dj-idx-row"><span class="dj-idx-label">#{h(title)}</span><div class="dj-idx-pills">#{pills}</div></div>)
+        rows << %(<div class="dj-idx-row"><span class="dj-idx-label">#{h(title)}</span><div class="dj-idx-pills">#{pills}</div></div>)
+      }
+
+      add_value_row = ->(title, value) {
+        return if value.blank?
+        rows << %(<div class="dj-idx-row"><span class="dj-idx-label">#{h(title)}</span><span class="dj-idx-value">#{h(value)}</span></div>)
       }
 
       add_pill_row.call(t("idx_indexed_in"), indexed_in)
@@ -661,24 +657,16 @@ module DiscourseJournals
       add_pill_row.call(t("idx_deposit_policy"), deposit_services)
       add_pill_row.call(t("idx_languages"), languages)
       add_pill_row.call(t("idx_editors"), editors)
+      add_value_row.call(t("idx_coden"), wd_meta[:coden])
+      add_value_row.call(t("idx_inception"), wd_meta[:inception])
+      add_value_row.call(t("idx_frequency"), wd_meta[:frequency])
 
-      return nil if sections.empty?
-
-      inception = wd_meta[:inception]
-      coden = wd_meta[:coden]
-      extra_cards = [
-        info_card(t("idx_inception"), h(inception)),
-        info_card(t("idx_coden"), h(coden)),
-        info_card(t("idx_frequency"), h(wd_meta[:frequency])),
-      ].compact
-
-      extra_html = extra_cards.any? ? %(<div class="dj-info-card-grid">#{extra_cards.join}</div>) : ""
+      return nil if rows.empty?
 
       <<~HTML
         <section class="dj-panel dj-indexing-panel">
           <h3>#{h(t("idx_title"))}</h3>
-          #{sections.join("\n")}
-          #{extra_html}
+          #{rows.join("\n")}
         </section>
       HTML
     end
@@ -806,7 +794,8 @@ module DiscourseJournals
         label = i18n_key ? t(i18n_key) : k.to_s.tr("_", " ").capitalize
         "<th>#{h(label)}</th>"
       }.join
-      rows = data.map { |d|
+      sorted = data.sort_by { |d| -(d[:year].to_i) }
+      rows = sorted.map { |d|
         yr = h(d[:year])
         cells = keys.map { |k| "<td>#{h(d[k])}</td>" }.join
         "<tr><td>#{yr}</td>#{cells}</tr>"
@@ -886,10 +875,11 @@ module DiscourseJournals
       %(<div class="dj-hero__footer">#{items.join}</div>)
     end
 
-    def info_card(label, value)
+    def info_card(label, value, wide: false)
       return nil if value.blank? || value == "—"
+      cls = wide ? "dj-info-card dj-info-card--wide" : "dj-info-card"
       <<~HTML
-        <article class="dj-info-card">
+        <article class="#{cls}">
           <p class="dj-info-card__label">#{h(label)}</p>
           <p class="dj-info-card__value">#{value}</p>
         </article>

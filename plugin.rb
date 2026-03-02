@@ -250,6 +250,30 @@ after_initialize do
           )
         end
       end
+
+      def last_posted_topic
+        sitemap_topics.maximum(Arel.sql("GREATEST(topics.bumped_at, topics.updated_at)"))
+      end
+
+      private
+
+      def sitemap_topics
+        indexable_topics =
+          Topic.where(visible: true).joins(:category).where(categories: { read_restricted: false })
+
+        if name == RECENT_SITEMAP_NAME
+          indexable_topics
+            .where("topics.bumped_at > :since OR topics.updated_at > :since", since: 3.days.ago)
+            .order(Arel.sql("GREATEST(topics.bumped_at, topics.updated_at) DESC"))
+        elsif name == NEWS_SITEMAP_NAME
+          indexable_topics
+            .where("topics.bumped_at > :since OR topics.updated_at > :since", since: 72.hours.ago)
+            .order(Arel.sql("GREATEST(topics.bumped_at, topics.updated_at) DESC"))
+        else
+          offset = (name.to_i - 1) * max_page_size
+          indexable_topics.order(id: :asc).limit(max_page_size).offset(offset)
+        end
+      end
     end
 
     ::Sitemap.prepend(sitemap_patch)

@@ -32,9 +32,7 @@ module DiscourseJournals
       return "" if (series_a.nil? || series_a.size < 2) && (series_b.nil? || series_b.size < 2)
 
       all_values = (series_a || []) + (series_b || [])
-      min_val = all_values.min || 0
-      max_val = all_values.max || 1
-      max_val = min_val + 1 if max_val == min_val
+      min_val, max_val = value_range(all_values)
 
       svg_tag(width, height) do
         parts = []
@@ -69,9 +67,7 @@ module DiscourseJournals
       series_b = data.map { |d| d[key_b].to_f }
       years = data.map { |d| d[:year] }.compact
       all_values = series_a + series_b
-      min_val = all_values.min || 0
-      max_val = all_values.max || 1
-      max_val = min_val + 1 if max_val == min_val
+      min_val, max_val = value_range(all_values)
       width = opts.delete(:width) || VIEWBOX_W
       height = opts.delete(:height) || VIEWBOX_H
 
@@ -184,6 +180,8 @@ module DiscourseJournals
       def value_range(values)
         min_val = values.min
         max_val = values.max
+        min_val = 0 if min_val > 0
+        max_val = 0 if max_val < 0
         max_val = min_val + 1 if max_val == min_val
         [min_val, max_val]
       end
@@ -235,11 +233,17 @@ module DiscourseJournals
           (count / 7.0).ceil
         end
 
+        indices = (0...count).select { |i| i % step == 0 }
+        indices << (count - 1) unless indices.last == count - 1
+
+        if indices.size >= 2 && (indices[-1] - indices[-2]) < step
+          indices.delete_at(-2)
+        end
+
         parts = []
-        years.each_with_index do |yr, i|
-          next unless i % step == 0 || i == count - 1
+        indices.each do |i|
           x = PAD_LEFT + (i.to_f / (count - 1)) * usable_w
-          parts << %(<text x="#{x.round(1)}" y="#{label_y}" text-anchor="middle" fill="currentColor" opacity="0.5" font-size="#{FONT_SIZE}">#{yr}</text>)
+          parts << %(<text x="#{x.round(1)}" y="#{label_y}" text-anchor="middle" fill="currentColor" opacity="0.5" font-size="#{FONT_SIZE}">#{years[i]}</text>)
         end
 
         parts.join("\n    ")
