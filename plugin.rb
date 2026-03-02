@@ -92,6 +92,14 @@ after_initialize do
     end
   end
 
+  add_preloaded_topic_list_custom_field("discourse_journals_cover_url")
+
+  add_to_serializer(
+    :suggested_topic,
+    :discourse_journals_cover_url,
+    include_condition: -> { object.custom_fields["discourse_journals_cover_url"].present? },
+  ) { object.custom_fields["discourse_journals_cover_url"] }
+
   register_modifier(:meta_data_content) do |content, type, context|
     next content unless SiteSetting.discourse_journals_enabled
     next content unless type == :title || type == :description
