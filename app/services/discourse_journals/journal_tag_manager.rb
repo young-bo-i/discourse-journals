@@ -116,7 +116,12 @@ module DiscourseJournals
         tag_names.each { |name| ensure_membership_cached!(group_key, name) }
       end
 
-      DiscourseTagging.add_or_create_tags_by_name(topic, all_tag_names, unlimited: true)
+      tags = all_tag_names.filter_map do |name|
+        cleaned = DiscourseTagging.clean_tag(name.to_s)
+        @_tag_cache[cleaned]
+      end
+
+      topic.tags = tags if tags.present?
     end
 
     def self.build_tag_assignments(normalized)
