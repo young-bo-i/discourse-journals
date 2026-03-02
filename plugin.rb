@@ -265,10 +265,12 @@ after_initialize do
           indexable_topics
             .where("topics.bumped_at > :since OR topics.updated_at > :since", since: 3.days.ago)
             .order(Arel.sql("GREATEST(topics.bumped_at, topics.updated_at) DESC"))
+            .limit(50_000)
         elsif name == ::Sitemap::NEWS_SITEMAP_NAME
           indexable_topics
             .where("topics.bumped_at > :since OR topics.updated_at > :since", since: 72.hours.ago)
             .order(Arel.sql("GREATEST(topics.bumped_at, topics.updated_at) DESC"))
+            .limit(50_000)
         else
           offset = (name.to_i - 1) * max_page_size
           indexable_topics.order(id: :asc).limit(max_page_size).offset(offset)
