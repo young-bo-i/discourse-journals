@@ -2,6 +2,7 @@ zh_CN:
   js:
     discourse_journals:
       title: "期刊库"
+      nav_title: "章节导航"
       suggested_title: "相关期刊"
       search:
         placeholder: "搜索期刊（输入名称、ISSN、出版商...）"

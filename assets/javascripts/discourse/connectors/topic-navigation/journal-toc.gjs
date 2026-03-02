@@ -8,6 +8,7 @@ import didInsert from "@ember/render-modifiers/modifiers/did-insert";
 import willDestroy from "@ember/render-modifiers/modifiers/will-destroy";
 import { eq } from "discourse/truth-helpers";
 import concatClass from "discourse/helpers/concat-class";
+import { i18n } from "discourse-i18n";
 
 export default class JournalToc extends Component {
   static shouldRender(outletArgs, helper) {
@@ -125,6 +126,7 @@ export default class JournalToc extends Component {
       {{willDestroy this.cleanup}}
     >
       {{#if this.sections.length}}
+        <div class="dj-journal-nav__title">{{i18n "discourse_journals.nav_title"}}</div>
         <ul class="dj-journal-nav__list">
           {{#each this.sections as |section|}}
             <li

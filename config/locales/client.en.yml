@@ -2,6 +2,7 @@ en:
   js:
     discourse_journals:
       title: "Journals"
+      nav_title: "Navigation"
       suggested_title: "Related Journals"
       search:
         placeholder: "Search journals (name, ISSN, publisher...)"
