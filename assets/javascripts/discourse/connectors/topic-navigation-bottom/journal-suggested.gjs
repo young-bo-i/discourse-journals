@@ -23,11 +23,11 @@ const HIGHLIGHT_EXACT = new Set([
 
 const MAX_TAGS = 3;
 
-function isHighlightTag(tag) {
-  if (HIGHLIGHT_EXACT.has(tag)) {
+function isHighlightTag(name) {
+  if (HIGHLIGHT_EXACT.has(name)) {
     return true;
   }
-  return HIGHLIGHT_PREFIXES.some((p) => tag.startsWith(p));
+  return HIGHLIGHT_PREFIXES.some((p) => name.startsWith(p));
 }
 
 export default class JournalSuggested extends Component {
@@ -93,11 +93,15 @@ export default class JournalSuggested extends Component {
     }
     const result = [];
     for (const tag of tags) {
+      const name = typeof tag === "string" ? tag : tag.name;
+      if (!name) {
+        continue;
+      }
       if (result.length >= MAX_TAGS) {
         break;
       }
-      if (isHighlightTag(tag)) {
-        result.push(tag);
+      if (isHighlightTag(name)) {
+        result.push(name);
       }
     }
     return result;
