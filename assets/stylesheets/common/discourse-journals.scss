@@ -1579,10 +1579,6 @@
 // ---------- Journal TOC Navigation (replaces timeline) ----------
 .dj-journal-nav {
   width: 100%;
-  background: var(--secondary);
-  border: 1px solid var(--primary-low);
-  border-radius: 10px;
-  padding: 0.5rem 0;
 
   ~ .timeline-container {
     display: none !important;
@@ -1590,19 +1586,25 @@
 }
 
 .dj-journal-nav__title {
-  font-size: 0.7rem;
-  font-weight: 700;
+  display: flex;
+  align-items: center;
+  font-size: var(--font-down-2-rem);
+  font-weight: bold;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--primary-low-mid);
-  padding: 0.35rem 1rem 0.45rem;
-  margin: 0;
+  letter-spacing: 0.05em;
+  color: var(--primary-medium);
+  padding: 0 var(--space-1);
+  min-height: 1.8em;
+  margin: 0 0 var(--space-half);
 }
 
 .dj-journal-nav__list {
   list-style: none;
   margin: 0;
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-half, 0.125rem);
   max-height: 50vh;
   overflow-y: auto;
 }
@@ -1611,85 +1613,85 @@
   margin: 0;
 
   a {
-    display: block;
-    padding: 0.35rem 1rem 0.35rem 0.85rem;
-    color: var(--primary-medium);
-    font-size: 0.84rem;
-    line-height: 1.4;
+    display: flex;
+    align-items: center;
+    min-height: 2em;
+    padding: 0.15em var(--space-2) 0.15em var(--space-2);
+    color: var(--primary-high);
+    font-size: var(--font-down-1-rem);
+    line-height: var(--line-height-medium);
     text-decoration: none;
-    border-left: 2px solid transparent;
-    transition: color 0.15s, border-color 0.15s, background 0.15s;
+    border-radius: var(--d-border-radius);
+    transition: background 0.25s, color 0.25s;
 
-    &:hover {
-      color: var(--primary);
-      background: var(--primary-very-low);
-      border-left-color: var(--primary-low-mid);
+    &:hover,
+    &:focus-visible {
+      background: var(--d-hover);
+      color: var(--primary-high);
+      outline: none;
     }
   }
 
   &--active a {
-    color: var(--tertiary);
-    font-weight: 600;
-    border-left-color: var(--tertiary);
-    background: var(--tertiary-very-low, rgba(var(--tertiary-rgb), 0.06));
+    background: var(--d-selected);
+    color: var(--primary-high);
+    font-weight: bold;
   }
 }
 
 // ---------- Journal Suggested Topics (sidebar) ----------
 .dj-journal-suggested {
   width: 100%;
-  margin-top: 0.65rem;
-  background: var(--secondary);
-  border: 1px solid var(--primary-low);
-  border-radius: 10px;
-  padding: 0.5rem 0;
+  margin-top: var(--space-4);
+  border-top: 1px solid var(--primary-low);
+  padding-top: var(--space-2);
 }
 
 .dj-journal-suggested__title {
-  font-size: 0.7rem;
-  font-weight: 700;
+  display: flex;
+  align-items: center;
+  font-size: var(--font-down-2-rem);
+  font-weight: bold;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: var(--primary-low-mid);
-  padding: 0.35rem 1rem 0.45rem;
-  margin: 0;
+  letter-spacing: 0.05em;
+  color: var(--primary-medium);
+  padding: 0 var(--space-1);
+  min-height: 1.8em;
+  margin: 0 0 var(--space-half);
 }
 
 .dj-journal-suggested__list {
   list-style: none;
   margin: 0;
   padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-half, 0.125rem);
 }
 
 .dj-journal-suggested__item {
   margin: 0;
 
   a {
-    display: block;
-    padding: 0.3rem 1rem;
+    display: flex;
+    align-items: center;
+    min-height: 2em;
+    padding: 0.15em var(--space-2);
     color: var(--primary-high);
-    font-size: 0.84rem;
-    line-height: 1.4;
+    font-size: var(--font-down-1-rem);
+    line-height: var(--line-height-medium);
     text-decoration: none;
+    border-radius: var(--d-border-radius);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    transition: color 0.15s, background 0.15s;
+    transition: background 0.25s, color 0.25s;
 
-    &::before {
-      content: "\203A";
-      margin-right: 0.45em;
-      color: var(--primary-low-mid);
-      font-weight: 600;
-    }
-
-    &:hover {
-      color: var(--tertiary);
-      background: var(--primary-very-low);
-
-      &::before {
-        color: var(--tertiary);
-      }
+    &:hover,
+    &:focus-visible {
+      background: var(--d-hover);
+      color: var(--primary-high);
+      outline: none;
     }
   }
 }
