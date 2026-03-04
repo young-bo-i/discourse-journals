@@ -55,6 +55,100 @@ after_initialize do
     ].freeze
 
     SEO_FIELD_NAMES = %w[discourse_journals_issn_l discourse_journals_publisher].freeze
+    JSONLD_FIELD_NAMES = %w[
+      discourse_journals_issn_l
+      discourse_journals_publisher
+      discourse_journals_country
+      discourse_journals_data
+    ].freeze
+
+    def self.build_journal_jsonld(topic, topic_view)
+      cf = TopicCustomField
+        .where(topic_id: topic.id, name: JSONLD_FIELD_NAMES)
+        .pluck(:name, :value)
+        .to_h
+
+      issn = cf["discourse_journals_issn_l"]
+      publisher_name = cf["discourse_journals_publisher"]
+      country = cf["discourse_journals_country"]
+
+      jsonld = {
+        "@context" => "https://schema.org",
+        "@type" => "Periodical",
+        "name" => topic.title,
+        "url" => "#{Discourse.base_url}#{topic.relative_url}",
+      }
+
+      jsonld["issn"] = issn if issn.present?
+
+      if publisher_name.present?
+        jsonld["publisher"] = { "@type" => "Organization", "name" => publisher_name }
+      end
+
+      image_url = topic_view.image_url
+      if image_url.present?
+        jsonld["image"] = image_url.start_with?("http") ? image_url : "#{Discourse.base_url}#{image_url}"
+      end
+
+      tag_names = topic.tags.loaded? ? topic.tags.map(&:name) : topic.tags.pluck(:name)
+      jsonld["keywords"] = tag_names.join(", ") if tag_names.present?
+
+      if country.present?
+        jsonld["countryOfOrigin"] = { "@type" => "Country", "name" => country }
+      end
+
+      jsonld["dateCreated"] = topic.created_at.iso8601 if topic.created_at
+      jsonld["dateModified"] = topic.updated_at.iso8601 if topic.updated_at
+
+      template = SiteSetting.discourse_journals_meta_description
+      if template.present?
+        desc = resolve_seo_placeholders(template, topic)
+        jsonld["description"] = desc if desc.present?
+      end
+
+      enrich_jsonld_from_data!(jsonld, cf["discourse_journals_data"])
+      jsonld
+    end
+
+    def self.enrich_jsonld_from_data!(jsonld, json_str)
+      return if json_str.blank?
+      data = JSON.parse(json_str).deep_symbolize_keys
+
+      id = data[:identity] || {}
+      jsonld["alternateName"] = id[:abbreviation] if id[:abbreviation].present?
+
+      pub = data[:publication] || {}
+      if pub[:first_publication_year].present?
+        jsonld["startDate"] = pub[:first_publication_year].to_s
+      end
+
+      oa = data[:open_access] || {}
+      jsonld["isAccessibleForFree"] = true if oa[:is_oa]
+
+      jcr = data.dig(:jcr, :data)&.first
+      if jcr&.dig(:impact_factor)
+        jsonld["award"] = "Impact Factor: #{jcr[:impact_factor]} (#{jcr[:year]})"
+      end
+
+      st = data[:subjects_topics] || {}
+      subjects = st[:subjects] || []
+      if subjects.present?
+        jsonld["about"] = subjects.first(5).map do |s|
+          { "@type" => "Thing", "name" => s }
+        end
+      end
+
+      m = data[:metrics] || {}
+      metrics_parts = []
+      metrics_parts << "Works: #{m[:works_count]}" if m[:works_count]
+      metrics_parts << "Citations: #{m[:cited_by_count]}" if m[:cited_by_count]
+      metrics_parts << "H-Index: #{m[:h_index]}" if m[:h_index]
+      if metrics_parts.any? && jsonld["description"].present?
+        jsonld["description"] = "#{jsonld["description"]}. #{metrics_parts.join(", ")}"
+      end
+    rescue StandardError => e
+      Rails.logger.warn("[DiscourseJournals] JSON-LD enrichment failed: #{e.message}")
+    end
 
     def self.resolve_seo_placeholders(template, topic)
       return "" if template.blank? || topic.nil?
@@ -167,6 +261,31 @@ after_initialize do
   end
 
   register_html_builder("server:before-head-close-crawler", &keywords_html)
+  register_html_builder("server:before-head-close", &keywords_html)
+
+  jsonld_html = ->(controller) do
+    next "" unless SiteSetting.discourse_journals_enabled
+    next "" unless controller.instance_of?(TopicsController)
+
+    topic_view = controller.instance_variable_get(:@topic_view)
+    next "" unless topic_view
+
+    category_id = SiteSetting.discourse_journals_category_id.to_i
+    next "" if category_id.zero?
+
+    topic = topic_view.topic
+    next "" unless topic.category_id == category_id
+
+    begin
+      jsonld = ::DiscourseJournals.build_journal_jsonld(topic, topic_view)
+      %(<script type="application/ld+json">#{jsonld.to_json}</script>)
+    rescue StandardError => e
+      Rails.logger.warn("[DiscourseJournals] JSON-LD generation failed: #{e.message}")
+      ""
+    end
+  end
+
+  register_html_builder("server:before-head-close-crawler", &jsonld_html)
 
   sidebar_hide_html = ->(controller) do
     next "" unless SiteSetting.discourse_journals_enabled
@@ -214,7 +333,7 @@ after_initialize do
     next unless post.post_number == 1
 
     current_cooked = post.cooked
-    if current_cooked.present? && current_cooked.include?('<div class="dj-journal">')
+    if current_cooked.present? && current_cooked.include?('class="dj-journal"')
       post.update_columns(baked_version: Post::BAKED_VERSION) if post.baked_version != Post::BAKED_VERSION
       next
     end
@@ -225,11 +344,16 @@ after_initialize do
 
     begin
       normalized = JSON.parse(json_value).deep_symbolize_keys
-      html = I18n.with_locale(SiteSetting.default_locale) do
-        ::DiscourseJournals::MasterRecordRenderer.new(normalized).render
-      end
+      renderer = ::DiscourseJournals::MasterRecordRenderer.new(normalized)
+      html = I18n.with_locale(SiteSetting.default_locale) { renderer.render }
       post.update_columns(cooked: html, baked_version: Post::BAKED_VERSION)
-    rescue JSON::ParserError => e
+
+      doc.children.remove
+      Nokogiri::HTML5.fragment(html).children.each { |child| doc.add_child(child.dup) }
+
+      plain = I18n.with_locale(SiteSetting.default_locale) { renderer.render_seo_excerpt }
+      post.topic.update_excerpt(plain) if plain.present?
+    rescue StandardError => e
       Rails.logger.warn(
         "[DiscourseJournals] Failed to re-render post #{post.id} from stored data: #{e.message}",
       )

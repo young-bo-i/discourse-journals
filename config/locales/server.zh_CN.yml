@@ -360,6 +360,12 @@ zh_CN:
       nav_openalex: "OpenAlex 数据"
       nav_topics: "主题分布"
       nav_charts: "图表洞察"
+      seo_published_by: "由 %{publisher} 出版"
+      seo_if: "影响因子 %{value}（%{year}）"
+      seo_works: "发表论文 %{count} 篇"
+      seo_citations: "被引 %{count} 次"
+      seo_h_index: "h-index %{value}"
+      seo_oa_yes: "该期刊为开放获取（Open Access）"
     values:
       "yes": "是"
       "no": "否"

@@ -25,7 +25,7 @@ module DiscourseJournals
       sections << render_topic_donut
       sections << render_warning_timeline
       sections << render_visual_dashboard
-      %(<div class="dj-journal">\n#{sections.compact.join("\n")}\n</div>)
+      %(<article class="dj-journal">\n#{sections.compact.join("\n")}\n</article>)
     end
 
     def render_plain_text
@@ -39,6 +39,44 @@ module DiscourseJournals
       parts << "#{t("works")}: #{m[:works_count]}" if m[:works_count]
       parts << "#{t("cited_by")}: #{m[:cited_by_count]}" if m[:cited_by_count]
       parts.compact.join(" | ")
+    end
+
+    def render_seo_excerpt
+      id = @d[:identity] || {}
+      pub = @d[:publication] || {}
+      m = @d[:metrics] || {}
+      oa = @d[:open_access] || {}
+      jcr = @d.dig(:jcr, :data)&.first
+      sjr = @d.dig(:scimago, :data)&.first
+
+      title = id[:title] || t("unknown_journal")
+      sentences = []
+
+      publisher_part = pub[:publisher_name].present? ? t("seo_published_by", publisher: pub[:publisher_name]) : ""
+      issn_part = id[:issn_l].present? ? "ISSN: #{id[:issn_l]}" : ""
+      intro_parts = [publisher_part, issn_part].reject(&:blank?)
+      sentences << "#{title}#{intro_parts.any? ? ", #{intro_parts.join(", ")}" : ""}"
+
+      metrics_parts = []
+      if jcr&.dig(:impact_factor)
+        metrics_parts << t("seo_if", value: jcr[:impact_factor], year: jcr[:year])
+      end
+      if sjr&.dig(:best_quartile)
+        metrics_parts << "SJR #{sjr[:best_quartile]}"
+      end
+      sentences << metrics_parts.join(", ") if metrics_parts.any?
+
+      stats_parts = []
+      stats_parts << t("seo_works", count: fmt(m[:works_count])) if m[:works_count]
+      stats_parts << t("seo_citations", count: fmt(m[:cited_by_count])) if m[:cited_by_count]
+      stats_parts << t("seo_h_index", value: m[:h_index]) if m[:h_index]
+      sentences << stats_parts.join(", ") if stats_parts.any?
+
+      sentences << t("seo_oa_yes") if oa[:is_oa]
+
+      result = sentences.join(". ").strip
+      result += "." unless result.end_with?(".")
+      result.truncate(300)
     end
 
     private
