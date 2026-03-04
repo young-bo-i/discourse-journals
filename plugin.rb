@@ -54,12 +54,14 @@ after_initialize do
       discourse_journals_country
     ].freeze
 
+    SEO_FIELD_NAMES = %w[discourse_journals_issn_l discourse_journals_publisher].freeze
+
     def self.resolve_seo_placeholders(template, topic)
       return "" if template.blank? || topic.nil?
 
       custom_fields =
         TopicCustomField
-          .where(topic_id: topic.id, name: CUSTOM_FIELD_NAMES)
+          .where(topic_id: topic.id, name: SEO_FIELD_NAMES)
           .pluck(:name, :value)
           .to_h
 
@@ -88,7 +90,7 @@ after_initialize do
       topic_id = request_path.match(%r{/t/[^/]+/(\d+)}i)&.captures&.first
       return nil unless topic_id
 
-      Topic.includes(:category, :tags).find_by(id: topic_id, category_id: category_id)
+      Topic.includes(:tags).find_by(id: topic_id, category_id: category_id)
     end
   end
 
@@ -105,20 +107,22 @@ after_initialize do
     next content unless type == :title || type == :description
 
     request_path = context[:url]
+    next content unless request_path&.start_with?("/t/")
+
+    category_id = SiteSetting.discourse_journals_category_id.to_i
+    next content if category_id.zero?
 
     begin
       if type == :title
         suffix = SiteSetting.discourse_journals_title_suffix
         next content if suffix.blank?
-
-        category_id = SiteSetting.discourse_journals_category_id.to_i
-        next content if category_id.zero?
-        next content unless request_path&.start_with?("/t/")
+        next content if content.include?(suffix)
 
         topic_id = request_path.match(%r{/t/[^/]+/(\d+)}i)&.captures&.first
         next content unless topic_id
-        next content unless Topic.where(id: topic_id, category_id: category_id).exists?
-        next content if content.include?(suffix)
+
+        topic_cat = Topic.where(id: topic_id).pick(:category_id)
+        next content unless topic_cat == category_id
 
         "#{content} - #{suffix}"
       elsif type == :description
@@ -143,15 +147,17 @@ after_initialize do
     next "" unless SiteSetting.discourse_journals_enabled
     next "" unless controller.instance_of?(TopicsController)
 
-    template = SiteSetting.discourse_journals_meta_keywords
-    next "" if template.blank?
-
     topic_view = controller.instance_variable_get(:@topic_view)
     next "" unless topic_view
 
-    topic = topic_view.topic
     category_id = SiteSetting.discourse_journals_category_id.to_i
-    next "" if category_id.zero? || topic.category_id != category_id
+    next "" if category_id.zero?
+
+    topic = topic_view.topic
+    next "" unless topic.category_id == category_id
+
+    template = SiteSetting.discourse_journals_meta_keywords
+    next "" if template.blank?
 
     resolved = ::DiscourseJournals.resolve_seo_placeholders(template, topic)
     next "" if resolved.blank?
@@ -161,19 +167,13 @@ after_initialize do
   end
 
   register_html_builder("server:before-head-close-crawler", &keywords_html)
-  register_html_builder("server:before-head-close", &keywords_html)
 
   sidebar_hide_html = ->(controller) do
     next "" unless SiteSetting.discourse_journals_enabled
+    next "" unless controller.instance_of?(TopicsController)
 
     category_id = SiteSetting.discourse_journals_category_id.to_i
     next "" if category_id.zero?
-
-    path = controller.request.path rescue nil
-    next "" if path.blank?
-
-    topic_id = path[%r{/t/(?:[^/]+/)?(\d+)}, 1]&.to_i
-    next "" unless topic_id&.positive?
 
     topic_cat = begin
       tv = controller.instance_variable_get(:@topic_view)
@@ -181,7 +181,6 @@ after_initialize do
     rescue StandardError
       nil
     end
-    topic_cat ||= Topic.where(id: topic_id).pick(:category_id)
     next "" unless topic_cat == category_id
 
     <<~HTML
@@ -214,20 +213,26 @@ after_initialize do
     next if category_id.zero? || post.topic.category_id != category_id
     next unless post.post_number == 1
 
-    json_field =
-      TopicCustomField.find_by(topic_id: post.topic_id, name: "discourse_journals_data")
-    if json_field&.value.present?
-      begin
-        normalized = JSON.parse(json_field.value).deep_symbolize_keys
-        html = I18n.with_locale(SiteSetting.default_locale) do
-          ::DiscourseJournals::MasterRecordRenderer.new(normalized).render
-        end
-        post.update_columns(cooked: html, baked_version: Post::BAKED_VERSION)
-      rescue JSON::ParserError => e
-        Rails.logger.warn(
-          "[DiscourseJournals] Failed to re-render post #{post.id} from stored data: #{e.message}",
-        )
+    current_cooked = post.cooked
+    if current_cooked.present? && current_cooked.include?('<div class="dj-journal">')
+      post.update_columns(baked_version: Post::BAKED_VERSION) if post.baked_version != Post::BAKED_VERSION
+      next
+    end
+
+    json_value =
+      TopicCustomField.where(topic_id: post.topic_id, name: "discourse_journals_data").pick(:value)
+    next if json_value.blank?
+
+    begin
+      normalized = JSON.parse(json_value).deep_symbolize_keys
+      html = I18n.with_locale(SiteSetting.default_locale) do
+        ::DiscourseJournals::MasterRecordRenderer.new(normalized).render
       end
+      post.update_columns(cooked: html, baked_version: Post::BAKED_VERSION)
+    rescue JSON::ParserError => e
+      Rails.logger.warn(
+        "[DiscourseJournals] Failed to re-render post #{post.id} from stored data: #{e.message}",
+      )
     end
   end
 
@@ -236,40 +241,36 @@ after_initialize do
       def topics
         if name == ::Sitemap::RECENT_SITEMAP_NAME
           sitemap_topics.pluck(
-            :id, :slug,
-            Arel.sql("GREATEST(topics.bumped_at, topics.updated_at)"),
-            :updated_at, :posts_count,
+            :id, :slug, :bumped_at, :updated_at, :posts_count,
           )
         elsif name == ::Sitemap::NEWS_SITEMAP_NAME
           sitemap_topics.pluck(:id, :title, :slug, :created_at)
         else
-          sitemap_topics.pluck(
-            :id, :slug,
-            Arel.sql("GREATEST(topics.bumped_at, topics.updated_at)"),
-            :updated_at,
-          )
+          sitemap_topics.pluck(:id, :slug, :bumped_at, :updated_at)
         end
       end
 
       def last_posted_topic
-        sitemap_topics.maximum(Arel.sql("GREATEST(topics.bumped_at, topics.updated_at)"))
+        sitemap_topics.maximum(:bumped_at)
       end
 
       private
 
       def sitemap_topics
         indexable_topics =
-          Topic.where(visible: true).joins(:category).where(categories: { read_restricted: false })
+          Topic.where(visible: true, deleted_at: nil)
+            .joins(:category)
+            .where(categories: { read_restricted: false })
 
         if name == ::Sitemap::RECENT_SITEMAP_NAME
           indexable_topics
-            .where("topics.bumped_at > :since OR topics.updated_at > :since", since: 3.days.ago)
-            .order(Arel.sql("GREATEST(topics.bumped_at, topics.updated_at) DESC"))
+            .where("topics.bumped_at > ?", 3.days.ago)
+            .order(bumped_at: :desc)
             .limit(50_000)
         elsif name == ::Sitemap::NEWS_SITEMAP_NAME
           indexable_topics
-            .where("topics.bumped_at > :since OR topics.updated_at > :since", since: 72.hours.ago)
-            .order(Arel.sql("GREATEST(topics.bumped_at, topics.updated_at) DESC"))
+            .where("topics.bumped_at > ?", 72.hours.ago)
+            .order(bumped_at: :desc)
             .limit(50_000)
         else
           offset = (name.to_i - 1) * max_page_size

@@ -13,7 +13,8 @@ module DiscourseJournals
     UPSERT_CONCURRENCY = 4
     DELETE_BATCH_SIZE = BulkTopicDeleter::BATCH_SIZE
     GC_EVERY_N_GROUPS = 10
-    COVER_JOB_BATCH_SIZE = 200
+    COVER_JOB_BATCH_SIZE = 500
+    COVER_JOB_DELAY_SECONDS = 30
 
     attr_reader :stats
 
@@ -529,14 +530,16 @@ module DiscourseJournals
     def enqueue_cover_jobs
       return if @cover_topic_ids.empty?
 
-      publish_progress(100, "正在排队封面图片处理任务 (#{@cover_topic_ids.size} 个话题)...")
+      unique_ids = @cover_topic_ids.uniq
+      publish_progress(100, "正在排队封面图片处理任务 (#{unique_ids.size} 个话题)...")
 
-      @cover_topic_ids.uniq.each_slice(COVER_JOB_BATCH_SIZE) do |batch|
-        Jobs.enqueue(Jobs::DiscourseJournals::ProcessJournalCovers, topic_ids: batch)
+      unique_ids.each_slice(COVER_JOB_BATCH_SIZE).with_index do |batch, idx|
+        delay = idx * COVER_JOB_DELAY_SECONDS
+        Jobs.enqueue_in(delay, Jobs::DiscourseJournals::ProcessJournalCovers, topic_ids: batch)
       end
 
       Rails.logger.info(
-        "[DiscourseJournals::MappingApplier] Enqueued cover processing for #{@cover_topic_ids.size} topics",
+        "[DiscourseJournals::MappingApplier] Enqueued cover processing for #{unique_ids.size} topics (staggered over #{unique_ids.size / COVER_JOB_BATCH_SIZE * COVER_JOB_DELAY_SECONDS}s)",
       )
     end
 

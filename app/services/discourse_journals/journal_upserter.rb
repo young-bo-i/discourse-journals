@@ -278,7 +278,6 @@ module DiscourseJournals
 
       if upload.persisted? && !upload.errors.any?
         topic.update_column(:image_upload_id, upload.id)
-        topic.generate_thumbnails! if topic.respond_to?(:generate_thumbnails!)
         TopicCustomField.where(
           topic_id: topic.id,
           name: "discourse_journals_cover_url_hash",
