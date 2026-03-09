@@ -86,36 +86,38 @@ module DiscourseJournals
     end
 
     def build_action_plan
-      publish_progress(0, "正在构建执行计划...")
+      PerformanceLogger.measure("sync.build_action_plan", source_type: "mapping_applier") do
+        publish_progress(0, "正在构建执行计划...")
 
-      details = MappingAnalysis
-        .where(id: @analysis.id)
-        .pick(:details_data) || {}
+        details = MappingAnalysis
+          .where(id: @analysis.id)
+          .pick(:details_data) || {}
 
-      plan = details["_action_plan"]
+        plan = details["_action_plan"]
 
-      if plan
-        @update_map = (plan["updates"] || {}).transform_keys(&:to_i).transform_values(&:to_i)
-        @create_ids = (plan["creates"] || []).map(&:to_i)
-        @topics_to_delete = (plan["deletes"] || []).map(&:to_i)
-      else
-        process_exact_matches(details["exact_1to1"] || [])
-        process_forum_1_to_api_n(details["forum_1_to_api_n"] || [])
-        process_forum_n_to_api_1(details["forum_n_to_api_1"] || [])
-        process_forum_n_to_api_m(details["forum_n_to_api_m"] || [])
-        process_forum_only(details["forum_only"] || [])
-        process_api_only(details["api_only"] || [])
+        if plan
+          @update_map = (plan["updates"] || {}).transform_keys(&:to_i).transform_values(&:to_i)
+          @create_ids = (plan["creates"] || []).map(&:to_i)
+          @topics_to_delete = (plan["deletes"] || []).map(&:to_i)
+        else
+          process_exact_matches(details["exact_1to1"] || [])
+          process_forum_1_to_api_n(details["forum_1_to_api_n"] || [])
+          process_forum_n_to_api_1(details["forum_n_to_api_1"] || [])
+          process_forum_n_to_api_m(details["forum_n_to_api_m"] || [])
+          process_forum_only(details["forum_only"] || [])
+          process_api_only(details["api_only"] || [])
+        end
+
+        details = nil
+        GC.start
+
+        total_actions = @update_map.size + @create_ids.size
+        total_deletes = @topics_to_delete.size
+        publish_progress(
+          1,
+          "执行计划已构建：#{total_actions} 个 API 操作（更新+新建），#{total_deletes} 个话题待删除",
+        )
       end
-
-      details = nil
-      GC.start
-
-      total_actions = @update_map.size + @create_ids.size
-      total_deletes = @topics_to_delete.size
-      publish_progress(
-        1,
-        "执行计划已构建：#{total_actions} 个 API 操作（更新+新建），#{total_deletes} 个话题待删除",
-      )
     end
 
     def process_exact_matches(entries)
@@ -188,7 +190,7 @@ module DiscourseJournals
       entries.each do |entry|
         apis = entry["api"] || []
         next if apis.empty?
-        @create_ids << apis.first["api_id"]
+        apis.each { |api| @create_ids << api["api_id"] }
       end
     end
 
@@ -336,84 +338,87 @@ module DiscourseJournals
     rescue StandardError => e
       batch_ids = concurrent_batches.flatten
       Rails.logger.error(
-        "[DiscourseJournals::MappingApplier] Batch fetch failed (#{batch_ids.size} ids), skipping: #{e.class}: #{e.message}",
+        "[DiscourseJournals::MappingApplier] Batch fetch failed (#{batch_ids.size} ids), aborting current sync pass: #{e.class}: #{e.message}",
       )
-      increment_stat(:errors, batch_ids.size)
       connections.replace(reconnect_all!(connections))
-      []
+      raise
     end
 
     def parallel_transform(rows)
       return [] if rows.empty?
 
-      queue = Queue.new
-      rows.each { |r| queue << r }
-      UPSERT_CONCURRENCY.times { queue << :done }
+      PerformanceLogger.measure("sync.parallel_transform", source_type: "mapping_applier", batch_size: rows.size) do
+        queue = Queue.new
+        rows.each { |r| queue << r }
+        UPSERT_CONCURRENCY.times { queue << :done }
 
-      result = []
-      result_mutex = Mutex.new
+        result = []
+        result_mutex = Mutex.new
 
-      threads = UPSERT_CONCURRENCY.times.map do
-        Thread.new do
-          while (row = queue.pop) != :done
-            api_id = row.dig("unified", "id")
-            next unless api_id
+        threads = UPSERT_CONCURRENCY.times.map do
+          Thread.new do
+            while (row = queue.pop) != :done
+              api_id = row.dig("unified", "id")
+              next unless api_id
 
-            action, topic_id = lookup_action(api_id)
-            next unless action
+              action, topic_id = lookup_action(api_id)
+              next unless action
 
-            begin
-              journal_params = ApiDataTransformer.transform(row)
-              prepared = JournalUpserter.new(
-                system_user: @system_user,
-                defer_images: true,
-                category: @journal_category,
-              ).normalize_and_render(journal_params)
+              begin
+                journal_params = ApiDataTransformer.transform(row)
+                prepared = JournalUpserter.new(
+                  system_user: @system_user,
+                  defer_images: true,
+                  category: @journal_category,
+                ).normalize_and_render(journal_params)
 
-              result_mutex.synchronize do
-                result << { api_id: api_id, action: action, topic_id: topic_id, prepared: prepared }
+                result_mutex.synchronize do
+                  result << { api_id: api_id, action: action, topic_id: topic_id, prepared: prepared }
+                end
+              rescue StandardError => e
+                Rails.logger.error(
+                  "[DiscourseJournals::MappingApplier] Transform failed for api_id=#{api_id}: #{e.class}: #{e.message}",
+                )
+                increment_stat(:errors)
               end
-            rescue StandardError => e
-              Rails.logger.error(
-                "[DiscourseJournals::MappingApplier] Transform failed for api_id=#{api_id}: #{e.class}: #{e.message}",
-              )
-              increment_stat(:errors)
             end
           end
         end
-      end
 
-      threads.each(&:join)
-      result
+        threads.each(&:join)
+        result
+      end
     end
 
     def parallel_upsert(items)
       return if items.empty?
 
-      queue = Queue.new
-      items.each { |item| queue << item }
-      UPSERT_CONCURRENCY.times { queue << :done }
+      PerformanceLogger.measure("sync.parallel_upsert", source_type: "mapping_applier", batch_size: items.size) do
+        queue = Queue.new
+        items.each { |item| queue << item }
+        UPSERT_CONCURRENCY.times { queue << :done }
 
-      threads = UPSERT_CONCURRENCY.times.map do
-        Thread.new do
-          while (item = queue.pop) != :done
-            begin
-              upserter = JournalUpserter.new(system_user: @system_user, defer_images: true, category: @journal_category)
-              upserter.upsert_prepared!(item[:prepared], existing_topic_id: item[:topic_id])
-              increment_stat(:updated)
-              tid = upserter.last_topic_id
-              @mutex.synchronize { @cover_topic_ids << tid } if tid
-            rescue StandardError => e
-              Rails.logger.error(
-                "[DiscourseJournals::MappingApplier] Upsert failed for api_id=#{item[:api_id]}: #{e.class}: #{e.message}",
-              )
-              increment_stat(:errors)
+        threads = UPSERT_CONCURRENCY.times.map do
+          Thread.new do
+            while (item = queue.pop) != :done
+              begin
+                upserter = JournalUpserter.new(system_user: @system_user, defer_images: true, category: @journal_category)
+                upserter.upsert_prepared!(item[:prepared], existing_topic_id: item[:topic_id])
+                increment_stat(:updated)
+                tid = upserter.last_topic_id
+                @mutex.synchronize { @cover_topic_ids << tid } if tid
+              rescue StandardError => e
+                Rails.logger.error(
+                  "[DiscourseJournals::MappingApplier] Upsert failed for api_id=#{item[:api_id]}: #{e.class}: #{e.message}",
+                )
+                increment_stat(:errors)
+              end
             end
           end
         end
-      end
 
-      threads.each(&:join)
+        threads.each(&:join)
+      end
     end
 
     def serial_upsert(item)

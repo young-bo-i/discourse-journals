@@ -44,10 +44,14 @@ module DiscourseJournals
       text.strip.downcase
     end
 
+    def self.normalized_title_key(title)
+      normalize(title).gsub(/[^[:alnum:]]+/, "")
+    end
+
     def run!
-      build_forum_index
-      build_api_index
-      cross_match
+      PerformanceLogger.measure("analysis.build_forum_index", source_type: "title_matcher") { build_forum_index }
+      PerformanceLogger.measure("analysis.build_api_index", source_type: "title_matcher") { build_api_index }
+      PerformanceLogger.measure("analysis.cross_match", source_type: "title_matcher") { cross_match }
       release_indexes!
       results
     end
@@ -86,13 +90,20 @@ module DiscourseJournals
       topics = base_scope.select(:id, :title)
       publish_progress(:forum, 0, total, "正在建立论坛标题索引 (#{total} 个话题)...")
 
-      issn_map = TopicCustomField
-        .where(name: "discourse_journals_issn_l", topic_id: base_scope.select(:id))
-        .pluck(:topic_id, :value)
-        .to_h
+      field_map =
+        TopicCustomField
+          .where(
+            name: %w[discourse_journals_issn_l discourse_journals_normalized_title_key],
+            topic_id: base_scope.select(:id),
+          )
+          .pluck(:topic_id, :name, :value)
+          .group_by(&:first)
+          .transform_values { |rows| rows.to_h { |_, name, value| [name, value] } }
 
       topics.find_each.with_index do |topic, idx|
-        normalized = self.class.normalize(topic.title)
+        fields = field_map[topic.id] || {}
+        normalized =
+          fields["discourse_journals_normalized_title_key"].presence || self.class.normalized_title_key(topic.title)
         next if normalized.blank?
 
         entry = { topic_id: topic.id, title: topic.title }
@@ -100,7 +111,7 @@ module DiscourseJournals
         @forum_index[normalized] ||= []
         @forum_index[normalized] << entry
 
-        issn_l = issn_map[topic.id]
+        issn_l = fields["discourse_journals_issn_l"]
         if issn_l.present?
           @forum_issn_index[issn_l] ||= []
           @forum_issn_index[issn_l] << entry
@@ -322,7 +333,7 @@ module DiscourseJournals
           next
         end
 
-        normalized = self.class.normalize(canonical_name)
+        normalized = self.class.normalized_title_key(canonical_name)
         next if normalized.blank?
 
         entry = {

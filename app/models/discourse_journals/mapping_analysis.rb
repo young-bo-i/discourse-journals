@@ -3,6 +3,7 @@
 module DiscourseJournals
   class MappingAnalysis < ActiveRecord::Base
     self.table_name = "discourse_journals_mapping_analyses"
+    STALE_APPLY_THRESHOLD = 15.minutes
 
     validates :user_id, presence: true
     validates :status, presence: true
@@ -40,11 +41,15 @@ module DiscourseJournals
     end
 
     def can_apply?
-      completed? && (not_applied? || sync_processing?)
+      completed? && not_applied?
     end
 
     def can_resume_apply?
-      completed? && (sync_paused? || sync_failed? || sync_processing?)
+      completed? && (sync_paused? || sync_failed? || stale_sync_processing?)
+    end
+
+    def stale_sync_processing?
+      sync_processing? && apply_started_at.present? && apply_started_at < STALE_APPLY_THRESHOLD.ago
     end
 
     def summary

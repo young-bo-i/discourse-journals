@@ -8,6 +8,7 @@ module DiscourseJournals
       discourse_journals_data
       discourse_journals_cover_url
       discourse_journals_country
+      discourse_journals_normalized_title_key
     ].freeze
 
     attr_reader :last_topic_id
@@ -80,7 +81,7 @@ module DiscourseJournals
       ensure_closed!(topic)
 
       unless @defer_images
-        update_topic_image!(topic, prepared[:cover_url])
+        process_topic_cover!(topic, prepared)
       end
 
       topic
@@ -102,50 +103,68 @@ module DiscourseJournals
       attrs[:fancy_title] = nil if attrs.key?(:title)
       topic.update_columns(attrs)
 
-      SearchIndexer.queue_post_reindex(topic.id)
+      PerformanceLogger.measure("sync.search_reindex", topic_id: topic.id) do
+        SearchIndexer.queue_post_reindex(topic.id)
+      end
 
       store_custom_fields!(topic, prepared)
       JournalTagManager.apply_tags!(topic, prepared[:normalized])
       ensure_closed!(topic)
 
       unless @defer_images
-        update_topic_image!(topic, prepared[:cover_url])
+        process_topic_cover!(topic, prepared)
       end
 
       topic
     end
 
     def store_custom_fields!(topic, prepared)
-      desired = {}
-      desired["discourse_journals_issn_l"] = prepared[:issn_l].to_s if prepared[:issn_l].present?
-      desired["discourse_journals_publisher"] = prepared[:publisher].to_s if prepared[:publisher].present?
-      desired["discourse_journals_cover_url"] = prepared[:cover_url].to_s if prepared[:cover_url].present?
-      desired["discourse_journals_country"] = prepared[:country].to_s if prepared[:country].present?
-      desired["discourse_journals_data"] = prepared[:normalized].to_json if prepared[:normalized].present?
+      PerformanceLogger.measure("sync.custom_fields", topic_id: topic.id) do
+        desired = {}
+        desired["discourse_journals_issn_l"] = prepared[:issn_l].to_s if prepared[:issn_l].present?
+        desired["discourse_journals_publisher"] = prepared[:publisher].to_s if prepared[:publisher].present?
+        normalized_cover_url = TopicCoverManager.normalize_cover_url(prepared[:cover_url])
+        desired["discourse_journals_cover_url"] = normalized_cover_url if normalized_cover_url.present?
+        desired["discourse_journals_country"] = prepared[:country].to_s if prepared[:country].present?
+        desired["discourse_journals_data"] = prepared[:normalized_json] if prepared[:normalized_json].present?
+        desired["discourse_journals_normalized_title_key"] = prepared[:normalized_title_key] if prepared[:normalized_title_key].present?
 
-      return if desired.empty?
+        existing = TopicCustomField
+          .where(topic_id: topic.id, name: CUSTOM_FIELD_NAMES)
+          .pluck(:name, :value)
+          .to_h
 
-      existing = TopicCustomField
-        .where(topic_id: topic.id, name: desired.keys)
-        .pluck(:name, :value)
-        .to_h
+        changed_names =
+          CUSTOM_FIELD_NAMES.select do |name|
+            old = existing[name]
+            value = desired[name]
 
-      changed = desired.reject do |name, value|
-        old = existing[name]
-        if name == "discourse_journals_data" && old.present?
-          Digest::MD5.hexdigest(value) == Digest::MD5.hexdigest(old)
-        else
-          old == value
+            if value.nil?
+              old.present?
+            elsif name == "discourse_journals_data" && old.present?
+              Digest::MD5.hexdigest(value) != Digest::MD5.hexdigest(old)
+            else
+              old != value
+            end
+          end
+
+        next if changed_names.empty?
+
+        TopicCustomField.where(topic_id: topic.id, name: changed_names).delete_all
+        rows = changed_names.filter_map do |name|
+          value = desired[name]
+          next if value.nil?
+
+          {
+            topic_id: topic.id,
+            name: name,
+            value: value,
+            created_at: Time.current,
+            updated_at: Time.current,
+          }
         end
+        TopicCustomField.insert_all(rows) if rows.present?
       end
-
-      return if changed.empty?
-
-      TopicCustomField.where(topic_id: topic.id, name: changed.keys).delete_all
-      rows = changed.map do |name, value|
-        { topic_id: topic.id, name: name, value: value, created_at: Time.current, updated_at: Time.current }
-      end
-      TopicCustomField.insert_all(rows)
     end
 
     def ensure_closed!(topic)
@@ -157,21 +176,9 @@ module DiscourseJournals
     def find_existing_topic(prepared)
       category = journal_category
 
-      if prepared[:issn_l].present?
-        topic_id = TopicCustomField
-          .joins("INNER JOIN topics ON topics.id = topic_custom_fields.topic_id")
-          .where(name: "discourse_journals_issn_l", value: prepared[:issn_l].to_s)
-          .where(topics: { category_id: category.id, deleted_at: nil })
-          .pick(:topic_id)
-        return Topic.find_by(id: topic_id) if topic_id
-      end
-
-      if prepared[:title].present?
-        normalized = TitleMatcher.normalize(prepared[:title])
-        return nil if normalized.blank?
-        Topic
-          .where(category_id: category.id, deleted_at: nil)
-          .find_by("LOWER(title) = ?", normalized)
+      PerformanceLogger.measure("sync.lookup_existing_topic", source_type: "journal_upserter") do
+        find_existing_topic_by_issn(prepared[:issn_l], category) ||
+          find_existing_topic_by_title(prepared[:title], prepared[:normalized_title_key], category)
       end
     end
 
@@ -184,12 +191,89 @@ module DiscourseJournals
       end
     end
 
+    def find_existing_topic_by_issn(issn_l, category)
+      return if issn_l.blank?
+
+      topic_id =
+        PerformanceLogger.measure("sync.lookup_by_issn", source_type: "issn") do
+          TopicCustomField
+            .joins("INNER JOIN topics ON topics.id = topic_custom_fields.topic_id")
+            .where(name: "discourse_journals_issn_l", value: issn_l.to_s)
+            .where(topics: { category_id: category.id, deleted_at: nil })
+            .pick(:topic_id)
+        end
+
+      Topic.find_by(id: topic_id) if topic_id
+    end
+
+    def find_existing_topic_by_title(title, normalized_title_key, category)
+      raw_title = title.to_s.strip
+      return if raw_title.blank?
+
+      scope = Topic.where(category_id: category.id, deleted_at: nil)
+
+      if normalized_title_key.present?
+        normalized_match_ids =
+          PerformanceLogger.measure("sync.lookup_by_title_key", source_type: "normalized_title_key") do
+            TopicCustomField
+              .joins("INNER JOIN topics ON topics.id = topic_custom_fields.topic_id")
+              .where(name: "discourse_journals_normalized_title_key", value: normalized_title_key)
+              .where(topics: { category_id: category.id, deleted_at: nil })
+              .order("topics.id ASC")
+              .limit(2)
+              .pluck(:topic_id)
+          end
+
+        if normalized_match_ids.one?
+          return Topic.find_by(id: normalized_match_ids.first)
+        end
+
+        if normalized_match_ids.many?
+          Rails.logger.warn(
+            "[DiscourseJournals] Ambiguous normalized title key match for #{raw_title.inspect} " \
+              "in category #{category.id}",
+          )
+          return nil
+        end
+      end
+
+      exact_match =
+        PerformanceLogger.measure("sync.lookup_by_exact_title", source_type: "exact_title") do
+          scope.find_by("LOWER(title) = ?", raw_title.downcase)
+        end
+      return exact_match if exact_match
+
+      return if normalized_title_key.blank?
+
+      compatibility_match_ids =
+        PerformanceLogger.measure("sync.lookup_by_title_compat", source_type: "compatibility_title") do
+          scope
+            .where("regexp_replace(lower(title), '[^[:alnum:]]+', '', 'g') = ?", normalized_title_key)
+            .order(:id)
+            .limit(2)
+            .pluck(:id)
+        end
+
+      if compatibility_match_ids.one?
+        return Topic.find_by(id: compatibility_match_ids.first)
+      end
+
+      if compatibility_match_ids.many?
+        Rails.logger.warn(
+          "[DiscourseJournals] Ambiguous compatibility title match for #{raw_title.inspect} " \
+            "in category #{category.id}",
+        )
+      end
+    end
+
     def normalize_and_render!(journal_data)
       normalizer = FieldNormalizer.new(journal_data)
       normalized = normalizer.normalize
 
       title = normalized.dig(:identity, :title)
       raise ArgumentError, "Missing title in normalized data" if title.blank?
+      normalized_title_key = TitleMatcher.normalized_title_key(title)
+      normalized_json = normalized.to_json
 
       html = nil
       raw_text = nil
@@ -205,6 +289,8 @@ module DiscourseJournals
         html: html,
         raw_text: raw_text,
         normalized: normalized,
+        normalized_json: normalized_json,
+        normalized_title_key: normalized_title_key,
         issn_l: normalized.dig(:identity, :issn_l),
         publisher: normalized.dig(:publication, :publisher_name),
         cover_url: normalized.dig(:identity, :cover_url),
@@ -212,88 +298,16 @@ module DiscourseJournals
       }
     end
 
-    def update_topic_image!(topic, cover_url)
-      return unless SiteSetting.discourse_journals_download_covers
-
-      existing_hash =
-        TopicCustomField.where(
-          topic_id: topic.id,
-          name: "discourse_journals_cover_url_hash",
-        ).pick(:value)
-
-      tempfile = nil
-      url_hash = nil
-
-      if cover_url.present?
-        full_url =
-          if cover_url.start_with?("http")
-            cover_url
-          else
-            "https://journal.scholay.com#{cover_url}"
-          end
-        url_hash = Digest::SHA1.hexdigest(full_url)
-        return if existing_hash == url_hash
-
-        tempfile =
-          begin
-            FileHelper.download(
-              full_url,
-              max_file_size: 5.megabytes,
-              tmp_file_name: "journal_cover",
-              follow_redirect: true,
-            )
-          rescue StandardError => e
-            Rails.logger.warn(
-              "[DiscourseJournals] Cover download failed for topic #{topic.id}: #{e.message}",
-            )
-            nil
-          end
-      end
-
-      if tempfile.nil?
-        generated_hash = Digest::SHA1.hexdigest("generated:#{topic.title}")
-        return if existing_hash == generated_hash
-        url_hash = generated_hash
-
-        issn =
-          TopicCustomField.where(
-            topic_id: topic.id,
-            name: "discourse_journals_issn_l",
-          ).pick(:value)
-        country =
-          TopicCustomField.where(
-            topic_id: topic.id,
-            name: "discourse_journals_country",
-          ).pick(:value)
-        tempfile = CoverImageGenerator.generate(title: topic.title, issn: issn, country: country)
-      end
-
-      return if tempfile.nil?
-
-      ext = tempfile.respond_to?(:path) && tempfile.path.end_with?(".png") ? "png" : "jpg"
-      upload =
-        UploadCreator.new(tempfile, "journal_cover_#{topic.id}.#{ext}").create_for(
-          Discourse.system_user.id,
-        )
-
-      if upload.persisted? && !upload.errors.any?
-        topic.update_column(:image_upload_id, upload.id)
-        TopicCustomField.where(
-          topic_id: topic.id,
-          name: "discourse_journals_cover_url_hash",
-        ).delete_all
-        TopicCustomField.create!(
-          topic_id: topic.id,
-          name: "discourse_journals_cover_url_hash",
-          value: url_hash,
+    def process_topic_cover!(topic, prepared)
+      PerformanceLogger.measure("sync.topic_cover", topic_id: topic.id) do
+        TopicCoverManager.process!(
+          topic: topic,
+          cover_url: prepared[:cover_url],
+          issn: prepared[:issn_l],
+          country: prepared[:country],
+          publisher: prepared[:publisher],
         )
       end
-    rescue StandardError => e
-      Rails.logger.warn(
-        "[DiscourseJournals] Failed to set cover for topic #{topic.id}: #{e.message}",
-      )
-    ensure
-      tempfile&.close! if tempfile.respond_to?(:close!)
     end
 
   end

@@ -3,6 +3,10 @@
 module DiscourseJournals
   class MasterRecordRenderer
     API_COVER_BASE = "https://journal.scholay.com"
+    MAX_BASIC_INFO_CARDS = 10
+    MAX_RANKING_DETAIL_CARDS = 6
+    MAX_TABLE_ROWS = 8
+    MAX_VISUAL_CHARTS = 5
 
     EXTERNAL_LINK_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3.5H3a1 1 0 0 0-1 1V13a1 1 0 0 0 1 1h8.5a1 1 0 0 0 1-1V9.5"/><path d="M9.5 2h4.5v4.5"/><path d="M14 2L7.5 8.5"/></svg>'
 
@@ -21,7 +25,6 @@ module DiscourseJournals
       sections << render_coverage_bars
       sections << render_compact_info
       sections << render_indexing_panel
-      sections << render_topic_cloud
       sections << render_topic_donut
       sections << render_warning_timeline
       sections << render_visual_dashboard
@@ -417,9 +420,9 @@ module DiscourseJournals
         HTML
       }
 
-      add_group.call(t("basic_info"), basic_cards)
+      add_group.call(t("basic_info"), basic_cards.first(MAX_BASIC_INFO_CARDS))
       add_group.call(t("oa_apc_title"), oa_apc_cards)
-      add_group.call(t("ranking_details"), detail_cards)
+      add_group.call(t("ranking_details"), detail_cards.first(MAX_RANKING_DETAIL_CARDS))
       add_group.call(t("keywords_subjects"), kw_cards)
 
       return nil if groups.empty?
@@ -730,18 +733,6 @@ module DiscourseJournals
         charts << viz_card(t("chart_cites_per_doc"), "#3885c8",
           SvgChartBuilder.from_time_series(scimago_data, value_key: :citations_per_doc_2years, color: "#3885c8", years: scimago_years),
           data: scimago_data, value_key: :citations_per_doc_2years)
-        charts << viz_card(t("chart_female_pct"), "#7ac36a",
-          SvgChartBuilder.from_time_series(scimago_data, value_key: :female_pct, color: "#7ac36a", years: scimago_years),
-          data: scimago_data, value_key: :female_pct)
-        charts << viz_card(t("chart_refs_per_doc"), "#3885c8",
-          SvgChartBuilder.from_time_series(scimago_data, value_key: :ref_per_doc, color: "#3885c8", years: scimago_years),
-          data: scimago_data, value_key: :ref_per_doc)
-        charts << viz_card(t("chart_policy_docs"), "#7ac36a",
-          SvgChartBuilder.from_time_series(scimago_data, value_key: :overton, color: "#7ac36a", years: scimago_years),
-          data: scimago_data, value_key: :overton)
-        charts << viz_card(t("chart_sdg_docs"), "#7ac36a",
-          SvgChartBuilder.from_time_series(scimago_data, value_key: :sdg, color: "#7ac36a", years: scimago_years),
-          data: scimago_data, value_key: :sdg)
       end
 
       if oa_counts.size >= 2
@@ -752,22 +743,6 @@ module DiscourseJournals
           SvgChartBuilder.area_from_time_series(oa_counts, key_a: :works_count, key_b: :oa_works_count, years: oa_years),
           data: oa_counts, value_keys: [:works_count, :oa_works_count],
           legends: [["#7ac36a", t("legend_works")], ["#3885c8", t("legend_oa_works")]])
-        charts << viz_card_wide(t("chart_total_citations_wide"), "#3885c8",
-          SvgChartBuilder.from_time_series(oa_counts, value_key: :cited_by_count, color: "#3885c8",
-            width: SvgChartBuilder::WIDE_W, height: SvgChartBuilder::WIDE_H, years: oa_years),
-          data: oa_counts, value_key: :cited_by_count)
-      end
-
-      if cr_dois.size >= 2
-        charts << viz_card(t("chart_dois_by_year"), "#7ac36a",
-          SvgChartBuilder.from_time_series(cr_dois, value_key: :count, color: "#7ac36a", years: cr_years),
-          data: cr_dois, value_key: :count)
-      end
-
-      if oa_counts.size >= 2
-        charts << viz_card(t("chart_oa_works_trend"), "#3885c8",
-          SvgChartBuilder.from_time_series(oa_counts, value_key: :oa_works_count, color: "#3885c8", years: oa_years),
-          data: oa_counts, value_key: :oa_works_count)
       end
 
       jcr_data = (@d.dig(:jcr, :data) || []).select { |j| j[:impact_factor] }.reverse
@@ -778,12 +753,18 @@ module DiscourseJournals
           data: jcr_data, value_key: :impact_factor)
       end
 
+      if cr_dois.size >= 2 && charts.length < MAX_VISUAL_CHARTS
+        charts << viz_card(t("chart_dois_by_year"), "#7ac36a",
+          SvgChartBuilder.from_time_series(cr_dois, value_key: :count, color: "#7ac36a", years: cr_years),
+          data: cr_dois, value_key: :count)
+      end
+
       return nil if charts.empty?
 
       <<~HTML
         <section class="dj-panel dj-visual-dashboard" id="dj-nav-charts" data-dj-nav="#{h(t("nav_charts"))}">
           <header class="dj-viz-header"><h3>#{h(t("chart_insights"))}</h3></header>
-          <div class="dj-viz-grid">#{charts.compact.join("\n")}</div>
+          <div class="dj-viz-grid">#{charts.compact.first(MAX_VISUAL_CHARTS).join("\n")}</div>
         </section>
       HTML
     end
@@ -832,7 +813,7 @@ module DiscourseJournals
         label = i18n_key ? t(i18n_key) : k.to_s.tr("_", " ").capitalize
         "<th>#{h(label)}</th>"
       }.join
-      sorted = data.sort_by { |d| -(d[:year].to_i) }
+      sorted = data.sort_by { |d| -(d[:year].to_i) }.first(MAX_TABLE_ROWS)
       rows = sorted.map { |d|
         yr = h(d[:year])
         cells = keys.map { |k| "<td>#{h(d[k])}</td>" }.join

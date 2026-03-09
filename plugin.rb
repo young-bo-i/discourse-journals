@@ -27,16 +27,22 @@ after_initialize do
   require_relative "app/services/discourse_journals/field_usage_tracker"
   require_relative "app/services/discourse_journals/master_record_renderer"
   require_relative "app/services/discourse_journals/journal_upserter"
+  require_relative "app/services/discourse_journals/journal_seo_context"
+  require_relative "app/services/discourse_journals/performance_logger"
   require_relative "app/services/discourse_journals/title_matcher"
   require_relative "app/services/discourse_journals/api_data_transformer"
   require_relative "app/services/discourse_journals/svg_chart_builder"
   require_relative "app/services/discourse_journals/cover_image_generator"
+  require_relative "app/services/discourse_journals/topic_cover_manager"
+  require_relative "app/services/discourse_journals/topic_cover_backfill"
+  require_relative "app/services/discourse_journals/topic_title_key_backfill"
   require_relative "app/services/discourse_journals/mapping_applier"
   require_relative "app/services/discourse_journals/journal_tag_manager"
   require_relative "app/services/discourse_journals/journal_suggested_provider"
   require_relative "app/jobs/regular/discourse_journals/analyze_mapping"
   require_relative "app/jobs/regular/discourse_journals/apply_mapping"
   require_relative "app/jobs/regular/discourse_journals/delete_all_journals"
+  require_relative "app/jobs/regular/discourse_journals/process_journal_covers"
 
   Topic.register_custom_field_type("discourse_journals_issn_l", :string)
   Topic.register_custom_field_type("discourse_journals_publisher", :string)
@@ -44,6 +50,7 @@ after_initialize do
   Topic.register_custom_field_type("discourse_journals_cover_url", :string)
   Topic.register_custom_field_type("discourse_journals_country", :string)
   Topic.register_custom_field_type("discourse_journals_cover_url_hash", :string)
+  Topic.register_custom_field_type("discourse_journals_normalized_title_key", :string)
 
   module ::DiscourseJournals
     CUSTOM_FIELD_NAMES = %w[
@@ -52,6 +59,7 @@ after_initialize do
       discourse_journals_data
       discourse_journals_cover_url
       discourse_journals_country
+      discourse_journals_normalized_title_key
     ].freeze
 
     SEO_FIELD_NAMES = %w[discourse_journals_issn_l discourse_journals_publisher].freeze
@@ -61,16 +69,14 @@ after_initialize do
       discourse_journals_country
       discourse_journals_data
     ].freeze
+    JOURNAL_SEO_FIELD_NAMES = (SEO_FIELD_NAMES + JSONLD_FIELD_NAMES).uniq.freeze
 
-    def self.build_journal_jsonld(topic, topic_view)
-      cf = TopicCustomField
-        .where(topic_id: topic.id, name: JSONLD_FIELD_NAMES)
-        .pluck(:name, :value)
-        .to_h
+    def self.build_journal_jsonld(topic, topic_view, seo_context = nil)
+      seo_context ||= JournalSeoContext.new(topic: topic, topic_view: topic_view)
 
-      issn = cf["discourse_journals_issn_l"]
-      publisher_name = cf["discourse_journals_publisher"]
-      country = cf["discourse_journals_country"]
+      issn = seo_context.custom_fields["discourse_journals_issn_l"]
+      publisher_name = seo_context.custom_fields["discourse_journals_publisher"]
+      country = seo_context.custom_fields["discourse_journals_country"]
 
       jsonld = {
         "@context" => "https://schema.org",
@@ -85,12 +91,12 @@ after_initialize do
         jsonld["publisher"] = { "@type" => "Organization", "name" => publisher_name }
       end
 
-      image_url = topic_view.image_url
+      image_url = seo_context.image_url
       if image_url.present?
         jsonld["image"] = image_url.start_with?("http") ? image_url : "#{Discourse.base_url}#{image_url}"
       end
 
-      tag_names = topic.tags.loaded? ? topic.tags.map(&:name) : topic.tags.pluck(:name)
+      tag_names = seo_context.tag_names
       jsonld["keywords"] = tag_names.join(", ") if tag_names.present?
 
       if country.present?
@@ -102,17 +108,16 @@ after_initialize do
 
       template = SiteSetting.discourse_journals_meta_description
       if template.present?
-        desc = resolve_seo_placeholders(template, topic)
+        desc = seo_context.resolve_template(template)
         jsonld["description"] = desc if desc.present?
       end
 
-      enrich_jsonld_from_data!(jsonld, cf["discourse_journals_data"])
+      enrich_jsonld_from_data!(jsonld, seo_context.parsed_data)
       jsonld
     end
 
-    def self.enrich_jsonld_from_data!(jsonld, json_str)
-      return if json_str.blank?
-      data = JSON.parse(json_str).deep_symbolize_keys
+    def self.enrich_jsonld_from_data!(jsonld, data)
+      return if data.blank?
 
       id = data[:identity] || {}
       jsonld["alternateName"] = id[:abbreviation] if id[:abbreviation].present?
@@ -150,28 +155,19 @@ after_initialize do
       Rails.logger.warn("[DiscourseJournals] JSON-LD enrichment failed: #{e.message}")
     end
 
-    def self.resolve_seo_placeholders(template, topic)
+    def self.resolve_seo_placeholders(template, topic, seo_context = nil)
       return "" if template.blank? || topic.nil?
 
-      custom_fields =
-        TopicCustomField
-          .where(topic_id: topic.id, name: SEO_FIELD_NAMES)
-          .pluck(:name, :value)
-          .to_h
+      (seo_context || JournalSeoContext.new(topic: topic)).resolve_template(template)
+    end
 
-      tag_names = topic.tags.loaded? ? topic.tags.map(&:name) : topic.tags.pluck(:name)
+    def self.cached_seo_context_for_topic(topic, topic_view: nil)
+      cached = topic.instance_variable_get(:@dj_seo_context)
+      return cached if cached
 
-      replacements = {
-        "title" => topic.title || "",
-        "issn" => custom_fields["discourse_journals_issn_l"] || "",
-        "publisher" => custom_fields["discourse_journals_publisher"] || "",
-        "category" => topic.category&.name || "",
-        "tags" => tag_names.join(", "),
-        "site_name" => SiteSetting.title || "",
-      }
-
-      result = template.gsub(/\{\{(\w+)\}\}/) { |_| replacements[$1] || "" }
-      result.gsub(/,\s*,/, ",").gsub(/\s*-\s*-/, " -").strip.gsub(/^[,\s-]+|[,\s-]+$/, "").strip
+      context = JournalSeoContext.new(topic: topic, topic_view: topic_view)
+      topic.instance_variable_set(:@dj_seo_context, context)
+      context
     end
 
     def self.find_journal_topic(request_path)
@@ -184,7 +180,7 @@ after_initialize do
       topic_id = request_path.match(%r{/t/[^/]+/(\d+)}i)&.captures&.first
       return nil unless topic_id
 
-      Topic.includes(:tags).find_by(id: topic_id, category_id: category_id)
+      Topic.includes(:tags, :category).find_by(id: topic_id, category_id: category_id)
     end
   end
 
@@ -193,8 +189,10 @@ after_initialize do
   add_to_serializer(
     :suggested_topic,
     :discourse_journals_cover_url,
-    include_condition: -> { object.custom_fields["discourse_journals_cover_url"].present? },
-  ) { object.custom_fields["discourse_journals_cover_url"] }
+    include_condition: -> {
+      object.custom_fields["discourse_journals_cover_url"].present? || object.image_upload_id.present?
+    },
+  ) { object.image_url.presence || object.custom_fields["discourse_journals_cover_url"] }
 
   register_modifier(:meta_data_content) do |content, type, context|
     next content unless SiteSetting.discourse_journals_enabled
@@ -215,7 +213,10 @@ after_initialize do
         topic_id = request_path.match(%r{/t/[^/]+/(\d+)}i)&.captures&.first
         next content unless topic_id
 
-        topic_cat = Topic.where(id: topic_id).pick(:category_id)
+        topic_cat =
+          PerformanceLogger.measure("seo.title.category_lookup", topic_id: topic_id) do
+            Topic.where(id: topic_id).pick(:category_id)
+          end
         next content unless topic_cat == category_id
 
         "#{content} - #{suffix}"
@@ -223,10 +224,17 @@ after_initialize do
         template = SiteSetting.discourse_journals_meta_description
         next content if template.blank?
 
-        topic = ::DiscourseJournals.find_journal_topic(request_path)
+        topic =
+          PerformanceLogger.measure("seo.description.topic_lookup") do
+            ::DiscourseJournals.find_journal_topic(request_path)
+          end
         next content unless topic
 
-        resolved = ::DiscourseJournals.resolve_seo_placeholders(template, topic)
+        resolved =
+          PerformanceLogger.measure("seo.description.resolve", topic_id: topic.id) do
+            seo_context = ::DiscourseJournals.cached_seo_context_for_topic(topic)
+            ::DiscourseJournals.resolve_seo_placeholders(template, topic, seo_context)
+          end
         resolved.present? ? resolved : content
       else
         content
@@ -253,7 +261,11 @@ after_initialize do
     template = SiteSetting.discourse_journals_meta_keywords
     next "" if template.blank?
 
-    resolved = ::DiscourseJournals.resolve_seo_placeholders(template, topic)
+    resolved =
+      PerformanceLogger.measure("seo.keywords.resolve", topic_id: topic.id) do
+        seo_context = ::DiscourseJournals.cached_seo_context_for_topic(topic, topic_view: topic_view)
+        ::DiscourseJournals.resolve_seo_placeholders(template, topic, seo_context)
+      end
     next "" if resolved.blank?
 
     escaped = ERB::Util.html_escape(resolved)
@@ -277,7 +289,11 @@ after_initialize do
     next "" unless topic.category_id == category_id
 
     begin
-      jsonld = ::DiscourseJournals.build_journal_jsonld(topic, topic_view)
+      jsonld =
+        PerformanceLogger.measure("seo.jsonld.build", topic_id: topic.id) do
+          seo_context = ::DiscourseJournals.cached_seo_context_for_topic(topic, topic_view: topic_view)
+          ::DiscourseJournals.build_journal_jsonld(topic, topic_view, seo_context)
+        end
       %(<script type="application/ld+json">#{jsonld.to_json}</script>)
     rescue StandardError => e
       Rails.logger.warn("[DiscourseJournals] JSON-LD generation failed: #{e.message}")
@@ -345,13 +361,19 @@ after_initialize do
     begin
       normalized = JSON.parse(json_value).deep_symbolize_keys
       renderer = ::DiscourseJournals::MasterRecordRenderer.new(normalized)
-      html = I18n.with_locale(SiteSetting.default_locale) { renderer.render }
+      html =
+        PerformanceLogger.measure("render.cooked_rebuild", topic_id: post.topic_id) do
+          I18n.with_locale(SiteSetting.default_locale) { renderer.render }
+        end
       post.update_columns(cooked: html, baked_version: Post::BAKED_VERSION)
 
       doc.children.remove
       Nokogiri::HTML5.fragment(html).children.each { |child| doc.add_child(child.dup) }
 
-      plain = I18n.with_locale(SiteSetting.default_locale) { renderer.render_seo_excerpt }
+      plain =
+        PerformanceLogger.measure("render.seo_excerpt", topic_id: post.topic_id) do
+          I18n.with_locale(SiteSetting.default_locale) { renderer.render_seo_excerpt }
+        end
       post.topic.update_excerpt(plain) if plain.present?
     rescue StandardError => e
       Rails.logger.warn(
