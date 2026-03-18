@@ -7,6 +7,13 @@ require "cgi"
 module DiscourseJournals
   class TitleMatcher
     class PausedError < StandardError; end
+    class RateLimitedError < StandardError
+      attr_reader :retry_after
+      def initialize(retry_after = 5)
+        @retry_after = retry_after
+        super("429 Too Many Requests")
+      end
+    end
 
     API_BASE_URL = "https://journal.scholay.com/api/open/journals"
     API_PAGE_SIZE = 1000
@@ -255,16 +262,7 @@ module DiscourseJournals
         response = http.request(request)
 
         if response.code.to_i == 429
-          retries += 1
-          if retries <= max_retries
-            retry_after = (response["Retry-After"] || retries * 5).to_i.clamp(2, 60)
-            Rails.logger.warn(
-              "[DiscourseJournals::TitleMatcher] Page #{page} rate-limited (429), retry #{retries}/#{max_retries}, waiting #{retry_after}s",
-            )
-            sleep retry_after
-            retry
-          end
-          raise "API 第 #{page} 页请求被限流 (重试 #{max_retries} 次后仍为 429)"
+          raise RateLimitedError.new((response["Retry-After"] || retries * 5 + 5).to_i.clamp(2, 60))
         end
 
         unless response.is_a?(Net::HTTPSuccess)
@@ -283,6 +281,16 @@ module DiscourseJournals
           page: payload["page"].to_i,
           total_pages: payload["totalPages"].to_i,
         }
+      rescue RateLimitedError => e
+        retries += 1
+        if retries <= max_retries
+          Rails.logger.warn(
+            "[DiscourseJournals::TitleMatcher] Page #{page} rate-limited (429), retry #{retries}/#{max_retries}, waiting #{e.retry_after}s",
+          )
+          sleep e.retry_after
+          retry
+        end
+        raise "API 第 #{page} 页请求被限流 (重试 #{max_retries} 次后仍为 429)"
       rescue Net::OpenTimeout, Net::ReadTimeout, OpenSSL::SSL::SSLError, Errno::ECONNRESET, EOFError, IOError => e
         retries += 1
         if retries <= max_retries
@@ -319,16 +327,7 @@ module DiscourseJournals
         response = http.get(uri.request_uri)
 
         if response.code.to_i == 429
-          retries += 1
-          if retries <= max_retries
-            retry_after = (response["Retry-After"] || retries * 5).to_i.clamp(2, 60)
-            Rails.logger.warn(
-              "[DiscourseJournals::TitleMatcher] Page #{page} rate-limited (429), retry #{retries}/#{max_retries}, waiting #{retry_after}s",
-            )
-            sleep retry_after
-            retry
-          end
-          raise "API 第 #{page} 页请求被限流 (重试 #{max_retries} 次后仍为 429)"
+          raise RateLimitedError.new((response["Retry-After"] || retries * 5 + 5).to_i.clamp(2, 60))
         end
 
         unless response.is_a?(Net::HTTPSuccess)
@@ -347,6 +346,16 @@ module DiscourseJournals
           page: payload["page"].to_i,
           total_pages: payload["totalPages"].to_i,
         }
+      rescue RateLimitedError => e
+        retries += 1
+        if retries <= max_retries
+          Rails.logger.warn(
+            "[DiscourseJournals::TitleMatcher] Page #{page} rate-limited (429), retry #{retries}/#{max_retries}, waiting #{e.retry_after}s",
+          )
+          sleep e.retry_after
+          retry
+        end
+        raise "API 第 #{page} 页请求被限流 (重试 #{max_retries} 次后仍为 429)"
       rescue Net::OpenTimeout, Net::ReadTimeout, OpenSSL::SSL::SSLError, Errno::ECONNRESET, EOFError => e
         retries += 1
         if retries <= max_retries
