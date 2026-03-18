@@ -214,7 +214,7 @@ after_initialize do
         next content unless topic_id
 
         topic_cat =
-          PerformanceLogger.measure("seo.title.category_lookup", topic_id: topic_id) do
+          DiscourseJournals::PerformanceLogger.measure("seo.title.category_lookup", topic_id: topic_id) do
             Topic.where(id: topic_id).pick(:category_id)
           end
         next content unless topic_cat == category_id
@@ -225,13 +225,13 @@ after_initialize do
         next content if template.blank?
 
         topic =
-          PerformanceLogger.measure("seo.description.topic_lookup") do
+          DiscourseJournals::PerformanceLogger.measure("seo.description.topic_lookup") do
             ::DiscourseJournals.find_journal_topic(request_path)
           end
         next content unless topic
 
         resolved =
-          PerformanceLogger.measure("seo.description.resolve", topic_id: topic.id) do
+          DiscourseJournals::PerformanceLogger.measure("seo.description.resolve", topic_id: topic.id) do
             seo_context = ::DiscourseJournals.cached_seo_context_for_topic(topic)
             ::DiscourseJournals.resolve_seo_placeholders(template, topic, seo_context)
           end
@@ -261,15 +261,20 @@ after_initialize do
     template = SiteSetting.discourse_journals_meta_keywords
     next "" if template.blank?
 
-    resolved =
-      PerformanceLogger.measure("seo.keywords.resolve", topic_id: topic.id) do
-        seo_context = ::DiscourseJournals.cached_seo_context_for_topic(topic, topic_view: topic_view)
-        ::DiscourseJournals.resolve_seo_placeholders(template, topic, seo_context)
-      end
-    next "" if resolved.blank?
+    begin
+      resolved =
+        DiscourseJournals::PerformanceLogger.measure("seo.keywords.resolve", topic_id: topic.id) do
+          seo_context = ::DiscourseJournals.cached_seo_context_for_topic(topic, topic_view: topic_view)
+          ::DiscourseJournals.resolve_seo_placeholders(template, topic, seo_context)
+        end
+      next "" if resolved.blank?
 
-    escaped = ERB::Util.html_escape(resolved)
-    "<meta name=\"keywords\" content=\"#{escaped}\">"
+      escaped = ERB::Util.html_escape(resolved)
+      "<meta name=\"keywords\" content=\"#{escaped}\">"
+    rescue StandardError => e
+      Rails.logger.warn("[DiscourseJournals] Keywords generation failed: #{e.message}")
+      ""
+    end
   end
 
   register_html_builder("server:before-head-close-crawler", &keywords_html)
@@ -290,7 +295,7 @@ after_initialize do
 
     begin
       jsonld =
-        PerformanceLogger.measure("seo.jsonld.build", topic_id: topic.id) do
+        DiscourseJournals::PerformanceLogger.measure("seo.jsonld.build", topic_id: topic.id) do
           seo_context = ::DiscourseJournals.cached_seo_context_for_topic(topic, topic_view: topic_view)
           ::DiscourseJournals.build_journal_jsonld(topic, topic_view, seo_context)
         end
@@ -362,7 +367,7 @@ after_initialize do
       normalized = JSON.parse(json_value).deep_symbolize_keys
       renderer = ::DiscourseJournals::MasterRecordRenderer.new(normalized)
       html =
-        PerformanceLogger.measure("render.cooked_rebuild", topic_id: post.topic_id) do
+        DiscourseJournals::PerformanceLogger.measure("render.cooked_rebuild", topic_id: post.topic_id) do
           I18n.with_locale(SiteSetting.default_locale) { renderer.render }
         end
       post.update_columns(cooked: html, baked_version: Post::BAKED_VERSION)
@@ -371,7 +376,7 @@ after_initialize do
       Nokogiri::HTML5.fragment(html).children.each { |child| doc.add_child(child.dup) }
 
       plain =
-        PerformanceLogger.measure("render.seo_excerpt", topic_id: post.topic_id) do
+        DiscourseJournals::PerformanceLogger.measure("render.seo_excerpt", topic_id: post.topic_id) do
           I18n.with_locale(SiteSetting.default_locale) { renderer.render_seo_excerpt }
         end
       post.topic.update_excerpt(plain) if plain.present?
