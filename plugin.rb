@@ -390,12 +390,19 @@ after_initialize do
     end
   end
 
-  # The journal sync updates updated_at but not bumped_at (bypass_bump mode).
-  # Core sitemap uses `bumped_at || updated_at` for <lastmod>, which ignores updated_at
-  # when bumped_at is present (always). We patch Sitemap#topics so that ONLY journal
-  # category topics use max(bumped_at, updated_at) as lastmod.
+  # Sitemap patches:
+  # 1. last_posted_topic: Core bug – MAX(updated_at) on a scope with LIMIT/OFFSET
+  #    returns nil for page 2+ because the aggregate collapses to one row and OFFSET
+  #    skips past it. Fix: use a subquery so MAX operates on the correct row set.
+  # 2. topics: Journal sync updates updated_at but not bumped_at. Core uses
+  #    (bumped_at || updated_at) for <lastmod>, ignoring updated_at when bumped_at
+  #    is present. For journal topics only, use max(bumped_at, updated_at).
   reloadable_patch do
     sitemap_patch = Module.new do
+      def last_posted_topic
+        ::Topic.where(id: sitemap_topics.select(:id)).maximum(:updated_at)
+      end
+
       def topics
         rows = super
         return rows if name == Sitemap::NEWS_SITEMAP_NAME
