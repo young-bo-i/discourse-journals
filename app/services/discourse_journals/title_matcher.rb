@@ -307,15 +307,30 @@ module DiscourseJournals
       uri = URI(url)
 
       retries = 0
-      max_retries = 3
+      max_retries = 5
 
       begin
+        @rate_limiter.throttle!
         http = Net::HTTP.new(uri.host, uri.port)
         http.use_ssl = (uri.scheme == "https")
         http.open_timeout = 30
         http.read_timeout = 60
 
         response = http.get(uri.request_uri)
+
+        if response.code.to_i == 429
+          retries += 1
+          if retries <= max_retries
+            retry_after = (response["Retry-After"] || retries * 5).to_i.clamp(2, 60)
+            Rails.logger.warn(
+              "[DiscourseJournals::TitleMatcher] Page #{page} rate-limited (429), retry #{retries}/#{max_retries}, waiting #{retry_after}s",
+            )
+            sleep retry_after
+            retry
+          end
+          raise "API 第 #{page} 页请求被限流 (重试 #{max_retries} 次后仍为 429)"
+        end
+
         unless response.is_a?(Net::HTTPSuccess)
           raise "API 请求失败: #{response.code} #{response.message}"
         end
