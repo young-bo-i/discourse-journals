@@ -17,6 +17,13 @@ module DiscourseJournals
       sync_paused: 4,
     }
 
+    enum :cover_status, {
+      cover_not_started: 0,
+      cover_processing: 1,
+      cover_completed: 2,
+      cover_failed: 3,
+    }, prefix: :cover
+
     CATEGORIES = %w[exact_1to1 forum_1_to_api_n forum_n_to_api_1 forum_n_to_api_m forum_only api_only].freeze
 
     scope :latest, -> { order(created_at: :desc) }
@@ -63,6 +70,18 @@ module DiscourseJournals
         forum_only: forum_only_count,
         api_only: api_only_count,
       }
+    end
+
+    def cover_redis_key
+      "discourse_journals:cover_progress:#{id}"
+    end
+
+    def cover_progress_percent
+      stats = cover_stats || {}
+      total = stats["total"].to_i
+      return 0 if total.zero?
+      processed = stats["processed"].to_i
+      [(processed * 100.0 / total).round, 100].min
     end
 
     def apply_summary

@@ -9,6 +9,7 @@ module DiscourseJournals
       discourse_journals_cover_url
       discourse_journals_country
       discourse_journals_normalized_title_key
+      discourse_journals_api_id
     ].freeze
 
     attr_reader :last_topic_id
@@ -128,6 +129,7 @@ module DiscourseJournals
         desired["discourse_journals_country"] = prepared[:country].to_s if prepared[:country].present?
         desired["discourse_journals_data"] = prepared[:normalized_json] if prepared[:normalized_json].present?
         desired["discourse_journals_normalized_title_key"] = prepared[:normalized_title_key] if prepared[:normalized_title_key].present?
+        desired["discourse_journals_api_id"] = prepared[:api_id].to_s if prepared[:api_id].present?
 
         existing = TopicCustomField
           .where(topic_id: topic.id, name: CUSTOM_FIELD_NAMES)
@@ -285,6 +287,7 @@ module DiscourseJournals
       raise ArgumentError, "Empty content generated" if html.blank?
 
       {
+        api_id: normalized.dig(:unified, :id),
         title: title,
         html: html,
         raw_text: raw_text,

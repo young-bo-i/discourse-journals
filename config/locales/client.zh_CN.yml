@@ -65,6 +65,13 @@ zh_CN:
           apply_stats_updated: "已更新"
           apply_stats_created: "已创建"
           apply_stats_errors: "错误"
+          cover_heading: "封面处理"
+          cover_description: "为期刊话题下载或生成封面图片。此步骤在映射应用完成后自动在后台执行。"
+          cover_in_progress: "正在处理封面..."
+          cover_completed: "封面处理完成！"
+          cover_failed: "封面处理失败"
+          cover_stats_processed: "已处理"
+          cover_stats_total: "总计"
         danger:
           heading: "危险操作"
           delete_all: "删除全部"

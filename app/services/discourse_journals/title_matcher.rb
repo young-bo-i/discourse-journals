@@ -24,6 +24,8 @@ module DiscourseJournals
       @api_index = {}
       @forum_issn_index = {}
       @api_issn_index = {}
+      @forum_api_id_index = {}
+      @api_id_index = {}
       @api_seen_issns = Set.new
       @total_forum_topics = 0
       @total_api_records = 0
@@ -74,6 +76,8 @@ module DiscourseJournals
       @api_index = {}
       @forum_issn_index = {}
       @api_issn_index = {}
+      @forum_api_id_index = {}
+      @api_id_index = {}
       @api_seen_issns = nil
     end
 
@@ -93,7 +97,11 @@ module DiscourseJournals
       field_map =
         TopicCustomField
           .where(
-            name: %w[discourse_journals_issn_l discourse_journals_normalized_title_key],
+            name: %w[
+              discourse_journals_issn_l
+              discourse_journals_normalized_title_key
+              discourse_journals_api_id
+            ],
             topic_id: base_scope.select(:id),
           )
           .pluck(:topic_id, :name, :value)
@@ -115,6 +123,11 @@ module DiscourseJournals
         if issn_l.present?
           @forum_issn_index[issn_l] ||= []
           @forum_issn_index[issn_l] << entry
+        end
+
+        api_id = fields["discourse_journals_api_id"]
+        if api_id.present?
+          @forum_api_id_index[api_id.to_s] = entry
         end
 
         if (idx + 1) % 10_000 == 0
@@ -327,6 +340,7 @@ module DiscourseJournals
         canonical_name = unified["canonical_name"]
         next if canonical_name.blank?
 
+        api_id = unified["id"]
         issn_l = unified["issn_l"]
 
         if issn_l.present? && @api_seen_issns.include?(issn_l)
@@ -337,10 +351,14 @@ module DiscourseJournals
         next if normalized.blank?
 
         entry = {
-          api_id: unified["id"],
+          api_id: api_id,
           canonical_name: canonical_name,
           issn_l: issn_l,
         }
+
+        if api_id.present?
+          @api_id_index[api_id.to_s] = entry
+        end
 
         @api_index[normalized] ||= []
         @api_index[normalized] << entry
@@ -372,15 +390,45 @@ module DiscourseJournals
     end
 
     def cross_match
-      publish_progress(:match, 0, 0, "正在进行 ISSN-L 和标题交叉比对...")
+      publish_progress(:match, 0, 0, "正在进行 API ID、ISSN-L 和标题交叉比对...")
 
       issn_matched_forum_ids = Set.new
       issn_matched_api_ids = Set.new
+      match_api_id(issn_matched_forum_ids, issn_matched_api_ids)
       match_issn_l(issn_matched_forum_ids, issn_matched_api_ids)
 
       match_by_title(issn_matched_forum_ids, issn_matched_api_ids)
 
       publish_progress(:match, 1, 1, "比对完成！")
+    end
+
+    def match_api_id(matched_forum_ids, matched_api_ids)
+      common_api_ids = @forum_api_id_index.keys & @api_id_index.keys
+      return if common_api_ids.empty?
+
+      common_api_ids.each do |api_id|
+        forum_entry = @forum_api_id_index[api_id]
+        api_entry = @api_id_index[api_id]
+        next unless forum_entry && api_entry
+
+        normalized_title = self.class.normalize(api_entry[:canonical_name])
+
+        entry = {
+          normalized_title: normalized_title,
+          forum: [forum_entry],
+          api: [api_entry],
+        }
+
+        @results[:exact_1to1] << entry
+
+        matched_forum_ids.add(forum_entry[:topic_id])
+        matched_api_ids.add(api_entry[:api_id])
+      end
+
+      Rails.logger.info(
+        "[DiscourseJournals::TitleMatcher] API ID phase: #{common_api_ids.size} matched " \
+        "(#{matched_forum_ids.size} forum topics, #{matched_api_ids.size} API records)",
+      )
     end
 
     def match_issn_l(matched_forum_ids, matched_api_ids)

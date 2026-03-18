@@ -65,6 +65,13 @@ en:
           apply_stats_updated: "Updated"
           apply_stats_created: "Created"
           apply_stats_errors: "Errors"
+          cover_heading: "Cover processing"
+          cover_description: "Download or generate cover images for journal topics. This runs in the background after the mapping apply completes."
+          cover_in_progress: "Processing covers..."
+          cover_completed: "Cover processing completed!"
+          cover_failed: "Cover processing failed"
+          cover_stats_processed: "Processed"
+          cover_stats_total: "Total"
         danger:
           heading: "Danger Zone"
           delete_all: "Delete All"

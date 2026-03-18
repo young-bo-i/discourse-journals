@@ -51,6 +51,7 @@ after_initialize do
   Topic.register_custom_field_type("discourse_journals_country", :string)
   Topic.register_custom_field_type("discourse_journals_cover_url_hash", :string)
   Topic.register_custom_field_type("discourse_journals_normalized_title_key", :string)
+  Topic.register_custom_field_type("discourse_journals_api_id", :string)
 
   module ::DiscourseJournals
     CUSTOM_FIELD_NAMES = %w[
@@ -60,6 +61,7 @@ after_initialize do
       discourse_journals_cover_url
       discourse_journals_country
       discourse_journals_normalized_title_key
+      discourse_journals_api_id
     ].freeze
 
     SEO_FIELD_NAMES = %w[discourse_journals_issn_l discourse_journals_publisher].freeze
@@ -307,6 +309,7 @@ after_initialize do
   end
 
   register_html_builder("server:before-head-close-crawler", &jsonld_html)
+  register_html_builder("server:before-head-close", &jsonld_html)
 
   sidebar_hide_html = ->(controller) do
     next "" unless SiteSetting.discourse_journals_enabled
@@ -387,51 +390,10 @@ after_initialize do
     end
   end
 
-  reloadable_patch do
-    sitemap_patch = Module.new do
-      def topics
-        if name == ::Sitemap::RECENT_SITEMAP_NAME
-          sitemap_topics.pluck(
-            :id, :slug, :bumped_at, :updated_at, :posts_count,
-          )
-        elsif name == ::Sitemap::NEWS_SITEMAP_NAME
-          sitemap_topics.pluck(:id, :title, :slug, :created_at)
-        else
-          sitemap_topics.pluck(:id, :slug, :bumped_at, :updated_at)
-        end
-      end
-
-      def last_posted_topic
-        sitemap_topics.maximum(:bumped_at)
-      end
-
-      private
-
-      def sitemap_topics
-        indexable_topics =
-          Topic.where(visible: true, deleted_at: nil)
-            .joins(:category)
-            .where(categories: { read_restricted: false })
-
-        if name == ::Sitemap::RECENT_SITEMAP_NAME
-          indexable_topics
-            .where("topics.bumped_at > ?", 3.days.ago)
-            .order(bumped_at: :desc)
-            .limit(50_000)
-        elsif name == ::Sitemap::NEWS_SITEMAP_NAME
-          indexable_topics
-            .where("topics.bumped_at > ?", 72.hours.ago)
-            .order(bumped_at: :desc)
-            .limit(50_000)
-        else
-          offset = (name.to_i - 1) * max_page_size
-          indexable_topics.order(id: :asc).limit(max_page_size).offset(offset)
-        end
-      end
-    end
-
-    ::Sitemap.prepend(sitemap_patch)
-  end
+  # NOTE: This plugin intentionally does not "bump" topics when syncing journal content.
+  # We still want search engines to see updates via sitemap <lastmod>, which is driven by
+  # topic.updated_at in core Discourse sitemap logic. Therefore, we avoid patching Sitemap
+  # globally here and rely on core behavior.
 
   Discourse::Application.routes.append do
     post "/admin/journals/mapping/analyze" => "discourse_journals/admin_mapping#analyze",
@@ -453,6 +415,9 @@ after_initialize do
          :constraints => AdminConstraint.new
     post "/admin/journals/mapping/apply_resume" => "discourse_journals/admin_mapping#apply_resume",
          :constraints => AdminConstraint.new
+
+    get "/admin/journals/mapping/cover_status" => "discourse_journals/admin_mapping#cover_status",
+        :constraints => AdminConstraint.new
 
     delete "/admin/journals/delete_all" => "discourse_journals/admin_mapping#delete_all",
            :constraints => AdminConstraint.new

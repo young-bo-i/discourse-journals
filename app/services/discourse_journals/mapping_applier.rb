@@ -357,6 +357,13 @@ module DiscourseJournals
 
         threads = UPSERT_CONCURRENCY.times.map do
           Thread.new do
+            upserter =
+              JournalUpserter.new(
+                system_user: @system_user,
+                defer_images: true,
+                category: @journal_category,
+              )
+
             while (row = queue.pop) != :done
               api_id = row.dig("unified", "id")
               next unless api_id
@@ -366,11 +373,7 @@ module DiscourseJournals
 
               begin
                 journal_params = ApiDataTransformer.transform(row)
-                prepared = JournalUpserter.new(
-                  system_user: @system_user,
-                  defer_images: true,
-                  category: @journal_category,
-                ).normalize_and_render(journal_params)
+                prepared = upserter.normalize_and_render(journal_params)
 
                 result_mutex.synchronize do
                   result << { api_id: api_id, action: action, topic_id: topic_id, prepared: prepared }
@@ -400,9 +403,15 @@ module DiscourseJournals
 
         threads = UPSERT_CONCURRENCY.times.map do
           Thread.new do
+            upserter =
+              JournalUpserter.new(
+                system_user: @system_user,
+                defer_images: true,
+                category: @journal_category,
+              )
+
             while (item = queue.pop) != :done
               begin
-                upserter = JournalUpserter.new(system_user: @system_user, defer_images: true, category: @journal_category)
                 upserter.upsert_prepared!(item[:prepared], existing_topic_id: item[:topic_id])
                 increment_stat(:updated)
                 tid = upserter.last_topic_id
@@ -422,7 +431,12 @@ module DiscourseJournals
     end
 
     def serial_upsert(item)
-      upserter = JournalUpserter.new(system_user: @system_user, defer_images: true, category: @journal_category)
+      upserter =
+        JournalUpserter.new(
+          system_user: @system_user,
+          defer_images: true,
+          category: @journal_category,
+        )
       upserter.upsert_prepared!(item[:prepared])
       increment_stat(:created)
       tid = upserter.last_topic_id
@@ -536,15 +550,45 @@ module DiscourseJournals
       return if @cover_topic_ids.empty?
 
       unique_ids = @cover_topic_ids.uniq
-      publish_progress(100, "正在排队封面图片处理任务 (#{unique_ids.size} 个话题)...")
+      cover_total = unique_ids.size
+      user_id = @analysis.user_id
+
+      publish_progress(100, "正在排队封面图片处理任务 (#{cover_total} 个话题)...")
+
+      @analysis.update_columns(
+        cover_status: MappingAnalysis.cover_statuses[:cover_processing],
+        cover_stats: { "total" => cover_total, "processed" => 0 },
+      )
+
+      Discourse.redis.set(@analysis.cover_redis_key, 0)
 
       unique_ids.each_slice(COVER_JOB_BATCH_SIZE).with_index do |batch, idx|
         delay = idx * COVER_JOB_DELAY_SECONDS
-        Jobs.enqueue_in(delay, Jobs::DiscourseJournals::ProcessJournalCovers, topic_ids: batch)
+        Jobs.enqueue_in(
+          delay,
+          Jobs::DiscourseJournals::ProcessJournalCovers,
+          topic_ids: batch,
+          analysis_id: @analysis.id,
+          user_id: user_id,
+          cover_total: cover_total,
+        )
       end
 
+      MessageBus.publish(
+        "/journals/cover-processing",
+        {
+          analysis_id: @analysis.id,
+          status: "processing",
+          progress: 0,
+          total: cover_total,
+          processed: 0,
+          message: "封面处理已排队... 0/#{cover_total}",
+        },
+        user_ids: [user_id],
+      )
+
       Rails.logger.info(
-        "[DiscourseJournals::MappingApplier] Enqueued cover processing for #{unique_ids.size} topics (staggered over #{unique_ids.size / COVER_JOB_BATCH_SIZE * COVER_JOB_DELAY_SECONDS}s)",
+        "[DiscourseJournals::MappingApplier] Enqueued cover processing for #{cover_total} topics (staggered over #{cover_total / COVER_JOB_BATCH_SIZE * COVER_JOB_DELAY_SECONDS}s)",
       )
     end
 

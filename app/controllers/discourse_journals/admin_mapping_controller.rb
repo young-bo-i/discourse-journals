@@ -197,6 +197,21 @@ module DiscourseJournals
       render_json_error("恢复应用失败: #{e.message}")
     end
 
+    # GET /admin/journals/mapping/cover_status
+    def cover_status
+      analysis = MappingAnalysis.current
+
+      if analysis.nil?
+        return render_json_dump({ has_analysis: false })
+      end
+
+      render_json_dump({
+        has_analysis: true,
+        cover_status: analysis.cover_status,
+        cover_stats: analysis.cover_stats || {},
+      })
+    end
+
     # DELETE /admin/journals/delete_all
     def delete_all
       Jobs.enqueue(Jobs::DiscourseJournals::DeleteAllJournals, user_id: current_user.id)
@@ -257,6 +272,8 @@ module DiscourseJournals
         apply_error_message: analysis.apply_error_message,
         apply_started_at: analysis.apply_started_at,
         apply_completed_at: analysis.apply_completed_at,
+        cover_status: analysis.cover_status,
+        cover_stats: analysis.cover_stats || {},
       }
     end
   end
