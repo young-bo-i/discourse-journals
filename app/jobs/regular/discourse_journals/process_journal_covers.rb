@@ -21,7 +21,7 @@ module Jobs
         thumbnail_sizes =
           ThemeModifierHelper.new(theme_ids: Theme.user_selectable.pluck(:id)).topic_thumbnail_sizes
 
-        DiscourseJournals::PerformanceLogger.log(
+        ::DiscourseJournals::PerformanceLogger.log(
           "cover.job.start",
           source_type: "process_journal_covers",
           elapsed_ms: 0,
@@ -49,7 +49,7 @@ module Jobs
 
           Topic.where(id: batch_ids).find_each do |topic|
             cf = batch_custom_fields[topic.id] || {}
-            result = DiscourseJournals::TopicCoverManager.process!(
+            result = ::DiscourseJournals::TopicCoverManager.process!(
               topic: topic,
               cover_url: cf["discourse_journals_cover_url"],
               issn: cf["discourse_journals_issn_l"],
@@ -69,7 +69,7 @@ module Jobs
           end
 
           if deferred_topic_ids.any?
-            DiscourseJournals::PerformanceLogger.log(
+            ::DiscourseJournals::PerformanceLogger.log(
               "cover.job.defer_reenqueue",
               source_type: "process_journal_covers",
               deferred: true,

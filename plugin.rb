@@ -390,10 +390,41 @@ after_initialize do
     end
   end
 
-  # NOTE: This plugin intentionally does not "bump" topics when syncing journal content.
-  # We still want search engines to see updates via sitemap <lastmod>, which is driven by
-  # topic.updated_at in core Discourse sitemap logic. Therefore, we avoid patching Sitemap
-  # globally here and rely on core behavior.
+  # The journal sync updates updated_at but not bumped_at (bypass_bump mode).
+  # Core sitemap uses `bumped_at || updated_at` for <lastmod>, which ignores updated_at
+  # when bumped_at is present (always). We patch Sitemap#topics so that ONLY journal
+  # category topics use max(bumped_at, updated_at) as lastmod.
+  reloadable_patch do
+    sitemap_patch = Module.new do
+      def topics
+        rows = super
+        return rows if name == Sitemap::NEWS_SITEMAP_NAME
+
+        journal_cid = SiteSetting.discourse_journals_category_id.to_i
+        return rows if journal_cid.zero?
+
+        journal_topic_ids = ::Topic.where(category_id: journal_cid).where(
+          id: rows.map(&:first),
+        ).pluck(:id).to_set
+
+        rows.map do |row|
+          topic_id = row[0]
+          next row unless journal_topic_ids.include?(topic_id)
+
+          if name == Sitemap::RECENT_SITEMAP_NAME
+            id, slug, bumped_at, updated_at, posts_count = row
+            effective = [bumped_at, updated_at].compact.max
+            [id, slug, effective, updated_at, posts_count]
+          else
+            id, slug, bumped_at, updated_at = row
+            effective = [bumped_at, updated_at].compact.max
+            [id, slug, effective, updated_at]
+          end
+        end
+      end
+    end
+    ::Sitemap.prepend(sitemap_patch)
+  end
 
   Discourse::Application.routes.append do
     post "/admin/journals/mapping/analyze" => "discourse_journals/admin_mapping#analyze",
