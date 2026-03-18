@@ -10,7 +10,7 @@ module DiscourseJournals
 
     API_BASE_URL = "https://journal.scholay.com/api/open/journals"
     API_PAGE_SIZE = 1000
-    API_CONCURRENCY = 5
+    API_CONCURRENCY = 3
     PROGRESS_BATCH_INTERVAL = 5
 
     attr_reader :forum_index, :api_index, :results,
@@ -247,12 +247,25 @@ module DiscourseJournals
     def fetch_api_page_persistent(http, page)
       path = "/api/open/journals?page=#{page}&pageSize=#{API_PAGE_SIZE}"
       retries = 0
-      max_retries = 3
+      max_retries = 5
 
       begin
         @rate_limiter.throttle!
         request = Net::HTTP::Get.new(path)
         response = http.request(request)
+
+        if response.code.to_i == 429
+          retries += 1
+          if retries <= max_retries
+            retry_after = (response["Retry-After"] || retries * 5).to_i.clamp(2, 60)
+            Rails.logger.warn(
+              "[DiscourseJournals::TitleMatcher] Page #{page} rate-limited (429), retry #{retries}/#{max_retries}, waiting #{retry_after}s",
+            )
+            sleep retry_after
+            retry
+          end
+          raise "API 第 #{page} 页请求被限流 (重试 #{max_retries} 次后仍为 429)"
+        end
 
         unless response.is_a?(Net::HTTPSuccess)
           raise "API 请求失败: #{response.code} #{response.message}"
@@ -273,7 +286,7 @@ module DiscourseJournals
       rescue Net::OpenTimeout, Net::ReadTimeout, OpenSSL::SSL::SSLError, Errno::ECONNRESET, EOFError, IOError => e
         retries += 1
         if retries <= max_retries
-          wait = retries * 2
+          wait = retries * 3
           Rails.logger.warn(
             "[DiscourseJournals::TitleMatcher] Page #{page} retry #{retries}/#{max_retries} after #{e.class}: #{e.message}, waiting #{wait}s",
           )

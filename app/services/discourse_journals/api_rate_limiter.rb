@@ -4,7 +4,7 @@ module DiscourseJournals
   # Token-bucket rate limiter for external API calls.
   # Thread-safe: multiple concurrent fetchers share one instance.
   class ApiRateLimiter
-    DEFAULT_REQUESTS_PER_SECOND = 10
+    DEFAULT_REQUESTS_PER_SECOND = 5
 
     def initialize(rate: DEFAULT_REQUESTS_PER_SECOND)
       @mutex = Mutex.new

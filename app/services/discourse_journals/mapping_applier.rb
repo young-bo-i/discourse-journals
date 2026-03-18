@@ -517,6 +517,19 @@ module DiscourseJournals
         request = Net::HTTP::Get.new(path)
         response = http.request(request)
 
+        if response.code.to_i == 429
+          retries += 1
+          if retries <= max_retries
+            retry_after = (response["Retry-After"] || retries * 5).to_i.clamp(2, 60)
+            Rails.logger.warn(
+              "[DiscourseJournals::MappingApplier] byIds rate-limited (429), retry #{retries}/#{max_retries}, waiting #{retry_after}s",
+            )
+            sleep retry_after
+            retry
+          end
+          raise "API byIds 请求被限流 (重试 #{max_retries} 次后仍为 429)"
+        end
+
         unless response.is_a?(Net::HTTPSuccess)
           raise "API byIds 请求失败: #{response.code} #{response.message}"
         end
