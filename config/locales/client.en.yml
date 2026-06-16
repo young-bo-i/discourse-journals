@@ -4,6 +4,10 @@ en:
       title: "Journals"
       nav_title: "Navigation"
       suggested_title: "Related Journals"
+      promo:
+        title: "Explore Scholay"
+        visit: "Visit %{name}"
+        go_to: "Show %{name}"
       search:
         placeholder: "Search journals (name, ISSN, publisher...)"
         button: "Search"

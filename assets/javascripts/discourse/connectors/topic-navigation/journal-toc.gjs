@@ -1,14 +1,14 @@
 import Component from "@glimmer/component";
 import { tracked } from "@glimmer/tracking";
-import { action } from "@ember/object";
-import { service } from "@ember/service";
 import { concat, fn } from "@ember/helper";
 import { on } from "@ember/modifier";
+import { action } from "@ember/object";
 import didInsert from "@ember/render-modifiers/modifiers/did-insert";
 import willDestroy from "@ember/render-modifiers/modifiers/will-destroy";
-import { eq } from "discourse/truth-helpers";
 import concatClass from "discourse/helpers/concat-class";
+import { eq } from "discourse/truth-helpers";
 import { i18n } from "discourse-i18n";
+import JournalPromo from "../../components/journal-promo";
 
 export default class JournalToc extends Component {
   static shouldRender(outletArgs, helper) {
@@ -30,8 +30,6 @@ export default class JournalToc extends Component {
 
     return String(topic.category_id) === String(categoryId);
   }
-
-  @service siteSettings;
 
   @tracked sections = [];
   @tracked activeId = null;
@@ -94,7 +92,10 @@ export default class JournalToc extends Component {
         let best = null;
         for (const entry of entries) {
           if (entry.isIntersecting) {
-            if (!best || entry.boundingClientRect.top < best.boundingClientRect.top) {
+            if (
+              !best ||
+              entry.boundingClientRect.top < best.boundingClientRect.top
+            ) {
               best = entry;
             }
           }
@@ -120,19 +121,25 @@ export default class JournalToc extends Component {
   }
 
   <template>
+    <JournalPromo />
+
     <div
       class="dj-journal-nav"
       {{didInsert this.setup}}
       {{willDestroy this.cleanup}}
     >
       {{#if this.sections.length}}
-        <div class="dj-journal-nav__title">{{i18n "discourse_journals.nav_title"}}</div>
+        <div class="dj-journal-nav__title">{{i18n
+            "discourse_journals.nav_title"
+          }}</div>
         <ul class="dj-journal-nav__list">
           {{#each this.sections as |section|}}
             <li
               class={{concatClass
                 "dj-journal-nav__item"
-                (if (eq section.id this.activeId) "dj-journal-nav__item--active")
+                (if
+                  (eq section.id this.activeId) "dj-journal-nav__item--active"
+                )
               }}
             >
               <a
