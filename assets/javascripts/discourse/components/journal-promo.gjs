@@ -12,23 +12,23 @@ import { i18n } from "discourse-i18n";
 const IMAGE_BASE = "/plugins/discourse-journals/images/promo";
 const ROTATE_INTERVAL = 5000;
 
-// External entry points to scholay.com. Product names are brand names (kept
-// literal); the surrounding UI strings are translatable.
+// External entry points to scholay.com. Each slide shows its own (translatable)
+// title above the animation and links to the matching product page.
 const SLIDES = [
   {
-    name: "Claw Agent",
-    image: `${IMAGE_BASE}/claw-agent-flow.gif`,
-    url: "https://www.scholay.com/claw",
+    titleKey: "discourse_journals.promo.titles.peer_review",
+    image: `${IMAGE_BASE}/peer-review-flow.webp`,
+    url: "https://www.scholay.com/peer-review",
   },
   {
-    name: "Prism Writing",
-    image: `${IMAGE_BASE}/prism-writing-flow.gif`,
+    titleKey: "discourse_journals.promo.titles.prism",
+    image: `${IMAGE_BASE}/prism-writing-flow.webp`,
     url: "https://www.scholay.com/prism",
   },
   {
-    name: "Peer Review",
-    image: `${IMAGE_BASE}/peer-review-flow.gif`,
-    url: "https://www.scholay.com/peer-review",
+    titleKey: "discourse_journals.promo.titles.claw",
+    image: `${IMAGE_BASE}/claw-agent-flow.webp`,
+    url: "https://www.scholay.com/claw",
   },
 ];
 
@@ -39,6 +39,10 @@ export default class JournalPromo extends Component {
 
   get slides() {
     return SLIDES;
+  }
+
+  get current() {
+    return this.slides[this.index];
   }
 
   @action
@@ -102,9 +106,7 @@ export default class JournalPromo extends Component {
       {{on "mouseenter" this.pause}}
       {{on "mouseleave" this.resume}}
     >
-      <div class="dj-journal-promo__title">{{i18n
-          "discourse_journals.promo.title"
-        }}</div>
+      <div class="dj-journal-promo__title">{{i18n this.current.titleKey}}</div>
 
       <div class="dj-journal-promo__viewport">
         {{#each this.slides as |slide i|}}
@@ -116,13 +118,13 @@ export default class JournalPromo extends Component {
               rel="noopener noreferrer"
               aria-label={{i18n
                 "discourse_journals.promo.visit"
-                name=slide.name
+                name=(i18n slide.titleKey)
               }}
             >
               <img
                 class="dj-journal-promo__img"
                 src={{slide.image}}
-                alt={{slide.name}}
+                alt={{i18n slide.titleKey}}
               />
             </a>
           {{/if}}
@@ -140,7 +142,7 @@ export default class JournalPromo extends Component {
               }}
               aria-label={{i18n
                 "discourse_journals.promo.go_to"
-                name=slide.name
+                name=(i18n slide.titleKey)
               }}
               {{on "click" (fn this.goTo i)}}
             ></button>

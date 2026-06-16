@@ -5,9 +5,12 @@ zh_CN:
       nav_title: "章节导航"
       suggested_title: "相关期刊"
       promo:
-        title: "探索 Scholay"
         visit: "前往 %{name}"
         go_to: "查看 %{name}"
+        titles:
+          peer_review: "智能审稿"
+          prism: "智能写作"
+          claw: "智能助手Claw"
       search:
         placeholder: "搜索期刊（输入名称、ISSN、出版商...）"
         button: "搜索"
