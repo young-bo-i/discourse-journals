@@ -180,4 +180,72 @@ describe DiscourseJournals::JournalUpserter do
       expect(existing_topic.custom_fields["discourse_journals_publisher"]).to eq(nil)
     end
   end
+
+  describe "updated_at / sitemap lastmod gating" do
+    def prepared_for(topic, json)
+      {
+        title: topic.title,
+        html: "<p>content</p>",
+        raw_text: "content",
+        normalized: { identity: { title: topic.title } },
+        normalized_json: json,
+        normalized_title_key: DiscourseJournals::TitleMatcher.normalized_title_key(topic.title),
+        issn_l: nil,
+        publisher: nil,
+        cover_url: nil,
+        country: nil,
+      }
+    end
+
+    it "leaves updated_at and bumped_at untouched when re-synced with identical data" do
+      json = { identity: { title: existing_topic.title }, metrics: { works_count: 5 } }.to_json
+      t0 = Time.utc(2026, 1, 1, 12, 0, 0)
+
+      freeze_time(t0) do
+        described_class.new.upsert_prepared!(
+          prepared_for(existing_topic, json),
+          existing_topic_id: existing_topic.id,
+        )
+      end
+      existing_topic.reload
+      updated_before = existing_topic.updated_at
+      bumped_before = existing_topic.bumped_at
+
+      freeze_time(t0 + 1.hour) do
+        described_class.new.upsert_prepared!(
+          prepared_for(existing_topic, json),
+          existing_topic_id: existing_topic.id,
+        )
+      end
+      existing_topic.reload
+
+      expect(existing_topic.updated_at).to be_within(1.second).of(updated_before)
+      expect(existing_topic.bumped_at).to be_within(1.second).of(bumped_before)
+    end
+
+    it "advances updated_at but never bumps the topic when the data changes" do
+      t0 = Time.utc(2026, 1, 1, 12, 0, 0)
+
+      freeze_time(t0) do
+        described_class.new.upsert_prepared!(
+          prepared_for(existing_topic, { metrics: { works_count: 1 } }.to_json),
+          existing_topic_id: existing_topic.id,
+        )
+      end
+      existing_topic.reload
+      updated_before = existing_topic.updated_at
+      bumped_before = existing_topic.bumped_at
+
+      freeze_time(t0 + 1.hour) do
+        described_class.new.upsert_prepared!(
+          prepared_for(existing_topic, { metrics: { works_count: 2 } }.to_json),
+          existing_topic_id: existing_topic.id,
+        )
+      end
+      existing_topic.reload
+
+      expect(existing_topic.updated_at).to be > updated_before
+      expect(existing_topic.bumped_at).to be_within(1.second).of(bumped_before)
+    end
+  end
 end

@@ -87,12 +87,14 @@ module Jobs
         )
       rescue ::DiscourseJournals::MappingApplier::PausedError
         Rails.logger.info("[DiscourseJournals::ApplyMapping] Paused by user: analysis #{analysis_id}")
+        reconcile_tag_counts_safely
         if analysis
           stats = ::DiscourseJournals::MappingAnalysis.where(id: analysis.id).pick(:apply_stats) || {}
           publish_progress(user_id, analysis, "paused", 0, "应用已暂停", stats)
         end
       rescue StandardError => e
         Rails.logger.error("[DiscourseJournals::ApplyMapping] Failed: #{e.message}\n#{e.backtrace&.first(10)&.join("\n")}")
+        reconcile_tag_counts_safely
 
         if analysis
           analysis.update!(
@@ -106,6 +108,18 @@ module Jobs
       end
 
       private
+
+      # Tag/category-tag counts are maintained by reconcile_counts! on the success
+      # path. On pause/abort the delta writes (and BulkTopicDeleter) have already
+      # skipped the per-row counter callbacks, so reconcile here too — otherwise
+      # counts stay drifted until the 12h EnsureDbConsistency job. Self-guarded so
+      # a reconcile failure never masks the original pause/error.
+      def reconcile_tag_counts_safely
+        ::DiscourseJournals::JournalTagManager.reconcile_counts!
+        ::DiscourseJournals::JournalTagManager.reset_cache!
+      rescue StandardError => e
+        Rails.logger.warn("[DiscourseJournals::ApplyMapping] reconcile_counts! failed: #{e.message}")
+      end
 
       def publish_progress(user_id, analysis, status, progress, message, stats)
         return unless user_id && analysis

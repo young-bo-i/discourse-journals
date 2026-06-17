@@ -56,6 +56,16 @@ module DiscourseJournals
         one_per_topic: true,
         predefined: %w[中科院:top],
       },
+      xinrui_zone: {
+        name: "新锐分区",
+        one_per_topic: true,
+        predefined: %w[新锐:1区 新锐:2区 新锐:3区 新锐:4区],
+      },
+      xinrui_top: {
+        name: "新锐Top",
+        one_per_topic: true,
+        predefined: %w[新锐:top],
+      },
       ccf_rank: {
         name: "CCF Rank",
         one_per_topic: true,
@@ -116,12 +126,51 @@ module DiscourseJournals
         tag_names.each { |name| ensure_membership_cached!(group_key, name) }
       end
 
-      tags = all_tag_names.filter_map do |name|
-        cleaned = DiscourseTagging.clean_tag(name.to_s)
-        @_tag_cache[cleaned]
-      end
+      desired_ids =
+        all_tag_names.filter_map do |name|
+          cleaned = DiscourseTagging.clean_tag(name.to_s)
+          @_tag_cache[cleaned]&.id
+        end
 
-      topic.tags = tags if tags.present?
+      apply_tag_delta!(topic, desired_ids)
+    end
+
+    # Writes the topic<->tag join rows as a delta, deliberately bypassing
+    # TopicTag's per-row counter callbacks (Tag.update_counters + CategoryTagStat).
+    # Those callbacks lock hot shared tag rows (jcr:q1, oa, publisher...) and, under
+    # the 4-way parallel upsert, caused lock-wait/deadlocks. Counts are recomputed
+    # once per run via reconcile_counts!. Mirrors topic.tags= full-replace semantics.
+    def self.apply_tag_delta!(topic, desired_ids)
+      desired = desired_ids.compact.uniq.sort
+      existing = TopicTag.where(topic_id: topic.id).pluck(:tag_id).sort
+      return if existing == desired
+
+      to_remove = existing - desired
+      to_add = desired - existing
+
+      TopicTag.where(topic_id: topic.id, tag_id: to_remove).delete_all if to_remove.any?
+
+      if to_add.any?
+        now = Time.current
+        rows =
+          to_add.map { |tag_id| { topic_id: topic.id, tag_id: tag_id, created_at: now, updated_at: now } }
+        # unique_by => ON CONFLICT DO NOTHING: if the same topic is processed by
+        # two parallel threads (e.g. two api_ids resolving to one topic_id), the
+        # concurrent insert is a no-op instead of raising RecordNotUnique. Counts
+        # are recomputed at end of run by reconcile_counts!.
+        TopicTag.insert_all(rows, unique_by: %i[topic_id tag_id])
+      end
+    end
+
+    # Recomputes tag + category-tag topic counts after a bulk run, since
+    # apply_tag_delta! (and BulkTopicDeleter) skip the per-row counter callbacks.
+    # Single-threaded full recompute using the same queries as core's
+    # EnsureDbConsistency job, so it is safe and idempotent.
+    def self.reconcile_counts!
+      return unless SiteSetting.tagging_enabled
+
+      Tag.ensure_consistency!
+      CategoryTagStat.ensure_consistency!
     end
 
     def self.build_tag_assignments(normalized)
@@ -131,6 +180,8 @@ module DiscourseJournals
       extract_sjr_quartile(normalized, assignments)
       extract_cas_zone(normalized, assignments)
       extract_cas_top(normalized, assignments)
+      extract_xinrui_zone(normalized, assignments)
+      extract_xinrui_top(normalized, assignments)
       extract_ccf_rank(normalized, assignments)
       extract_wos_index(normalized, assignments)
       extract_oa_status(normalized, assignments)
@@ -300,6 +351,24 @@ module DiscourseJournals
       assignments[:cas_top] = ["中科院:top"] if is_top
     end
 
+    def self.extract_xinrui_zone(normalized, assignments)
+      quartile = normalized.dig(:xinrui_partition, :data)&.first&.dig(:major_quartile)
+      return unless quartile.present?
+
+      num = quartile.to_s.match(/(\d+)/)&.captures&.first
+      return unless num && (1..4).cover?(num.to_i)
+
+      assignments[:xinrui_zone] = ["新锐:#{num}区"]
+    end
+
+    def self.extract_xinrui_top(normalized, assignments)
+      top = normalized.dig(:xinrui_partition, :data)&.first&.dig(:top)
+      return unless top.present?
+
+      is_top = top == true || top == "是" || top == "yes" || top == 1 || top == "1"
+      assignments[:xinrui_top] = ["新锐:top"] if is_top
+    end
+
     def self.extract_ccf_rank(normalized, assignments)
       rank = normalized.dig(:ccf, :rank)
       return unless rank.present?
@@ -397,10 +466,13 @@ module DiscourseJournals
       end
     end
 
-    private_class_method :extract_jcr_quartile,
+    private_class_method :apply_tag_delta!,
+                         :extract_jcr_quartile,
                          :extract_sjr_quartile,
                          :extract_cas_zone,
                          :extract_cas_top,
+                         :extract_xinrui_zone,
+                         :extract_xinrui_top,
                          :extract_ccf_rank,
                          :extract_wos_index,
                          :extract_oa_status,

@@ -19,6 +19,7 @@ module DiscourseJournals
         sections = []
       sections << render_hero
       sections << render_metric_visuals
+      sections << render_xinrui_section
       sections << render_status_grid
       sections << render_stats_narrative
       sections << render_peer_review
@@ -173,14 +174,16 @@ module DiscourseJournals
       jcr_latest = @d.dig(:jcr, :data)&.first
       sjr_latest = @d.dig(:scimago, :data)&.first
       cas_latest = @d.dig(:cas_partition, :data)&.first
+      xinrui_latest = @d.dig(:xinrui_partition, :data)&.first
       warn_latest = @d.dig(:warning, :data)&.first
       ccf_data = @d[:ccf]
 
-      return nil unless jcr_latest || sjr_latest || cas_latest || ccf_data
+      return nil unless jcr_latest || sjr_latest || cas_latest || xinrui_latest || ccf_data
 
       jcr_card = render_jcr_card(jcr_latest) if jcr_latest
       sjr_card = render_sjr_card(sjr_latest) if sjr_latest
       cas_card = render_cas_card(cas_latest, jcr_latest, warn_latest) if cas_latest
+      xinrui_card = render_xinrui_card(xinrui_latest) if xinrui_latest
       ccf_card = render_ccf_card(ccf_data) if ccf_data
 
       <<~HTML
@@ -194,6 +197,7 @@ module DiscourseJournals
             #{jcr_card}
             #{sjr_card}
             #{cas_card}
+            #{xinrui_card}
             #{ccf_card}
           </div>
         </section>
@@ -272,6 +276,110 @@ module DiscourseJournals
             #{warning_html}
           </div>
         </article>
+      HTML
+    end
+
+    def render_xinrui_card(xr)
+      partition = extract_cas_zone(xr[:major_quartile])
+      zone_class = partition ? "dj-pyramid--zone#{partition}" : ""
+      zone_label = partition ? t("zone_label", num: partition) : "—"
+      category = h(xr[:major_category_cn]).presence || h(xr[:major_category]).presence || "—"
+
+      <<~HTML
+        <article class="dj-metric-card dj-metric-card--xinrui">
+          <h4 class="dj-metric-heading">#{h(t("xinrui_heading"))}</h4>
+          <div class="dj-metric-structure dj-pyramid #{zone_class}">
+            <div class="dj-pyramid-segments">
+              <div class="dj-pyr-seg dj-pyr-seg--1"><span>1</span></div>
+              <div class="dj-pyr-seg dj-pyr-seg--2"><span>2</span></div>
+              <div class="dj-pyr-seg dj-pyr-seg--3"><span>3</span></div>
+              <div class="dj-pyr-seg dj-pyr-seg--4"><span>4</span></div>
+            </div>
+          </div>
+          <div class="dj-metric-content">
+            <p class="dj-metric-tier dj-metric-tier--xinrui">#{h(zone_label)}</p>
+            <p class="dj-metric-value dj-metric-value--xinrui">#{category}</p>
+          </div>
+        </article>
+      HTML
+    end
+
+    def render_xinrui_section
+      data = @d.dig(:xinrui_partition, :data) || []
+      latest = data.first
+      return nil unless latest
+
+      # label and value are escaped inside; callers pass raw values.
+      row = ->(label, value) do
+        return "" if value.blank?
+        %(<div class="dj-xinrui__row"><span class="dj-label">#{h(label)}</span><strong>#{h(value)}</strong></div>)
+      end
+
+      major =
+        [latest[:major_category_cn].presence, latest[:major_category].presence]
+          .compact
+          .join(" / ")
+          .presence || "—"
+      major_q = latest[:major_quartile].presence || "—"
+
+      second_value = ""
+      if latest[:major_category2].present?
+        second_name =
+          [latest[:major_category2_cn].presence, latest[:major_category2].presence].compact.join(" / ")
+        second_value = "#{second_name} · #{latest[:major_quartile2].presence || "—"}"
+      end
+
+      top_flag = ""
+      if latest[:top].to_s.strip == "是" || latest[:top] == true
+        top_flag = %( <span class="dj-pill dj-pill--type">#{h(t("xinrui_top_flag"))}</span>)
+      end
+
+      minor_rows =
+        (latest[:minor_categories] || [])
+          .map do |mc|
+            name = [h(mc[:category_cn]).presence, h(mc[:category]).presence].compact.join(" / ")
+            %(<tr><td>#{name}</td><td>#{h(mc[:quartile])}</td></tr>)
+          end
+          .join
+
+      minor_table =
+        if minor_rows.present?
+          <<~HTML
+            <table class="dj-xinrui-table">
+              <thead><tr><th>#{h(t("xinrui_subcategories"))}</th><th>#{h(t("quartile"))}</th></tr></thead>
+              <tbody>#{minor_rows}</tbody>
+            </table>
+          HTML
+        else
+          ""
+        end
+
+      history = ""
+      if data.size > 1
+        rows =
+          data
+            .first(MAX_TABLE_ROWS)
+            .map { |y| %(<tr><td>#{h(y[:year])}</td><td>#{h(y[:major_quartile])}</td></tr>) }
+            .join
+        history = <<~HTML
+          <table class="dj-xinrui-table dj-xinrui-history">
+            <thead><tr><th>#{h(t("year"))}</th><th>#{h(t("partition"))}</th></tr></thead>
+            <tbody>#{rows}</tbody>
+          </table>
+        HTML
+      end
+
+      <<~HTML
+        <section class="dj-panel dj-xinrui" id="dj-nav-xinrui" data-dj-nav="#{h(t("nav_xinrui"))}">
+          <h3>#{h(t("xinrui_section_title"))}#{top_flag}</h3>
+          <div class="dj-xinrui__summary">
+            #{row.call(t("xinrui_major"), "#{major} · #{major_q}")}
+            #{row.call(t("xinrui_second_major"), second_value)}
+            #{row.call(t("xinrui_database"), latest[:database_src])}
+          </div>
+          #{minor_table}
+          #{history}
+        </section>
       HTML
     end
 

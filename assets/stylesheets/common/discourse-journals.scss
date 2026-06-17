@@ -25,6 +25,7 @@
   --dj-tier-jcr: var(--tertiary);
   --dj-tier-sjr: #{dark-light-choose(#6b34d8, #a87ee8)};
   --dj-tier-cas: #{dark-light-choose(#c67a1a, #e8a948)};
+  --dj-tier-xinrui: #{dark-light-choose(#0d9488, #2dd4bf)};
   --dj-zone-1: #{dark-light-choose(#c67a1a, #e8a948)};
   --dj-zone-2: #{dark-light-choose(#0f8b6a, #3cc99b)};
   --dj-zone-3: #{dark-light-choose(#2563eb, #60a5fa)};
@@ -539,6 +540,9 @@
 .dj-metric-tier--cas {
   color: var(--dj-tier-cas);
 }
+.dj-metric-tier--xinrui {
+  color: var(--dj-tier-xinrui);
+}
 
 .dj-metric-value {
   margin: 0.3rem 0;
@@ -555,6 +559,9 @@
 }
 .dj-metric-value--cas {
   color: var(--dj-tier-cas);
+}
+.dj-metric-value--xinrui {
+  color: var(--dj-tier-xinrui);
 }
 
 .dj-metric-warning {
@@ -2069,4 +2076,46 @@
   background: var(--primary-very-low);
   color: var(--primary-medium);
   white-space: nowrap;
+}
+
+// ---------- Emerging Tier (新锐分区) section ----------
+.dj-xinrui {
+  border-left: 3px solid var(--dj-tier-xinrui);
+}
+
+.dj-xinrui__summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.dj-xinrui__row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+
+  .dj-label {
+    min-width: 7rem;
+    margin: 0;
+  }
+}
+
+.dj-xinrui-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+
+  th,
+  td {
+    text-align: left;
+    padding: 0.35rem 0.5rem;
+    border-bottom: 1px solid var(--dj-stroke);
+  }
+
+  th {
+    color: var(--dj-muted);
+    font-weight: 600;
+  }
 }

@@ -429,12 +429,15 @@ module DiscourseJournals
     def cross_match
       publish_progress(:match, 0, 0, "正在进行 API ID、ISSN-L 和标题交叉比对...")
 
-      issn_matched_forum_ids = Set.new
-      issn_matched_api_ids = Set.new
-      match_api_id(issn_matched_forum_ids, issn_matched_api_ids)
-      match_issn_l(issn_matched_forum_ids, issn_matched_api_ids)
-
-      match_by_title(issn_matched_forum_ids, issn_matched_api_ids)
+      matched_forum_ids = Set.new
+      matched_api_ids = Set.new
+      # ISSN-L is the authoritative journal identifier, so it takes priority over
+      # the stored api_id (an upstream snapshot that can drift). Order: ISSN-L,
+      # then api_id, then title; each later phase skips already-matched forum
+      # topics and API records, so a topic is never emitted as a target twice.
+      match_issn_l(matched_forum_ids, matched_api_ids)
+      match_api_id(matched_forum_ids, matched_api_ids)
+      match_by_title(matched_forum_ids, matched_api_ids)
 
       publish_progress(:match, 1, 1, "比对完成！")
     end
@@ -443,10 +446,15 @@ module DiscourseJournals
       common_api_ids = @forum_api_id_index.keys & @api_id_index.keys
       return if common_api_ids.empty?
 
+      matched_count = 0
       common_api_ids.each do |api_id|
         forum_entry = @forum_api_id_index[api_id]
         api_entry = @api_id_index[api_id]
         next unless forum_entry && api_entry
+        # The authoritative ISSN-L phase ran first; skip topics/records it already
+        # claimed so a forum topic is never an update target for two API records.
+        next if matched_forum_ids.include?(forum_entry[:topic_id])
+        next if matched_api_ids.include?(api_entry[:api_id])
 
         normalized_title = self.class.normalize(api_entry[:canonical_name])
 
@@ -460,10 +468,11 @@ module DiscourseJournals
 
         matched_forum_ids.add(forum_entry[:topic_id])
         matched_api_ids.add(api_entry[:api_id])
+        matched_count += 1
       end
 
       Rails.logger.info(
-        "[DiscourseJournals::TitleMatcher] API ID phase: #{common_api_ids.size} matched " \
+        "[DiscourseJournals::TitleMatcher] API ID phase: #{matched_count} matched " \
         "(#{matched_forum_ids.size} forum topics, #{matched_api_ids.size} API records)",
       )
     end
@@ -476,23 +485,26 @@ module DiscourseJournals
         forum_entries = @forum_issn_index[issn_l]
         api_entry = @api_issn_index[issn_l]
         next unless forum_entries&.any? && api_entry
+        next if matched_api_ids.include?(api_entry[:api_id])
+
+        fresh_forum = forum_entries.reject { |f| matched_forum_ids.include?(f[:topic_id]) }
+        next if fresh_forum.empty?
 
         normalized_title = self.class.normalize(api_entry[:canonical_name])
 
         entry = {
           normalized_title: normalized_title,
-          forum: forum_entries,
+          forum: fresh_forum,
           api: [api_entry],
         }
 
-        forum_count = forum_entries.size
-        if forum_count == 1
+        if fresh_forum.size == 1
           @results[:exact_1to1] << entry
         else
           @results[:forum_n_to_api_1] << entry
         end
 
-        forum_entries.each { |f| matched_forum_ids.add(f[:topic_id]) }
+        fresh_forum.each { |f| matched_forum_ids.add(f[:topic_id]) }
         matched_api_ids.add(api_entry[:api_id])
       end
 

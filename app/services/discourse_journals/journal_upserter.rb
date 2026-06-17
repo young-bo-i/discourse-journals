@@ -89,23 +89,36 @@ module DiscourseJournals
     end
 
     def update_topic!(topic, prepared)
+      # Only treat this as a real update when the journal data (or title) actually
+      # changed. cooked/raw are still rewritten unconditionally so renderer/template
+      # changes propagate on re-sync, but updated_at (and therefore the sitemap
+      # <lastmod>) and the search reindex only fire on genuine changes — avoiding
+      # SEO churn from no-op syncs. Bump is never touched (no forum bump).
+      content_changed = journal_content_changed?(topic, prepared)
+
       first_post = topic.first_post
       if first_post
-        first_post.update_columns(
+        post_attrs = {
           raw: prepared[:raw_text],
           cooked: prepared[:html],
           baked_version: Post::BAKED_VERSION,
-          updated_at: Time.current,
-        )
+        }
+        post_attrs[:updated_at] = Time.current if content_changed
+        first_post.update_columns(post_attrs)
       end
 
-      attrs = { updated_at: Time.current }
-      attrs[:title] = prepared[:title] if topic.title != prepared[:title]
-      attrs[:fancy_title] = nil if attrs.key?(:title)
-      topic.update_columns(attrs)
+      attrs = {}
+      attrs[:updated_at] = Time.current if content_changed
+      if topic.title != prepared[:title]
+        attrs[:title] = prepared[:title]
+        attrs[:fancy_title] = nil
+      end
+      topic.update_columns(attrs) if attrs.present?
 
-      PerformanceLogger.measure("sync.search_reindex", topic_id: topic.id) do
-        SearchIndexer.queue_post_reindex(topic.id)
+      if content_changed
+        PerformanceLogger.measure("sync.search_reindex", topic_id: topic.id) do
+          SearchIndexer.queue_post_reindex(topic.id)
+        end
       end
 
       store_custom_fields!(topic, prepared)
@@ -117,6 +130,18 @@ module DiscourseJournals
       end
 
       topic
+    end
+
+    def journal_content_changed?(topic, prepared)
+      return true if topic.title != prepared[:title]
+
+      new_json = prepared[:normalized_json].to_s
+      return true if new_json.blank?
+
+      stored = TopicCustomField.where(topic_id: topic.id, name: "discourse_journals_data").pick(:value)
+      return true if stored.blank?
+
+      Digest::MD5.hexdigest(new_json) != Digest::MD5.hexdigest(stored)
     end
 
     def store_custom_fields!(topic, prepared)

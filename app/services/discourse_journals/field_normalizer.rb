@@ -18,6 +18,7 @@ module DiscourseJournals
         jcr: build_jcr,
         scimago: build_scimago,
         cas_partition: build_cas,
+        xinrui_partition: build_xinrui,
         warning: build_warning,
         open_access: build_open_access,
         subjects_topics: build_subjects,
@@ -191,6 +192,43 @@ module DiscourseJournals
               top: y[:top],
               web_of_science: y[:web_of_science],
               open_access: y[:open_access],
+              minor_categories: minor_cats,
+            }
+          },
+      }
+    end
+
+    def build_xinrui
+      main = sources.dig(:xr, :main) || {}
+      all_years = sources.dig(:xr, :all_years) || []
+      return nil if main.empty? && all_years.empty?
+
+      years = all_years.any? ? all_years : [main]
+      {
+        data: years
+          .select { |y| y[:year] }
+          .sort_by { |y| -y[:year].to_i }
+          .map { |y|
+            minor_cats = (1..6).filter_map { |i|
+              cat = y[:"subcategory_#{i}"]
+              next unless cat.present?
+              {
+                category: cat,
+                category_cn: y[:"subcategory_#{i}_cn"],
+                quartile: y[:"subcategory_#{i}_quartile"],
+              }
+            }
+            {
+              year: y[:year],
+              major_category: y[:major_category],
+              major_category_cn: y[:major_category_cn],
+              major_quartile: y[:major_quartile],
+              top: y[:top],
+              major_category2: y[:major_category2],
+              major_category2_cn: y[:major_category2_cn],
+              major_quartile2: y[:major_quartile2],
+              top2: y[:top2],
+              database_src: y[:database_src],
               minor_categories: minor_cats,
             }
           },

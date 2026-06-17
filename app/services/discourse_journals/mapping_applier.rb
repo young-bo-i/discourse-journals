@@ -19,7 +19,6 @@ module DiscourseJournals
     API_CONCURRENCY = 4
     UPSERT_CONCURRENCY = 4
     DELETE_BATCH_SIZE = BulkTopicDeleter::BATCH_SIZE
-    GC_EVERY_N_GROUPS = 10
     COVER_JOB_BATCH_SIZE = 500
     COVER_JOB_DELAY_SECONDS = 30
 
@@ -64,6 +63,9 @@ module DiscourseJournals
       end
 
       enqueue_cover_jobs
+      # Recompute tag/category-tag counts once, since apply_tag_delta! and
+      # BulkTopicDeleter both skip TopicTag's per-row counter callbacks.
+      JournalTagManager.reconcile_counts!
       JournalTagManager.reset_cache!
 
       @stats
@@ -116,7 +118,6 @@ module DiscourseJournals
         end
 
         details = nil
-        GC.start
 
         total_actions = @update_map.size + @create_ids.size
         total_deletes = @topics_to_delete.size
@@ -319,8 +320,6 @@ module DiscourseJournals
           report_progress(processed, base_offset, total, start_time)
 
           save_checkpoint("api_sync", "api_offset", base_offset + processed)
-
-          GC.start if batch_group_idx % GC_EVERY_N_GROUPS == 0
         end
 
         if prefetch_thread
@@ -410,24 +409,31 @@ module DiscourseJournals
 
         threads = UPSERT_CONCURRENCY.times.map do
           Thread.new do
-            upserter =
-              JournalUpserter.new(
-                system_user: @system_user,
-                defer_images: true,
-                category: @journal_category,
-              )
-
-            while (item = queue.pop) != :done
-              begin
-                upserter.upsert_prepared!(item[:prepared], existing_topic_id: item[:topic_id])
-                increment_stat(:updated)
-                tid = upserter.last_topic_id
-                @mutex.synchronize { @cover_topic_ids << tid } if tid
-              rescue StandardError => e
-                Rails.logger.error(
-                  "[DiscourseJournals::MappingApplier] Upsert failed for api_id=#{item[:api_id]}: #{e.class}: #{e.message}",
+            # Check the pooled connection back in as soon as this thread's DB work
+            # finishes, instead of leaving it pinned to the (dead) thread until the
+            # reaper runs — otherwise the upsert threads starve the other Sidekiq
+            # workers sharing the pool. (parallel_transform is pure CPU and never
+            # checks out a connection, so it is intentionally left unwrapped.)
+            ActiveRecord::Base.connection_pool.with_connection do
+              upserter =
+                JournalUpserter.new(
+                  system_user: @system_user,
+                  defer_images: true,
+                  category: @journal_category,
                 )
-                increment_stat(:errors)
+
+              while (item = queue.pop) != :done
+                begin
+                  upserter.upsert_prepared!(item[:prepared], existing_topic_id: item[:topic_id])
+                  increment_stat(:updated)
+                  tid = upserter.last_topic_id
+                  @mutex.synchronize { @cover_topic_ids << tid } if tid
+                rescue StandardError => e
+                  Rails.logger.error(
+                    "[DiscourseJournals::MappingApplier] Upsert failed for api_id=#{item[:api_id]}: #{e.class}: #{e.message}",
+                  )
+                  increment_stat(:errors)
+                end
               end
             end
           end

@@ -20,6 +20,7 @@ module DiscourseJournals
           jcr: transform_with_history(sources_raw["jcr"]),
           fqb: transform_with_history(sources_raw["fqb"]),
           gjqk: transform_with_history(sources_raw["gjqk"]),
+          xr: transform_with_history(sources_raw["xr"]),
           scirev: transform_scirev(sources_raw["scirev"]),
           letpub: transform_simple(sources_raw["letpub"]),
           ccf: transform_simple(sources_raw["ccf"]),
