@@ -249,6 +249,12 @@ module DiscourseJournals
       })
     end
 
+    # GET /admin/journals/promo_stats?days=30
+    def promo_stats
+      days = (params[:days] || PromoStat::DEFAULT_RANGE_DAYS).to_i
+      render_json_dump(PromoStat.report(days))
+    end
+
     private
 
     def serialize_analysis(analysis)

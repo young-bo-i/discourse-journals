@@ -6,26 +6,32 @@ import { action } from "@ember/object";
 import didInsert from "@ember/render-modifiers/modifiers/did-insert";
 import willDestroy from "@ember/render-modifiers/modifiers/will-destroy";
 import concatClass from "discourse/helpers/concat-class";
+import { ajax } from "discourse/lib/ajax";
 import { eq, gt } from "discourse/truth-helpers";
 import { i18n } from "discourse-i18n";
 
 const IMAGE_BASE = "/plugins/discourse-journals/images/promo";
 const ROTATE_INTERVAL = 5000;
+const TRACK_URL = "/journals/promo/track";
 
 // External entry points to scholay.com. Each slide shows its own (translatable)
-// title above the animation and links to the matching product page.
+// title above the animation and links to the matching product page. `key`
+// identifies the slide for impression/click analytics (see PromoStat).
 const SLIDES = [
   {
+    key: "peer_review",
     titleKey: "discourse_journals.promo.titles.peer_review",
     image: `${IMAGE_BASE}/peer-review-flow.webp`,
     url: "https://www.scholay.com/peer-review",
   },
   {
+    key: "prism",
     titleKey: "discourse_journals.promo.titles.prism",
     image: `${IMAGE_BASE}/prism-writing-flow.webp`,
     url: "https://www.scholay.com/prism",
   },
   {
+    key: "claw",
     titleKey: "discourse_journals.promo.titles.claw",
     image: `${IMAGE_BASE}/claw-agent-flow.webp`,
     url: "https://www.scholay.com/claw",
@@ -36,6 +42,8 @@ export default class JournalPromo extends Component {
   @tracked index = 0;
 
   _timer = null;
+  // slide keys already counted as an impression this page view (dedup)
+  _seenImpressions = new Set();
 
   get slides() {
     return SLIDES;
@@ -48,6 +56,7 @@ export default class JournalPromo extends Component {
   @action
   setup() {
     this._start();
+    this._trackImpression();
   }
 
   @action
@@ -69,7 +78,31 @@ export default class JournalPromo extends Component {
   goTo(index) {
     // Clicking a dot happens while hovering (auto-rotation already paused);
     // just switch the slide and let mouseleave resume rotation.
+    this._setIndex(index);
+  }
+
+  @action
+  trackClick(slide) {
+    this._track("click", slide.key);
+  }
+
+  _setIndex(index) {
     this.index = index;
+    this._trackImpression();
+  }
+
+  _trackImpression() {
+    const slide = this.current;
+    if (!slide || this._seenImpressions.has(slide.key)) {
+      return;
+    }
+    this._seenImpressions.add(slide.key);
+    this._track("impression", slide.key);
+  }
+
+  _track(event, slide) {
+    // Analytics is best-effort: never surface errors to the visitor.
+    ajax(TRACK_URL, { type: "POST", data: { event, slide } }).catch(() => {});
   }
 
   _start() {
@@ -87,7 +120,7 @@ export default class JournalPromo extends Component {
     }
 
     this._timer = setInterval(() => {
-      this.index = (this.index + 1) % this.slides.length;
+      this._setIndex((this.index + 1) % this.slides.length);
     }, ROTATE_INTERVAL);
   }
 
@@ -120,6 +153,7 @@ export default class JournalPromo extends Component {
                 "discourse_journals.promo.visit"
                 name=(i18n slide.titleKey)
               }}
+              {{on "click" (fn this.trackClick slide)}}
             >
               <img
                 class="dj-journal-promo__img"

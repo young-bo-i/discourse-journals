@@ -593,9 +593,7 @@
     {{/if}}
 
     {{! ═══ Phase 3: 封面处理 ═══ }}
-    {{#if
-      (or this.coverProcessing this.coverCompleted this.coverFailed)
-    }}
+    {{#if (or this.coverProcessing this.coverCompleted this.coverFailed)}}
       <section class="journals-section cover-section">
         <div class="section-header">
           <h3>{{i18n "discourse_journals.admin.mapping.cover_heading"}}</h3>
@@ -668,6 +666,83 @@
         </div>
       </section>
     {{/if}}
+
+    {{! ═══ 跳转入口统计 ═══ }}
+    <section class="journals-section stats-section">
+      <div class="section-header">
+        <h3>{{i18n "discourse_journals.admin.stats.heading"}}</h3>
+        <div class="header-actions promo-range-controls">
+          {{#each this.promoRangeOptions as |opt|}}
+            <DButton
+              @class={{if
+                (eq this.promoRange opt.days)
+                "btn-primary"
+                "btn-default"
+              }}
+              @translatedLabel={{opt.label}}
+              @action={{fn this.setPromoRange opt.days}}
+            />
+          {{/each}}
+        </div>
+      </div>
+
+      <div class="section-content">
+        <p class="stats-desc">{{i18n
+            "discourse_journals.admin.stats.description"
+          }}</p>
+
+        {{#if this.loadingPromoStats}}
+          <div class="details-loading">{{i18n
+              "discourse_journals.admin.stats.loading"
+            }}</div>
+        {{else if this.hasPromoData}}
+          <div class="promo-summary-cards">
+            {{#each this.promoSummaryCards as |card|}}
+              <div class="promo-summary-card">
+                <div class="promo-card-label">{{card.label}}</div>
+                <div class="promo-card-metrics">
+                  <div class="promo-metric">
+                    <span class="promo-metric-value">{{card.impressions}}</span>
+                    <span class="promo-metric-label">{{i18n
+                        "discourse_journals.admin.stats.impressions"
+                      }}</span>
+                  </div>
+                  <div class="promo-metric">
+                    <span class="promo-metric-value">{{card.clicks}}</span>
+                    <span class="promo-metric-label">{{i18n
+                        "discourse_journals.admin.stats.clicks"
+                      }}</span>
+                  </div>
+                  <div class="promo-metric">
+                    <span class="promo-metric-value">{{card.ctr}}%</span>
+                    <span class="promo-metric-label">{{i18n
+                        "discourse_journals.admin.stats.ctr"
+                      }}</span>
+                  </div>
+                </div>
+              </div>
+            {{/each}}
+          </div>
+
+          <div class="promo-chart-tabs">
+            {{#each this.promoSlideTabs as |tab|}}
+              <button
+                type="button"
+                class="promo-chart-tab
+                  {{if (eq this.promoSlide tab.key) 'promo-chart-tab--active'}}"
+                {{on "click" (fn this.setPromoSlide tab.key)}}
+              >{{tab.label}}</button>
+            {{/each}}
+          </div>
+
+          <JournalsPromoChart @config={{this.promoChartConfig}} />
+        {{else}}
+          <div class="message-box">{{i18n
+              "discourse_journals.admin.stats.no_data"
+            }}</div>
+        {{/if}}
+      </div>
+    </section>
 
     {{! ═══ 危险操作 ═══ }}
     <section class="journals-section danger-section">

@@ -21,6 +21,7 @@ add_admin_route "discourse_journals.title", "discourse-journals"
 
 after_initialize do
   require_relative "app/models/discourse_journals/mapping_analysis"
+  require_relative "app/models/discourse_journals/promo_stat"
   require_relative "app/services/discourse_journals/api_rate_limiter"
   require_relative "app/services/discourse_journals/bulk_topic_deleter"
   require_relative "app/services/discourse_journals/field_normalizer"
@@ -457,7 +458,13 @@ after_initialize do
     get "/admin/journals/mapping/cover_status" => "discourse_journals/admin_mapping#cover_status",
         :constraints => AdminConstraint.new
 
+    get "/admin/journals/promo_stats" => "discourse_journals/admin_mapping#promo_stats",
+        :constraints => AdminConstraint.new
+
     delete "/admin/journals/delete_all" => "discourse_journals/admin_mapping#delete_all",
            :constraints => AdminConstraint.new
+
+    # Public: promo carousel impression/click tracking (anonymous allowed)
+    post "/journals/promo/track" => "discourse_journals/promo#track"
   end
 end

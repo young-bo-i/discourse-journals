@@ -54,9 +54,16 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
   @tracked deleteStartTime = null;
   @tracked deleteEta = null;
 
+  // 跳转入口统计
+  @tracked promoStats = null;
+  @tracked promoRange = 30;
+  @tracked promoSlide = "total";
+  @tracked loadingPromoStats = false;
+
   constructor() {
     super(...arguments);
     this.checkMappingStatus();
+    this.loadPromoStats();
   }
 
   formatEta(seconds) {
@@ -289,7 +296,8 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
       this.coverStats = analysis.cover_stats || {};
       const total = this.coverStats.total || 0;
       const processed = this.coverStats.processed || 0;
-      this.coverProgress = total > 0 ? Math.round((processed / total) * 100) : 0;
+      this.coverProgress =
+        total > 0 ? Math.round((processed / total) * 100) : 0;
       this.coverMessage = i18n(
         "discourse_journals.admin.mapping.cover_in_progress"
       );
@@ -662,5 +670,143 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
         this.messageBus.unsubscribe(channel);
       }
     });
+  }
+
+  // ============ 跳转入口统计 ============
+
+  async loadPromoStats() {
+    this.loadingPromoStats = true;
+    try {
+      this.promoStats = await ajax("/admin/journals/promo_stats", {
+        data: { days: this.promoRange },
+      });
+    } catch {
+      this.promoStats = null;
+    } finally {
+      this.loadingPromoStats = false;
+    }
+  }
+
+  @action
+  setPromoRange(days) {
+    if (this.promoRange === days) {
+      return;
+    }
+    this.promoRange = days;
+    this.loadPromoStats();
+  }
+
+  @action
+  setPromoSlide(slide) {
+    this.promoSlide = slide;
+  }
+
+  get promoRangeOptions() {
+    return [
+      { days: 7, label: i18n("discourse_journals.admin.stats.range_7") },
+      { days: 30, label: i18n("discourse_journals.admin.stats.range_30") },
+      { days: 90, label: i18n("discourse_journals.admin.stats.range_90") },
+    ];
+  }
+
+  get promoSlideTabs() {
+    return [
+      { key: "total", label: i18n("discourse_journals.admin.stats.total") },
+      {
+        key: "peer_review",
+        label: i18n("discourse_journals.promo.titles.peer_review"),
+      },
+      { key: "prism", label: i18n("discourse_journals.promo.titles.prism") },
+      { key: "claw", label: i18n("discourse_journals.promo.titles.claw") },
+    ];
+  }
+
+  get promoSummaryCards() {
+    const totals = this.promoStats?.totals;
+    if (!totals) {
+      return [];
+    }
+    return this.promoSlideTabs.map((tab) => {
+      const t = totals[tab.key] || { impressions: 0, clicks: 0, ctr: 0 };
+      return {
+        key: tab.key,
+        label: tab.label,
+        impressions: t.impressions,
+        clicks: t.clicks,
+        ctr: t.ctr,
+      };
+    });
+  }
+
+  get hasPromoData() {
+    const total = this.promoStats?.totals?.total;
+    return !!total && (total.impressions > 0 || total.clicks > 0);
+  }
+
+  get promoChartConfig() {
+    const stats = this.promoStats;
+    if (!stats) {
+      return null;
+    }
+    const series = stats.series[this.promoSlide] || stats.series.total;
+
+    return {
+      type: "line",
+      data: {
+        labels: stats.days,
+        datasets: [
+          {
+            label: i18n("discourse_journals.admin.stats.impressions"),
+            data: series.impressions,
+            yAxisID: "y",
+            borderColor: "#4a90d9",
+            backgroundColor: "rgba(74, 144, 217, 0.12)",
+            tension: 0.3,
+            fill: true,
+          },
+          {
+            label: i18n("discourse_journals.admin.stats.clicks"),
+            data: series.clicks,
+            yAxisID: "y",
+            borderColor: "#3cc99b",
+            backgroundColor: "rgba(60, 201, 155, 0.12)",
+            tension: 0.3,
+            fill: true,
+          },
+          {
+            label: i18n("discourse_journals.admin.stats.ctr"),
+            data: series.ctr,
+            yAxisID: "y1",
+            borderColor: "#f2683a",
+            borderDash: [5, 4],
+            tension: 0.3,
+            fill: false,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: { legend: { position: "bottom" } },
+        scales: {
+          y: {
+            beginAtZero: true,
+            position: "left",
+            title: {
+              display: true,
+              text: i18n("discourse_journals.admin.stats.axis_count"),
+            },
+          },
+          y1: {
+            beginAtZero: true,
+            position: "right",
+            grid: { drawOnChartArea: false },
+            title: { display: true, text: "CTR %" },
+            ticks: { callback: (value) => `${value}%` },
+          },
+        },
+      },
+    };
   }
 }
