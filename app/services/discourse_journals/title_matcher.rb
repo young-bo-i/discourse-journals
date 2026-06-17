@@ -154,61 +154,36 @@ module DiscourseJournals
     def build_api_index
       publish_progress(:api, 0, 0, "正在获取 API 数据...")
 
-      first_result = fetch_api_page_oneoff(1, API_PAGE_SIZE)
-      total_records = first_result[:total]
-      total_pages = first_result[:total_pages]
-      actual_page_size = first_result[:rows].size
-
-      publish_progress(
-        :api,
-        0,
-        total_records,
-        "API 共 #{total_records} 条记录，每页 #{actual_page_size} 条，共 #{total_pages} 页 (#{API_CONCURRENCY} 线程并发)",
-      )
-
-      fetched = process_api_rows(first_result[:rows])
-
-      if total_pages <= 1
-        publish_progress(:api, fetched, total_records, "API 索引构建完成：#{fetched} 条记录，#{@api_index.size} 个唯一标题")
-        return
-      end
-
-      connections = API_CONCURRENCY.times.map { create_persistent_connection }
+      http = create_persistent_connection
+      fetched = 0
+      page = 1
       start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
       begin
-        remaining_pages = (2..total_pages).to_a
-        batch_count = 0
-
-        remaining_pages.each_slice(API_CONCURRENCY) do |batch|
+        loop do
           check_cancelled!
 
-          batch_results = fetch_batch_concurrent(connections, batch)
+          result = fetch_api_page_persistent(http, page)
+          rows = result[:rows]
+          break if rows.empty?
 
-          batch_results.each do |result|
-            fetched += process_api_rows(result[:rows])
-          end
+          fetched += process_api_rows(rows)
 
-          batch_count += 1
-          last_page = batch.last
-
-          if batch_count % PROGRESS_BATCH_INTERVAL == 0 || last_page == total_pages
+          if page % PROGRESS_BATCH_INTERVAL == 0
             elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start_time
-            speed = (fetched.to_f / elapsed).round(0)
-            eta = elapsed > 0 && fetched > 0 ? ((total_records - fetched).to_f / speed).round(0) : 0
-            eta_str = format_eta(eta)
-
-            publish_progress(
-              :api,
-              fetched,
-              total_records,
-              "API 获取中... #{last_page}/#{total_pages} 页 (#{fetched} 条, #{speed} 条/秒#{eta_str})",
-            )
+            speed = elapsed > 0 ? (fetched.to_f / elapsed).round(0) : 0
+            publish_progress(:api, fetched, 0, "API 获取中... 第 #{page} 页 (#{fetched} 条, #{speed} 条/秒)")
           end
+
+          # The upstream API no longer returns total/totalPages; paginate via the
+          # hasMore flag until it is false (or a page comes back empty).
+          break unless result[:has_more]
+
+          page += 1
         end
       ensure
-        connections.each do |conn|
-          conn.finish
+        begin
+          http.finish
         rescue StandardError
           nil
         end
@@ -218,7 +193,7 @@ module DiscourseJournals
       publish_progress(
         :api,
         fetched,
-        total_records,
+        fetched,
         "API 索引构建完成：#{fetched} 条记录，#{@api_index.size} 个唯一标题，#{@api_issn_index.size} 个 ISSN-L (耗时 #{elapsed}s)",
       )
     end
@@ -277,9 +252,8 @@ module DiscourseJournals
         payload = data["data"] || {}
         {
           rows: payload["rows"] || [],
-          total: payload["total"].to_i,
           page: payload["page"].to_i,
-          total_pages: payload["totalPages"].to_i,
+          has_more: payload["hasMore"] ? true : false,
         }
       rescue RateLimitedError => e
         retries += 1
