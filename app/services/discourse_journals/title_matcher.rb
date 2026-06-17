@@ -158,38 +158,41 @@ module DiscourseJournals
     def build_api_index
       publish_progress(:api, 0, 0, "正在获取 API 数据...")
 
-      connections = API_CONCURRENCY.times.map { create_persistent_connection }
+      http = create_persistent_connection
       fetched = 0
-      page = 1
-      window_index = 0
+      cursor = nil
+      batch = 0
       start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
       begin
         loop do
           check_cancelled!
 
-          # Upstream gives no total/totalPages, so fetch a window of consecutive
-          # pages concurrently (rate-limiter still caps throughput) and stop once
-          # any page in the window reports no more pages or comes back empty.
-          window = (page...(page + API_CONCURRENCY)).to_a
-          results = fetch_batch_concurrent(connections, window)
+          # Cursor pagination: the API returns nextCursor (the last id of the page)
+          # plus hasMore; pass nextCursor back as afterId for the next page until
+          # hasMore is false. This is inherently sequential but has no deep-offset
+          # cap, so it reaches every journal (page/pageSize topped out at ~100k).
+          result = fetch_api_page_persistent(http, cursor)
+          rows = result[:rows]
+          break if rows.empty?
 
-          results.each { |result| fetched += process_api_rows(result[:rows]) }
-          window_index += 1
+          fetched += process_api_rows(rows)
+          batch += 1
 
-          if window_index % PROGRESS_BATCH_INTERVAL == 0
+          if batch % PROGRESS_BATCH_INTERVAL == 0
             elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start_time
             speed = elapsed > 0 ? (fetched.to_f / elapsed).round(0) : 0
-            publish_progress(:api, fetched, 0, "API 获取中... 第 #{window.last} 页 (#{fetched} 条, #{speed} 条/秒)")
+            publish_progress(:api, fetched, 0, "API 获取中... 已取 #{fetched} 条 (#{speed} 条/秒)")
           end
 
-          break if results.any? { |result| result[:rows].empty? || !result[:has_more] }
+          next_cursor = result[:next_cursor]
+          break if !result[:has_more] || next_cursor.nil?
 
-          page += API_CONCURRENCY
+          cursor = next_cursor
         end
       ensure
-        connections.each do |conn|
-          conn.finish
+        begin
+          http.finish
         rescue StandardError
           nil
         end
@@ -223,17 +226,9 @@ module DiscourseJournals
       http.start
     end
 
-    def fetch_batch_concurrent(connections, pages)
-      threads = pages.each_with_index.map do |page, idx|
-        conn = connections[idx % connections.size]
-        Thread.new { fetch_api_page_persistent(conn, page) }
-      end
-
-      threads.map(&:value)
-    end
-
-    def fetch_api_page_persistent(http, page)
-      path = "/api/open/journals?page=#{page}&pageSize=#{API_PAGE_SIZE}"
+    def fetch_api_page_persistent(http, cursor)
+      path = "/api/open/journals?pageSize=#{API_PAGE_SIZE}"
+      path += "&afterId=#{cursor}" if cursor
       retries = 0
       max_retries = 5
 
@@ -258,25 +253,25 @@ module DiscourseJournals
         payload = data["data"] || {}
         {
           rows: payload["rows"] || [],
-          page: payload["page"].to_i,
+          next_cursor: payload["nextCursor"],
           has_more: payload["hasMore"] ? true : false,
         }
       rescue RateLimitedError => e
         retries += 1
         if retries <= max_retries
           Rails.logger.warn(
-            "[DiscourseJournals::TitleMatcher] Page #{page} rate-limited (429), retry #{retries}/#{max_retries}, waiting #{e.retry_after}s",
+            "[DiscourseJournals::TitleMatcher] cursor #{cursor.inspect} rate-limited (429), retry #{retries}/#{max_retries}, waiting #{e.retry_after}s",
           )
           sleep e.retry_after
           retry
         end
-        raise "API 第 #{page} 页请求被限流 (重试 #{max_retries} 次后仍为 429)"
+        raise "API 游标 #{cursor.inspect} 请求被限流 (重试 #{max_retries} 次后仍为 429)"
       rescue Net::OpenTimeout, Net::ReadTimeout, OpenSSL::SSL::SSLError, Errno::ECONNRESET, EOFError, IOError => e
         retries += 1
         if retries <= max_retries
           wait = retries * 3
           Rails.logger.warn(
-            "[DiscourseJournals::TitleMatcher] Page #{page} retry #{retries}/#{max_retries} after #{e.class}: #{e.message}, waiting #{wait}s",
+            "[DiscourseJournals::TitleMatcher] cursor #{cursor.inspect} retry #{retries}/#{max_retries} after #{e.class}: #{e.message}, waiting #{wait}s",
           )
           begin
             reconnect!(http)
@@ -286,7 +281,7 @@ module DiscourseJournals
           sleep wait
           retry
         end
-        raise "API 第 #{page} 页请求失败 (重试 #{max_retries} 次后): #{e.message}"
+        raise "API 游标 #{cursor.inspect} 请求失败 (重试 #{max_retries} 次后): #{e.message}"
       end
     end
 
