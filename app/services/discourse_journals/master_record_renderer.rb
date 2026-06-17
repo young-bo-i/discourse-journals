@@ -15,8 +15,9 @@ module DiscourseJournals
       @toggle_id = 0
     end
 
-    def render
-        sections = []
+    def render(outdated: false)
+      sections = []
+      sections << render_outdated_notice if outdated
       sections << render_hero
       sections << render_metric_visuals
       sections << render_xinrui_section
@@ -123,6 +124,10 @@ module DiscourseJournals
     def fmt(num)
       return nil if num.nil?
       num.to_s.reverse.gsub(/(\d{3})(?=\d)/, '\\1,').reverse
+    end
+
+    def render_outdated_notice
+      %(<div class="dj-outdated-notice" role="alert"><span class="dj-outdated-notice__icon">&#x26A0;</span><span class="dj-outdated-notice__text">#{h(t("outdated_notice"))}</span></div>)
     end
 
     def render_hero

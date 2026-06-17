@@ -23,6 +23,7 @@ after_initialize do
   require_relative "app/models/discourse_journals/mapping_analysis"
   require_relative "app/models/discourse_journals/promo_stat"
   require_relative "app/services/discourse_journals/api_rate_limiter"
+  require_relative "app/services/discourse_journals/outdated_marker"
   require_relative "app/services/discourse_journals/bulk_topic_deleter"
   require_relative "app/services/discourse_journals/field_normalizer"
   require_relative "app/services/discourse_journals/field_usage_tracker"
@@ -53,6 +54,7 @@ after_initialize do
   Topic.register_custom_field_type("discourse_journals_cover_url_hash", :string)
   Topic.register_custom_field_type("discourse_journals_normalized_title_key", :string)
   Topic.register_custom_field_type("discourse_journals_api_id", :string)
+  Topic.register_custom_field_type("discourse_journals_outdated", :string)
 
   module ::DiscourseJournals
     CUSTOM_FIELD_NAMES = %w[
@@ -365,14 +367,34 @@ after_initialize do
 
     json_value =
       TopicCustomField.where(topic_id: post.topic_id, name: "discourse_journals_data").pick(:value)
-    next if json_value.blank?
+
+    outdated =
+      TopicCustomField.exists?(topic_id: post.topic_id, name: "discourse_journals_outdated")
+
+    if json_value.blank?
+      # No journal data to render from. If the topic is outdated, re-inject the
+      # standalone banner so a rebake (which re-cooks from raw) does not drop it.
+      if outdated && !post.cooked.to_s.include?("dj-outdated-notice")
+        notice =
+          I18n.with_locale(SiteSetting.default_locale) do
+            ERB::Util.html_escape(I18n.t("discourse_journals.render.outdated_notice"))
+          end
+        banner =
+          %(<div class="dj-outdated-notice" role="alert"><span class="dj-outdated-notice__text">#{notice}</span></div>)
+        post.update_columns(cooked: "#{banner}\n#{post.cooked}")
+        fragment = Nokogiri::HTML5.fragment(banner)
+        first_node = doc.children.first
+        first_node ? first_node.add_previous_sibling(fragment) : doc.add_child(fragment)
+      end
+      next
+    end
 
     begin
       normalized = JSON.parse(json_value).deep_symbolize_keys
       renderer = ::DiscourseJournals::MasterRecordRenderer.new(normalized)
       html =
         DiscourseJournals::PerformanceLogger.measure("render.cooked_rebuild", topic_id: post.topic_id) do
-          I18n.with_locale(SiteSetting.default_locale) { renderer.render }
+          I18n.with_locale(SiteSetting.default_locale) { renderer.render(outdated: outdated) }
         end
       post.update_columns(cooked: html, baked_version: Post::BAKED_VERSION)
 

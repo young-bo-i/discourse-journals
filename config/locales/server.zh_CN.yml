@@ -149,6 +149,7 @@ zh_CN:
         usd_estimate: "美元估算"
     render:
       unknown_journal: "未知期刊"
+      outdated_notice: "此期刊信息已过时，建议重新搜索最新内容。"
       issn: "ISSN"
       publisher: "出版商"
       country: "国家"

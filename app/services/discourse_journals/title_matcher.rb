@@ -112,6 +112,7 @@ module DiscourseJournals
               discourse_journals_issn_l
               discourse_journals_normalized_title_key
               discourse_journals_api_id
+              discourse_journals_outdated
             ],
             topic_id: base_scope.select(:id),
           )
@@ -125,8 +126,13 @@ module DiscourseJournals
           fields["discourse_journals_normalized_title_key"].presence || self.class.normalized_title_key(topic.title)
         next if normalized.blank?
 
-        entry = { topic_id: topic.id, title: topic.title }
+        outdated = fields["discourse_journals_outdated"].present?
+        entry = { topic_id: topic.id, title: topic.title, outdated: outdated }
 
+        # Keep outdated topics in EVERY index (incl. the title index) so a returning
+        # journal matches and revives them via update, instead of being classified
+        # api_only and creating a duplicate topic. They are filtered out of the
+        # forum_only bucket in match_by_title so they are never re-flagged.
         @forum_index[normalized] ||= []
         @forum_index[normalized] << entry
 
@@ -522,10 +528,15 @@ module DiscourseJournals
             @results[:forum_n_to_api_m] << entry
           end
         elsif forum_entries && api_entries.nil?
-          @results[:forum_only] << {
-            normalized_title: normalized_title,
-            forum: forum_entries,
-          }
+          # Already-outdated topics are excluded so they are not re-flagged; only
+          # genuinely new orphans become forum_only.
+          live_forum = forum_entries.reject { |f| f[:outdated] }
+          if live_forum.any?
+            @results[:forum_only] << {
+              normalized_title: normalized_title,
+              forum: live_forum,
+            }
+          end
         elsif forum_entries.nil? && api_entries
           @results[:api_only] << {
             normalized_title: normalized_title,

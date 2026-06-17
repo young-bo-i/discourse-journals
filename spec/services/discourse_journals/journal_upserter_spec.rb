@@ -248,4 +248,31 @@ describe DiscourseJournals::JournalUpserter do
       expect(existing_topic.bumped_at).to be_within(1.second).of(bumped_before)
     end
   end
+
+  describe "outdated revival" do
+    it "clears the outdated flag on update, even on a byte-identical revival" do
+      data = { identity: { title: existing_topic.title } }.to_json
+      existing_topic.upsert_custom_fields(
+        discourse_journals_data: data,
+        discourse_journals_outdated: Time.current.iso8601,
+      )
+
+      prepared = {
+        title: existing_topic.title,
+        html: "<p>content</p>",
+        raw_text: "content",
+        normalized: { identity: { title: existing_topic.title } },
+        normalized_json: data, # identical to what is stored => content_changed is false
+        normalized_title_key: DiscourseJournals::TitleMatcher.normalized_title_key(existing_topic.title),
+        issn_l: nil,
+        publisher: nil,
+        cover_url: nil,
+        country: nil,
+      }
+
+      described_class.new.upsert_prepared!(prepared, existing_topic_id: existing_topic.id)
+
+      expect(DiscourseJournals::OutdatedMarker.outdated?(existing_topic.reload)).to eq(false)
+    end
+  end
 end

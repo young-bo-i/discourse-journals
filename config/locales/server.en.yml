@@ -136,6 +136,13 @@ en:
         usd_estimate: "USD Estimate"
     render:
       unknown_journal: "Unknown Journal"
+      outdated_notice: "This journal record is outdated. Please search again for the latest information."
+      seo_published_by: "Published by %{publisher}"
+      seo_if: "Impact Factor %{value} (%{year})"
+      seo_works: "%{count} articles published"
+      seo_citations: "Cited %{count} times"
+      seo_h_index: "h-index %{value}"
+      seo_oa_yes: "This journal is Open Access"
       issn: "ISSN"
       publisher: "Publisher"
       country: "Country"

@@ -223,16 +223,19 @@ module DiscourseJournals
       remaining_ids = @topics_to_delete[skip_offset..] || []
       return if remaining_ids.empty?
 
-      publish_progress(2, "开始批量删除多余话题 (共 #{total} 个，从 ##{skip_offset + 1} 继续)...")
+      publish_progress(2, "开始标记过时话题 (共 #{total} 个，从 ##{skip_offset + 1} 继续)...")
 
       base_offset = skip_offset
 
       remaining_ids.each_slice(DELETE_BATCH_SIZE).with_index do |batch_ids, batch_idx|
         check_cancelled!
 
-        deleted_count = bulk_delete_topic_batch(batch_ids)
-        increment_stat(:deleted, deleted_count)
-        skipped = batch_ids.size - deleted_count
+        # Soft-delete: forum-only journals are marked outdated (banner + closed),
+        # NOT hard-deleted, to preserve their SEO. Already-outdated topics are
+        # skipped (idempotent).
+        marked_count = OutdatedMarker.mark_batch(batch_ids)
+        increment_stat(:deleted, marked_count)
+        skipped = batch_ids.size - marked_count
         increment_stat(:skipped, skipped) if skipped > 0
 
         processed = base_offset + [((batch_idx + 1) * DELETE_BATCH_SIZE), remaining_ids.size].min
@@ -241,20 +244,11 @@ module DiscourseJournals
         save_checkpoint("deletes", "delete_offset", processed)
 
         pct = (2 + processed.to_f / total * 3).round(1)
-        publish_progress(pct, "批量删除中... #{processed}/#{total} (已删除 #{@stats[:deleted]})")
+        publish_progress(pct, "标记过时中... #{processed}/#{total} (已标记 #{@stats[:deleted]})")
       end
 
       save_checkpoint("deletes", "delete_offset", total)
-      update_category_stats_after_delete
-      publish_progress(5, "删除完成：#{@stats[:deleted]} 个话题已永久删除")
-    end
-
-    def bulk_delete_topic_batch(topic_ids)
-      BulkTopicDeleter.delete_batch(topic_ids)
-    end
-
-    def update_category_stats_after_delete
-      BulkTopicDeleter.update_category_stats(SiteSetting.discourse_journals_category_id)
+      publish_progress(5, "过时标记完成：#{@stats[:deleted]} 个话题已标记为过时")
     end
 
     # ──── Phase 2: Pipeline fetch + parallel transform/upsert ────

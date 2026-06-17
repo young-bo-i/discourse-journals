@@ -121,6 +121,16 @@ module DiscourseJournals
         end
       end
 
+      # Revival: the journal is back in the API (we matched it), so ALWAYS drop any
+      # outdated flag — even on a byte-identical re-sync where content_changed is
+      # false. The freshly written cooked (rendered without the banner) is current
+      # again. Reopen the topic if it was only closed by the outdated marker.
+      revived =
+        TopicCustomField.where(topic_id: topic.id, name: "discourse_journals_outdated").delete_all
+      if revived.positive? && topic.closed? && !SiteSetting.discourse_journals_close_topics
+        topic.update_columns(closed: false)
+      end
+
       store_custom_fields!(topic, prepared)
       JournalTagManager.apply_tags!(topic, prepared[:normalized])
       ensure_closed!(topic)
