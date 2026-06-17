@@ -16,7 +16,11 @@ module DiscourseJournals
     end
 
     API_BASE_URL = "https://journal.scholay.com/api/open/journals"
-    API_PAGE_SIZE = 1000
+    # The upstream API caps page size at 100 and computes its offset from the
+    # REQUESTED pageSize, so requesting more than 100 returns 100 rows but skips
+    # the rest of that offset window (data loss). Request exactly the cap so the
+    # offset step matches the rows returned and pagination stays contiguous.
+    API_PAGE_SIZE = 100
     API_CONCURRENCY = 3
     PROGRESS_BATCH_INTERVAL = 5
 
@@ -154,36 +158,38 @@ module DiscourseJournals
     def build_api_index
       publish_progress(:api, 0, 0, "正在获取 API 数据...")
 
-      http = create_persistent_connection
+      connections = API_CONCURRENCY.times.map { create_persistent_connection }
       fetched = 0
       page = 1
+      window_index = 0
       start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
       begin
         loop do
           check_cancelled!
 
-          result = fetch_api_page_persistent(http, page)
-          rows = result[:rows]
-          break if rows.empty?
+          # Upstream gives no total/totalPages, so fetch a window of consecutive
+          # pages concurrently (rate-limiter still caps throughput) and stop once
+          # any page in the window reports no more pages or comes back empty.
+          window = (page...(page + API_CONCURRENCY)).to_a
+          results = fetch_batch_concurrent(connections, window)
 
-          fetched += process_api_rows(rows)
+          results.each { |result| fetched += process_api_rows(result[:rows]) }
+          window_index += 1
 
-          if page % PROGRESS_BATCH_INTERVAL == 0
+          if window_index % PROGRESS_BATCH_INTERVAL == 0
             elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start_time
             speed = elapsed > 0 ? (fetched.to_f / elapsed).round(0) : 0
-            publish_progress(:api, fetched, 0, "API 获取中... 第 #{page} 页 (#{fetched} 条, #{speed} 条/秒)")
+            publish_progress(:api, fetched, 0, "API 获取中... 第 #{window.last} 页 (#{fetched} 条, #{speed} 条/秒)")
           end
 
-          # The upstream API no longer returns total/totalPages; paginate via the
-          # hasMore flag until it is false (or a page comes back empty).
-          break unless result[:has_more]
+          break if results.any? { |result| result[:rows].empty? || !result[:has_more] }
 
-          page += 1
+          page += API_CONCURRENCY
         end
       ensure
-        begin
-          http.finish
+        connections.each do |conn|
+          conn.finish
         rescue StandardError
           nil
         end
