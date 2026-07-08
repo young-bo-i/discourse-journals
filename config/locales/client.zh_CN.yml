@@ -73,7 +73,8 @@ zh_CN:
           apply_stats_errors: "错误"
         personas:
           heading: "账号池"
-          description: "上传 CSV 或 JSON 文件来批量创建评论人设账号（列：username[必填]、name、field、bio、location）。可重复上传——已存在的 username 会自动跳过。"
+          description: "上传 CSV 或 JSON 文件来批量创建评论人设账号。列：username（必填）、name、field、bio、location、website、title、timezone、date_of_birth，以及任何与站点自定义用户字段名相同的列。可重复上传——已存在的 username 会自动跳过。"
+          download_template: "下载 CSV 模板"
           current_count: "当前池规模：%{count}"
           choose_file: "选择文件（.csv / .json）"
           upload: "上传并创建"

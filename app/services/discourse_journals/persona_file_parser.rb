@@ -9,7 +9,6 @@ module DiscourseJournals
     class ParseError < StandardError
     end
 
-    ALLOWED_KEYS = %w[username name field bio location].freeze
     MAX_ROWS = 100_000
 
     def self.parse(content, filename = nil)
@@ -50,10 +49,13 @@ module DiscourseJournals
     def self.normalize_row(item)
       return nil unless item.is_a?(Hash)
 
+      # Keep every column: known profile keys are consumed by PersonaBuilder, and
+      # any extra column whose header matches a site UserField name becomes that
+      # user field. Unrecognized columns are simply ignored downstream.
       row = {}
       item.each do |k, v|
         key = k.to_s.strip.downcase
-        next unless ALLOWED_KEYS.include?(key)
+        next if key.blank?
         row[key] = v.to_s.strip
       end
 

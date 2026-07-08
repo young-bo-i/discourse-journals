@@ -73,7 +73,8 @@ en:
           apply_stats_errors: "Errors"
         personas:
           heading: "Persona pool"
-          description: "Upload a CSV or JSON file to create the pool of review-persona accounts (columns: username [required], name, field, bio, location). Re-uploading is safe — existing usernames are skipped."
+          description: "Upload a CSV or JSON file to create the pool of review-persona accounts. Columns: username (required), name, field, bio, location, website, title, timezone, date_of_birth, plus any column matching one of your site's custom user field names. Re-uploading is safe — existing usernames are skipped."
+          download_template: "Download CSV template"
           current_count: "Current pool size: %{count}"
           choose_file: "Choose file (.csv / .json)"
           upload: "Upload & create"

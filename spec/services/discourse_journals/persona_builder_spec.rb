@@ -41,6 +41,28 @@ describe DiscourseJournals::PersonaBuilder do
       )
     end
 
+    it "fills the extended profile fields and matching custom user fields" do
+      user_field = Fabricate(:user_field, name: "机构")
+
+      described_class.new.build!(
+        {
+          "username" => "rich.profile",
+          "bio" => "神经科学方向",
+          "location" => "北京",
+          "website" => "https://example.edu/lab",
+          "title" => "副研究员",
+          "机构" => "清华大学",
+        },
+      )
+
+      user = User.find_by(username: "rich.profile")
+      expect(user.title).to eq("副研究员")
+      expect(user.user_profile.location).to eq("北京")
+      expect(user.user_profile.website).to eq("https://example.edu/lab")
+      expect(user.user_profile.bio_raw).to eq("神经科学方向")
+      expect(user.custom_fields["user_field_#{user_field.id}"]).to eq("清华大学")
+    end
+
     it "is idempotent — re-building the same username skips without creating a duplicate" do
       described_class.new.build!({ "username" => "dup_user" })
 

@@ -15,10 +15,12 @@ describe DiscourseJournals::PersonaFileParser do
       )
     end
 
-    it "parses a JSON array and drops unknown keys" do
-      json = [{ "username" => "lwang", "role" => "ignored" }].to_json
+    it "parses a JSON array and keeps extra columns (for custom user fields)" do
+      json = [{ "username" => "lwang", "机构" => "清华大学" }].to_json
 
-      expect(described_class.parse(json, "personas.json")).to eq([{ "username" => "lwang" }])
+      expect(described_class.parse(json, "personas.json")).to eq(
+        [{ "username" => "lwang", "机构" => "清华大学" }],
+      )
     end
 
     it "skips rows without a username" do

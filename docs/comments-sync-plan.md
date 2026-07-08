@@ -55,9 +55,13 @@
 
 管理后台加一个"人设池"上传区（**注意：早前那套 JSON 导入 UI/ImportLog 表已被删除清理，这是全新、专用的导入器**）：
 
-- **上传文件格式**：CSV 或 JSON，每行/每项一个人设。列建议：
-  `username`（必填）、`name`（可选）、`field`（学科大类，可选——缺省由系统按配额自动分配，见 §2.5）、`location`/`bio`（可选）。
+- **上传文件格式**：CSV 或 JSON，每行/每项一个人设。列：
+  `username`（必填）、`name`、`field`（学科大类，缺省由系统按配额分配，见 §2.5）、
+  以及**真实用户可编辑的资料字段** `bio`/`location`/`website`/`title`/`timezone`/`date_of_birth`（均可选），
+  外加**任何与站点自定义用户字段（UserField）名相同的列**（如 机构/研究方向/职称）——按名匹配写成 `user_field_<id>`。
   → 姓名库由**你准备并上传**，插件不再内置姓名生成器（省掉造名难题，也让名字可控可审）。
+  → 后台"账号池"区提供 **CSV 模板下载**（`public/personas-template.csv`）。
+  → `date_of_birth` 可选、默认留空（留空即不进 cakeday 生日页）；若填写则跨全年分散、不构成尖峰。
 - **导入 job** `Jobs::DiscourseJournals::ImportPersonas`（`queue: "low"`，分批事务、断点、进度走 MessageBus，骨架同 apply）：
   逐行校验 username 合规/不撞名（`User.username_available?`，user.rb:422-437；撞了记为跳过并在结果里报告，**不自动加数字后缀**避免序列号感），
   然后按 §2.3 配方建号。**幂等**：以 username（或文件里的稳定 key）做 UserCustomField 查重，重复上传不重复建。
