@@ -75,6 +75,26 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
   }
 
   @action
+  async downloadTemplate() {
+    // Fetch + blob download so the SPA router never intercepts the click and no
+    // extra tab opens; the static file is served at /plugins/discourse-journals/.
+    try {
+      const response = await fetch(
+        "/plugins/discourse-journals/personas-template.csv"
+      );
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "personas-template.csv";
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // ignore — link is best-effort
+    }
+  }
+
+  @action
   setPersonaFile(event) {
     this.personaFile = event.target.files?.[0] || null;
   }
