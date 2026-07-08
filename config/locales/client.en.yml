@@ -13,7 +13,6 @@ en:
           claw: "Smart Assistant Claw"
       search:
         placeholder: "Search journals (name, ISSN, publisher...)"
-        button: "Search"
         no_results: "No journals found"
         more: "More..."
       admin:
@@ -72,13 +71,18 @@ en:
           apply_stats_updated: "Updated"
           apply_stats_created: "Created"
           apply_stats_errors: "Errors"
-          cover_heading: "Cover processing"
-          cover_description: "Download or generate cover images for journal topics. This runs in the background after the mapping apply completes."
-          cover_in_progress: "Processing covers..."
-          cover_completed: "Cover processing completed!"
-          cover_failed: "Cover processing failed"
-          cover_stats_processed: "Processed"
-          cover_stats_total: "Total"
+        personas:
+          heading: "Persona pool"
+          description: "Upload a CSV or JSON file to create the pool of review-persona accounts (columns: username [required], name, field, bio, location). Re-uploading is safe — existing usernames are skipped."
+          current_count: "Current pool size: %{count}"
+          choose_file: "Choose file (.csv / .json)"
+          upload: "Upload & create"
+          importing: "Creating persona accounts..."
+          created: "Created"
+          skipped: "Skipped"
+          errors: "Errors"
+          completed: "Persona import completed"
+          failed: "Persona import failed"
         stats:
           heading: "Promo entry analytics"
           description: "Daily impressions, clicks and click-through rate (CTR) for the promo carousel shown above the journal navigation."

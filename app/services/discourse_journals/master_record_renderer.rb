@@ -2,7 +2,6 @@
 
 module DiscourseJournals
   class MasterRecordRenderer
-    API_COVER_BASE = "https://journal.scholay.com"
     MAX_BASIC_INFO_CARDS = 10
     MAX_RANKING_DETAIL_CARDS = 6
     MAX_TABLE_ROWS = 8
@@ -123,7 +122,11 @@ module DiscourseJournals
 
     def fmt(num)
       return nil if num.nil?
-      num.to_s.reverse.gsub(/(\d{3})(?=\d)/, '\\1,').reverse
+      # Group thousands on the integer part only. A naive reverse-gsub over the
+      # whole string mangles decimals ("1234.56" -> "123,4.56").
+      int, frac = num.to_s.split(".", 2)
+      grouped = int.reverse.gsub(/(\d{3})(?=\d)/, '\\1,').reverse
+      frac ? "#{grouped}.#{frac}" : grouped
     end
 
     def render_outdated_notice
@@ -134,7 +137,7 @@ module DiscourseJournals
       id = identity
       pub = publication
       title = h(id[:title]).presence || t("unknown_journal")
-      cover_url = id[:cover_url].present? ? "#{API_COVER_BASE}#{id[:cover_url]}" : nil
+      cover_url = id[:cover_url].present? ? "#{SiteSetting.discourse_journals_api_base_url}#{id[:cover_url]}" : nil
       abbrev = h(id[:abbreviation])
       publisher = h(pub[:publisher_name])
       publisher_id = h(pub[:publisher_id])
@@ -145,20 +148,26 @@ module DiscourseJournals
       issn_l = h(id[:issn_l])
 
       cover_initials = extract_initials(id[:title] || "")
-      cover_html = if cover_url
-        %(<img src="#{h(cover_url)}" alt="#{title}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />) +
-        %(<div class="dj-hero__cover-art" style="display:none"><span class="dj-cover-code">#{h(cover_initials)}</span><span class="dj-cover-label">#{title}</span></div>)
-      else
+      # The initials art is always rendered as the sized backdrop; when a cover URL
+      # exists the image is layered on top via CSS. A loaded image hides the art; a
+      # broken one simply reveals it — no inline onerror JS (which the default CSP
+      # blocks anyway).
+      art_html =
         %(<div class="dj-hero__cover-art"><span class="dj-cover-code">#{h(cover_initials)}</span><span class="dj-cover-label">#{title}</span></div>)
-      end
+      cover_class = cover_url ? "dj-hero__cover dj-hero__cover--with-img" : "dj-hero__cover"
+      # Decorative cover: the journal name is already the adjacent h2 and the
+      # backdrop art label, so keep alt empty — a broken image then reveals the
+      # initials art cleanly instead of overlaying alt text on top of it.
+      img_html =
+        cover_url ? %(<img class="dj-hero__cover-img" src="#{h(cover_url)}" alt="" loading="lazy" />) : ""
 
       homepage_display = homepage.present? ? homepage.sub(%r{https?://}, "").sub(/\/\z/, "") : nil
       homepage_link = homepage.present? ? %(<a href="#{h(homepage)}" target="_blank" rel="noopener" class="dj-link-pill">#{EXTERNAL_LINK_SVG}<span>#{h(homepage_display)}</span></a>) : nil
 
       <<~HTML
         <header class="dj-hero" id="dj-nav-hero" data-dj-nav="#{h(t("nav_hero"))}">
-          <div class="dj-hero__cover">
-            #{cover_html}
+          <div class="#{cover_class}">
+            #{art_html}#{img_html}
           </div>
           <div class="dj-hero__body">
             <div class="dj-hero__eyebrow">#{h(t("eyebrow"))}</div>
@@ -257,6 +266,8 @@ module DiscourseJournals
       partition = extract_cas_zone(cas[:major_quartile])
       zone_class = partition ? "dj-pyramid--zone#{partition}" : ""
       zone_label = partition ? t("zone_label", num: partition) : "—"
+      # value is escaped here; the whole string is interpolated raw below (do not
+      # double-escape via h() again — that would render "&amp;" for "&").
       impact_val = jcr ? t("if_label", value: h(jcr[:impact_factor])) : "—"
 
       warning_html = ""
@@ -277,7 +288,7 @@ module DiscourseJournals
           </div>
           <div class="dj-metric-content">
             <p class="dj-metric-tier dj-metric-tier--cas">#{h(zone_label)}</p>
-            <p class="dj-metric-value dj-metric-value--cas">#{h(impact_val)}</p>
+            <p class="dj-metric-value dj-metric-value--cas">#{impact_val}</p>
             #{warning_html}
           </div>
         </article>
@@ -543,26 +554,6 @@ module DiscourseJournals
       <<~HTML
         <section class="dj-panel dj-compact-info" id="dj-nav-info" data-dj-nav="#{h(t("nav_info"))}">
           #{groups.join}
-        </section>
-      HTML
-    end
-
-    def render_topic_cloud
-      topics = @d.dig(:subjects_topics, :topics) || []
-      return nil if topics.empty?
-
-      max_count = topics.map { |tp| tp[:count].to_i }.max
-      max_count = 1 if max_count == 0
-
-      spans = topics.map { |tp|
-        weight = ((tp[:count].to_f / max_count) * 5).ceil.clamp(1, 5)
-        %(<span data-weight="#{weight}">#{h(tp[:name])}</span>)
-      }
-
-      <<~HTML
-        <section class="dj-panel">
-          <h3>#{h(t("topics"))}</h3>
-          <div class="dj-topic-cloud">#{spans.join("\n    ")}</div>
         </section>
       HTML
     end
@@ -961,28 +952,6 @@ module DiscourseJournals
           #{input_html}
           <div class="dj-viz-card__header">
             <div class="dj-viz-title">#{title_content}</div>
-            #{label_html}
-          </div>
-          <div class="dj-viz-chart">#{svg}</div>
-          #{table_html}
-        </article>
-      HTML
-    end
-
-    def viz_card_wide(title, dot_color, svg, data: nil, value_key: nil, value_keys: nil)
-      return nil if svg.blank?
-      dot = dot_color ? %(<span class="dj-legend-dot" style="background:#{dot_color}"></span>) : ""
-
-      tid = next_toggle_id
-      table_html = build_table(data, value_key: value_key, value_keys: value_keys)
-      input_html = table_html.present? ? %(<input type="checkbox" class="dj-viz-toggle-input" id="#{tid}" />) : ""
-      label_html = table_html.present? ? %(<label for="#{tid}" class="dj-viz-toggle-label" title="#{h(t("toggle_chart_table"))}">#{toggle_icon_svg}</label>) : ""
-
-      <<~HTML
-        <article class="dj-viz-card dj-viz-card--wide">
-          #{input_html}
-          <div class="dj-viz-card__header">
-            <div class="dj-viz-title">#{dot}#{h(title)}</div>
             #{label_html}
           </div>
           <div class="dj-viz-chart">#{svg}</div>

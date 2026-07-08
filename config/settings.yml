@@ -6,6 +6,9 @@ plugins:
     default: ""
     type: category
     client: true
+  discourse_journals_api_base_url:
+    default: "https://journal.scholay.com"
+    client: true
   discourse_journals_title_suffix:
     default: "期刊详情 | 学术期刊库 | 开放获取期刊"
     client: true
@@ -14,12 +17,7 @@ plugins:
     default: "{{title}} - {{publisher}} - ISSN: {{issn}}"
   discourse_journals_meta_keywords:
     default: "{{title}}, {{issn}}, {{publisher}}, {{tags}}"
-  discourse_journals_auto_recover_deleted:
-    default: true
-    description: "自动恢复被删除的期刊话题（如果设为 false，将跳过已删除的期刊）"
   discourse_journals_close_topics:
-    default: true
-  discourse_journals_bypass_bump:
     default: true
   discourse_journals_suggested_mode:
     default: "custom_first"
@@ -35,10 +33,21 @@ plugins:
     type: integer
     min: 1
     max: 20
-  discourse_journals_download_covers:
-    default: true
+    client: true
   discourse_journals_performance_logging:
     default: false
+  discourse_journals_persona_email_domain:
+    default: "scholay-personas.invalid"
+  discourse_journals_persona_join_years:
+    default: 4
+    type: integer
+    min: 1
+    max: 15
+  discourse_journals_persona_member_badge_percent:
+    default: 0
+    type: integer
+    min: 0
+    max: 100
   discourse_journals_major_publishers:
     default: "Elsevier,Springer Nature,Wiley,Taylor & Francis,SAGE,Oxford University Press,Cambridge University Press,IEEE,ACM,MDPI,Frontiers,PLOS,BMJ,Wolters Kluwer,American Chemical Society,Royal Society of Chemistry,De Gruyter,Emerald,IOP Publishing,Nature Publishing Group"
     type: text_area

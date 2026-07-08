@@ -22,11 +22,14 @@ add_admin_route "discourse_journals.title", "discourse-journals"
 after_initialize do
   require_relative "app/models/discourse_journals/mapping_analysis"
   require_relative "app/models/discourse_journals/promo_stat"
+  require_relative "app/models/discourse_journals/persona_import"
+  require_relative "app/services/discourse_journals/persona_pool"
+  require_relative "app/services/discourse_journals/persona_builder"
+  require_relative "app/services/discourse_journals/persona_file_parser"
   require_relative "app/services/discourse_journals/api_rate_limiter"
   require_relative "app/services/discourse_journals/outdated_marker"
   require_relative "app/services/discourse_journals/bulk_topic_deleter"
   require_relative "app/services/discourse_journals/field_normalizer"
-  require_relative "app/services/discourse_journals/field_usage_tracker"
   require_relative "app/services/discourse_journals/master_record_renderer"
   require_relative "app/services/discourse_journals/journal_upserter"
   require_relative "app/services/discourse_journals/journal_seo_context"
@@ -34,9 +37,6 @@ after_initialize do
   require_relative "app/services/discourse_journals/title_matcher"
   require_relative "app/services/discourse_journals/api_data_transformer"
   require_relative "app/services/discourse_journals/svg_chart_builder"
-  require_relative "app/services/discourse_journals/cover_image_generator"
-  require_relative "app/services/discourse_journals/topic_cover_manager"
-  require_relative "app/services/discourse_journals/topic_cover_backfill"
   require_relative "app/services/discourse_journals/topic_title_key_backfill"
   require_relative "app/services/discourse_journals/mapping_applier"
   require_relative "app/services/discourse_journals/journal_tag_manager"
@@ -44,28 +44,25 @@ after_initialize do
   require_relative "app/jobs/regular/discourse_journals/analyze_mapping"
   require_relative "app/jobs/regular/discourse_journals/apply_mapping"
   require_relative "app/jobs/regular/discourse_journals/delete_all_journals"
-  require_relative "app/jobs/regular/discourse_journals/process_journal_covers"
+  require_relative "app/jobs/regular/discourse_journals/import_personas"
+
+  # Persona-pool user custom fields (server-only; never exposed via serializers).
+  User.register_custom_field_type("discourse_journals_persona", :string)
+  User.register_custom_field_type("discourse_journals_field", :string)
+  User.register_custom_field_type("discourse_journals_tone", :string)
 
   Topic.register_custom_field_type("discourse_journals_issn_l", :string)
   Topic.register_custom_field_type("discourse_journals_publisher", :string)
   Topic.register_custom_field_type("discourse_journals_data", :string)
   Topic.register_custom_field_type("discourse_journals_cover_url", :string)
   Topic.register_custom_field_type("discourse_journals_country", :string)
-  Topic.register_custom_field_type("discourse_journals_cover_url_hash", :string)
   Topic.register_custom_field_type("discourse_journals_normalized_title_key", :string)
   Topic.register_custom_field_type("discourse_journals_api_id", :string)
   Topic.register_custom_field_type("discourse_journals_outdated", :string)
 
   module ::DiscourseJournals
-    CUSTOM_FIELD_NAMES = %w[
-      discourse_journals_issn_l
-      discourse_journals_publisher
-      discourse_journals_data
-      discourse_journals_cover_url
-      discourse_journals_country
-      discourse_journals_normalized_title_key
-      discourse_journals_api_id
-    ].freeze
+    # The canonical journal custom-field list lives in JournalUpserter
+    # (JournalUpserter::CUSTOM_FIELD_NAMES) — the only reader/writer of the set.
 
     SEO_FIELD_NAMES = %w[discourse_journals_issn_l discourse_journals_publisher].freeze
     JSONLD_FIELD_NAMES = %w[
@@ -477,14 +474,16 @@ after_initialize do
     post "/admin/journals/mapping/apply_resume" => "discourse_journals/admin_mapping#apply_resume",
          :constraints => AdminConstraint.new
 
-    get "/admin/journals/mapping/cover_status" => "discourse_journals/admin_mapping#cover_status",
-        :constraints => AdminConstraint.new
-
     get "/admin/journals/promo_stats" => "discourse_journals/admin_mapping#promo_stats",
         :constraints => AdminConstraint.new
 
     delete "/admin/journals/delete_all" => "discourse_journals/admin_mapping#delete_all",
            :constraints => AdminConstraint.new
+
+    post "/admin/journals/personas/import" => "discourse_journals/admin_personas#import",
+         :constraints => AdminConstraint.new
+    get "/admin/journals/personas/status" => "discourse_journals/admin_personas#status",
+        :constraints => AdminConstraint.new
 
     # Public: promo carousel impression/click tracking (anonymous allowed)
     post "/journals/promo/track" => "discourse_journals/promo#track"

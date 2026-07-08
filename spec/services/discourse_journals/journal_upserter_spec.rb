@@ -8,7 +8,6 @@ describe DiscourseJournals::JournalUpserter do
     SiteSetting.discourse_journals_close_topics = false
 
     allow(DiscourseJournals::JournalTagManager).to receive(:apply_tags!)
-    allow(DiscourseJournals::TopicCoverManager).to receive(:process!)
     allow(SearchIndexer).to receive(:queue_post_reindex)
   end
 

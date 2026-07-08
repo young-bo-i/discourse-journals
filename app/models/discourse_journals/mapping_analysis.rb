@@ -17,13 +17,6 @@ module DiscourseJournals
       sync_paused: 4,
     }
 
-    enum :cover_status, {
-      cover_not_started: 0,
-      cover_processing: 1,
-      cover_completed: 2,
-      cover_failed: 3,
-    }, prefix: :cover
-
     CATEGORIES = %w[exact_1to1 forum_1_to_api_n forum_n_to_api_1 forum_n_to_api_m forum_only api_only].freeze
 
     scope :latest, -> { order(created_at: :desc) }
@@ -33,12 +26,15 @@ module DiscourseJournals
       latest.first
     end
 
-    def self.has_active?
-      where(status: %i[pending processing]).exists?
+    # For read paths that never touch the (potentially huge) details_data column —
+    # e.g. the polled status endpoints. details_for fetches its bucket via SQL by
+    # id, so it works on a lightweight record too.
+    def self.current_light
+      lightweight.latest.first
     end
 
-    def self.has_running?
-      where(status: %i[pending processing paused]).exists?
+    def self.has_active?
+      where(status: %i[pending processing]).exists?
     end
 
     def progress_percent
@@ -56,7 +52,18 @@ module DiscourseJournals
     end
 
     def stale_sync_processing?
-      sync_processing? && apply_started_at.present? && apply_started_at < STALE_APPLY_THRESHOLD.ago
+      return false unless sync_processing?
+      last = apply_heartbeat_at
+      last.present? && last < STALE_APPLY_THRESHOLD.ago
+    end
+
+    # The applier refreshes a heartbeat epoch inside apply_checkpoint on every
+    # batch, so a healthy long-running apply is never mistaken for a crashed one.
+    # Falls back to apply_started_at before the first checkpoint (and for legacy
+    # rows written before heartbeating existed).
+    def apply_heartbeat_at
+      hb = apply_checkpoint.is_a?(Hash) ? apply_checkpoint["heartbeat"] : nil
+      hb ? Time.zone.at(hb.to_i) : apply_started_at
     end
 
     def summary
@@ -70,18 +77,6 @@ module DiscourseJournals
         forum_only: forum_only_count,
         api_only: api_only_count,
       }
-    end
-
-    def cover_redis_key
-      "discourse_journals:cover_progress:#{id}"
-    end
-
-    def cover_progress_percent
-      stats = cover_stats || {}
-      total = stats["total"].to_i
-      return 0 if total.zero?
-      processed = stats["processed"].to_i
-      [(processed * 100.0 / total).round, 100].min
     end
 
     def apply_summary
@@ -104,7 +99,19 @@ module DiscourseJournals
         return { items: [], total: 0, page: page, per_page: per_page, total_pages: 0 }
       end
 
-      all_items = details_data&.dig(category.to_s) || []
+      # Fetch only the requested bucket from Postgres instead of loading the whole
+      # details_data column (which also carries _action_plan with up to hundreds of
+      # thousands of entries) into Ruby just to slice ≤500 rows. category is
+      # whitelisted above, so the jsonb key is safe to bind. Cast to ::text so the
+      # value comes back as a JSON string (mini_sql auto-decodes bare jsonb to a
+      # Ruby object, which would then break JSON.parse); NULL (missing key) -> nil.
+      raw =
+        DB.query_single(
+          "SELECT (details_data -> :cat)::text FROM discourse_journals_mapping_analyses WHERE id = :id",
+          cat: category.to_s,
+          id: id,
+        ).first
+      all_items = raw.present? ? JSON.parse(raw) : []
       offset = (page - 1) * per_page
       {
         items: all_items[offset, per_page] || [],

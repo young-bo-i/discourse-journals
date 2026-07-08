@@ -13,7 +13,6 @@ zh_CN:
           claw: "智能助手Claw"
       search:
         placeholder: "搜索期刊（输入名称、ISSN、出版商...）"
-        button: "搜索"
         no_results: "没有找到相关期刊"
         more: "更多..."
       admin:
@@ -72,13 +71,18 @@ zh_CN:
           apply_stats_updated: "已更新"
           apply_stats_created: "已创建"
           apply_stats_errors: "错误"
-          cover_heading: "封面处理"
-          cover_description: "为期刊话题下载或生成封面图片。此步骤在映射应用完成后自动在后台执行。"
-          cover_in_progress: "正在处理封面..."
-          cover_completed: "封面处理完成！"
-          cover_failed: "封面处理失败"
-          cover_stats_processed: "已处理"
-          cover_stats_total: "总计"
+        personas:
+          heading: "账号池"
+          description: "上传 CSV 或 JSON 文件来批量创建评论人设账号（列：username[必填]、name、field、bio、location）。可重复上传——已存在的 username 会自动跳过。"
+          current_count: "当前池规模：%{count}"
+          choose_file: "选择文件（.csv / .json）"
+          upload: "上传并创建"
+          importing: "正在创建人设账号..."
+          created: "已创建"
+          skipped: "已跳过"
+          errors: "错误"
+          completed: "账号池导入完成"
+          failed: "账号池导入失败"
         stats:
           heading: "跳转入口统计"
           description: "章节导航上方跳转入口的每日曝光、点击与点击率（CTR）。"

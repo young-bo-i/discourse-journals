@@ -4,8 +4,6 @@ module DiscourseJournals
   class SvgChartBuilder
     VIEWBOX_W = 340
     VIEWBOX_H = 160
-    WIDE_W = 700
-    WIDE_H = 200
     PAD_LEFT = 45
     PAD_RIGHT = 10
     PAD_TOP = 10
@@ -59,35 +57,6 @@ module DiscourseJournals
       values = data.map { |d| d[value_key].to_f }
       years ||= data.map { |d| d[:year] }.compact
       line_chart(values, years: years.size == values.size ? years : nil, **opts)
-    end
-
-    def self.dual_from_time_series(data, key_a:, key_b:, **opts)
-      return "" if data.nil? || data.size < 2
-      series_a = data.map { |d| d[key_a].to_f }
-      series_b = data.map { |d| d[key_b].to_f }
-      years = data.map { |d| d[:year] }.compact
-      all_values = series_a + series_b
-      min_val, max_val = value_range(all_values)
-      width = opts.delete(:width) || VIEWBOX_W
-      height = opts.delete(:height) || VIEWBOX_H
-
-      svg_tag(width, height) do
-        parts = []
-        parts << grid_and_y_labels(min_val, max_val, width, height)
-        parts << x_labels(years.size == series_a.size ? years : nil, width, height)
-
-        coords_a = chart_coords(series_a, min_val, max_val, width, height)
-        path_a = coords_a.map { |x, y| "#{x.round(1)},#{y.round(1)}" }.join(" ")
-        color_a = opts[:color_a] || "#7ac36a"
-        parts << %(<polyline points="#{path_a}" fill="none" stroke="#{color_a}" stroke-width="2.5" stroke-linecap="round" />)
-
-        coords_b = chart_coords(series_b, min_val, max_val, width, height)
-        path_b = coords_b.map { |x, y| "#{x.round(1)},#{y.round(1)}" }.join(" ")
-        color_b = opts[:color_b] || "#3885c8"
-        parts << %(<polyline points="#{path_b}" fill="none" stroke="#{color_b}" stroke-width="2.5" stroke-linecap="round" />)
-
-        parts.join("\n    ")
-      end
     end
 
     def self.area_from_time_series(data, key_a:, key_b:, years: nil, **opts)

@@ -1,0 +1,61 @@
+# frozen_string_literal: true
+
+describe DiscourseJournals::PersonaBuilder do
+  before { enable_current_plugin }
+
+  describe "#build!" do
+    it "creates a visible non-staged TL2 persona with email suppressed, backdated, and in the group" do
+      Fabricate(:user, created_at: 2.years.ago) # an old real user, so the join-date window is years wide
+
+      expect(
+        described_class.new.build!(
+          { "username" => "wei.zhang", "name" => "Zhang Wei", "field" => "化学" },
+        ),
+      ).to eq(:created)
+
+      user = User.find_by(username: "wei.zhang")
+      expect(user.active).to eq(true)
+      expect(user.staged).to eq(false)
+      expect(user.trust_level).to eq(2)
+      expect(user.manual_locked_trust_level).to eq(2)
+      expect(user.name).to eq("Zhang Wei")
+      expect(user.created_at).to be < 1.hour.ago
+      expect(user.last_seen_at).to be_present
+      expect(user.custom_fields["discourse_journals_persona"]).to eq("1")
+      expect(user.custom_fields["discourse_journals_field"]).to eq("化学")
+
+      expect(user.user_option.email_digests).to eq(false)
+      expect(user.user_option.email_level).to eq(UserOption.email_level_types[:never])
+      expect(user.user_option.email_messages_level).to eq(UserOption.email_level_types[:never])
+
+      group = Group.find_by(name: DiscourseJournals::PersonaPool::GROUP_NAME)
+      expect(GroupUser.exists?(group_id: group.id, user_id: user.id)).to eq(true)
+    end
+
+    it "assigns a default field from the CAS taxonomy when the row omits one" do
+      described_class.new.build!({ "username" => "no_field_user" })
+
+      user = User.find_by(username: "no_field_user")
+      expect(DiscourseJournals::PersonaPool::MAJOR_CATEGORIES).to include(
+        user.custom_fields["discourse_journals_field"],
+      )
+    end
+
+    it "is idempotent — re-building the same username skips without creating a duplicate" do
+      described_class.new.build!({ "username" => "dup_user" })
+
+      expect { described_class.new.build!({ "username" => "dup_user" }) }.not_to change {
+        User.where(username_lower: "dup_user").count
+      }
+      expect(described_class.new.build!({ "username" => "dup_user" })).to eq(:skipped)
+    end
+
+    it "refuses a username already taken by a real user" do
+      Fabricate(:user, username: "realperson")
+
+      expect { described_class.new.build!({ "username" => "realperson" }) }.to raise_error(
+        described_class::SkipRow,
+      )
+    end
+  end
+end

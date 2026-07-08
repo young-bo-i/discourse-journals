@@ -15,13 +15,11 @@ module DiscourseJournals
       end
     end
 
-    API_BASE_URL = "https://journal.scholay.com/api/open/journals"
     # The upstream API caps page size at 100 and computes its offset from the
     # REQUESTED pageSize, so requesting more than 100 returns 100 rows but skips
     # the rest of that offset window (data loss). Request exactly the cap so the
     # offset step matches the rows returned and pagination stays contiguous.
     API_PAGE_SIZE = 100
-    API_CONCURRENCY = 3
     PROGRESS_BATCH_INTERVAL = 5
 
     attr_reader :forum_index, :api_index, :results,
@@ -214,9 +212,9 @@ module DiscourseJournals
     end
 
     def create_persistent_connection
-      uri = URI(API_BASE_URL)
+      uri = URI(SiteSetting.discourse_journals_api_base_url)
       http = Net::HTTP.new(uri.host, uri.port)
-      http.use_ssl = true
+      http.use_ssl = uri.scheme == "https"
       http.open_timeout = 30
       http.read_timeout = 60
       http.keep_alive_timeout = 120
@@ -291,66 +289,6 @@ module DiscourseJournals
       end
     end
 
-    def fetch_api_page_oneoff(page, page_size)
-      url = "#{API_BASE_URL}?page=#{page}&pageSize=#{page_size}"
-      uri = URI(url)
-
-      retries = 0
-      max_retries = 5
-
-      begin
-        @rate_limiter.throttle!
-        http = Net::HTTP.new(uri.host, uri.port)
-        http.use_ssl = (uri.scheme == "https")
-        http.open_timeout = 30
-        http.read_timeout = 60
-
-        response = http.get(uri.request_uri)
-
-        if response.code.to_i == 429
-          raise RateLimitedError.new((response["Retry-After"] || retries * 5 + 5).to_i.clamp(2, 60))
-        end
-
-        unless response.is_a?(Net::HTTPSuccess)
-          raise "API 请求失败: #{response.code} #{response.message}"
-        end
-
-        data = JSON.parse(response.body)
-        unless data["success"]
-          raise "API 返回错误: #{data["error"] || "Unknown"}"
-        end
-
-        payload = data["data"] || {}
-        {
-          rows: payload["rows"] || [],
-          total: payload["total"].to_i,
-          page: payload["page"].to_i,
-          total_pages: payload["totalPages"].to_i,
-        }
-      rescue RateLimitedError => e
-        retries += 1
-        if retries <= max_retries
-          Rails.logger.warn(
-            "[DiscourseJournals::TitleMatcher] Page #{page} rate-limited (429), retry #{retries}/#{max_retries}, waiting #{e.retry_after}s",
-          )
-          sleep e.retry_after
-          retry
-        end
-        raise "API 第 #{page} 页请求被限流 (重试 #{max_retries} 次后仍为 429)"
-      rescue Net::OpenTimeout, Net::ReadTimeout, OpenSSL::SSL::SSLError, Errno::ECONNRESET, EOFError => e
-        retries += 1
-        if retries <= max_retries
-          wait = retries * 5
-          Rails.logger.warn(
-            "[DiscourseJournals::TitleMatcher] Page #{page} retry #{retries}/#{max_retries} after #{e.class}: #{e.message}, waiting #{wait}s",
-          )
-          sleep wait
-          retry
-        end
-        raise "API 第 #{page} 页请求失败 (重试 #{max_retries} 次后): #{e.message}"
-      end
-    end
-
     def process_api_rows(rows)
       count = 0
       rows.each do |row|
@@ -391,21 +329,6 @@ module DiscourseJournals
       count
     end
 
-    def format_eta(seconds)
-      return "" if seconds <= 0
-
-      if seconds < 60
-        ", 约 #{seconds}s"
-      elsif seconds < 3600
-        mins = seconds / 60
-        secs = seconds % 60
-        secs > 0 ? ", 约 #{mins}m#{secs}s" : ", 约 #{mins}m"
-      else
-        hours = seconds / 3600
-        mins = (seconds % 3600) / 60
-        mins > 0 ? ", 约 #{hours}h#{mins}m" : ", 约 #{hours}h"
-      end
-    end
 
     def cross_match
       publish_progress(:match, 0, 0, "正在进行 API ID、ISSN-L 和标题交叉比对...")

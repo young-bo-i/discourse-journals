@@ -14,13 +14,10 @@ module DiscourseJournals
       end
     end
 
-    API_BASE_URL = "https://journal.scholay.com/api/open/journals"
     BYIDS_BATCH_SIZE = 50
     API_CONCURRENCY = 4
     UPSERT_CONCURRENCY = 4
     DELETE_BATCH_SIZE = BulkTopicDeleter::BATCH_SIZE
-    COVER_JOB_BATCH_SIZE = 500
-    COVER_JOB_DELAY_SECONDS = 30
 
     attr_reader :stats
 
@@ -33,9 +30,13 @@ module DiscourseJournals
       @update_map = {}
       @create_ids = []
       @topics_to_delete = []
-      @stats = (resume_stats || { deleted: 0, updated: 0, created: 0, skipped: 0, errors: 0 }).transform_keys(&:to_sym)
+      # Always start from a full set of counters and layer any resumed stats on
+      # top. A resumed hash may be empty (paused before the first checkpoint) or
+      # missing keys, so a bare `resume_stats ||` default would leave nil counters
+      # that blow up on the first `increment_stat` (nil + 1).
+      @stats = { deleted: 0, updated: 0, created: 0, skipped: 0, errors: 0 }
+        .merge((resume_stats || {}).transform_keys(&:to_sym))
       @system_user = Discourse.system_user
-      @cover_topic_ids = []
       @mutex = Mutex.new
       @last_cancel_check_at = 0.0
     end
@@ -62,7 +63,6 @@ module DiscourseJournals
         execute_api_sync(skip_offset: 0)
       end
 
-      enqueue_cover_jobs
       # Recompute tag/category-tag counts once, since apply_tag_delta! and
       # BulkTopicDeleter both skip TopicTag's per-row counter callbacks.
       JournalTagManager.reconcile_counts!
@@ -86,7 +86,9 @@ module DiscourseJournals
     end
 
     def save_checkpoint(phase, offset_key, offset_value)
-      cp = { "phase" => phase, offset_key => offset_value }
+      # "heartbeat" lets MappingAnalysis#stale_sync_processing? tell a live apply
+      # from a crashed one, so resuming a healthy job never spawns a duplicate.
+      cp = { "phase" => phase, offset_key => offset_value, "heartbeat" => Time.current.to_i }
       @analysis.update_columns(apply_checkpoint: cp, apply_stats: @stats.transform_keys(&:to_s))
     end
 
@@ -360,7 +362,6 @@ module DiscourseJournals
             upserter =
               JournalUpserter.new(
                 system_user: @system_user,
-                defer_images: true,
                 category: @journal_category,
               )
 
@@ -412,16 +413,16 @@ module DiscourseJournals
               upserter =
                 JournalUpserter.new(
                   system_user: @system_user,
-                  defer_images: true,
                   category: @journal_category,
                 )
 
               while (item = queue.pop) != :done
                 begin
-                  upserter.upsert_prepared!(item[:prepared], existing_topic_id: item[:topic_id])
-                  increment_stat(:updated)
-                  tid = upserter.last_topic_id
-                  @mutex.synchronize { @cover_topic_ids << tid } if tid
+                  # These are planned updates, but the target topic may have been
+                  # deleted since analysis, in which case upsert_prepared! creates
+                  # instead — count what actually happened.
+                  result = upserter.upsert_prepared!(item[:prepared], existing_topic_id: item[:topic_id])
+                  increment_stat(result == :created ? :created : :updated)
                 rescue StandardError => e
                   Rails.logger.error(
                     "[DiscourseJournals::MappingApplier] Upsert failed for api_id=#{item[:api_id]}: #{e.class}: #{e.message}",
@@ -441,13 +442,13 @@ module DiscourseJournals
       upserter =
         JournalUpserter.new(
           system_user: @system_user,
-          defer_images: true,
           category: @journal_category,
         )
-      upserter.upsert_prepared!(item[:prepared])
-      increment_stat(:created)
-      tid = upserter.last_topic_id
-      @mutex.synchronize { @cover_topic_ids << tid } if tid
+      # Planned as a create, but upsert_prepared! still de-dupes via
+      # find_existing_topic (ISSN-L / title), so it may resolve to an update —
+      # count what actually happened, consistent with parallel_upsert.
+      result = upserter.upsert_prepared!(item[:prepared])
+      increment_stat(result == :created ? :created : :updated)
     rescue StandardError => e
       Rails.logger.error(
         "[DiscourseJournals::MappingApplier] Create failed for api_id=#{item[:api_id]}: #{e.class}: #{e.message}",
@@ -471,14 +472,10 @@ module DiscourseJournals
       )
     end
 
-    def persist_stats
-      @analysis.update_columns(apply_stats: @stats.transform_keys(&:to_s))
-    end
-
     def create_persistent_connection
-      uri = URI(API_BASE_URL)
+      uri = URI(SiteSetting.discourse_journals_api_base_url)
       http = Net::HTTP.new(uri.host, uri.port)
-      http.use_ssl = true
+      http.use_ssl = uri.scheme == "https"
       http.open_timeout = 30
       http.read_timeout = 120
       http.keep_alive_timeout = 120
@@ -565,52 +562,6 @@ module DiscourseJournals
         end
         raise "API byIds 请求失败 (重试 #{max_retries} 次后): #{e.message}"
       end
-    end
-
-    def enqueue_cover_jobs
-      return if @cover_topic_ids.empty?
-
-      unique_ids = @cover_topic_ids.uniq
-      cover_total = unique_ids.size
-      user_id = @analysis.user_id
-
-      publish_progress(100, "正在排队封面图片处理任务 (#{cover_total} 个话题)...")
-
-      @analysis.update_columns(
-        cover_status: MappingAnalysis.cover_statuses[:cover_processing],
-        cover_stats: { "total" => cover_total, "processed" => 0 },
-      )
-
-      Discourse.redis.set(@analysis.cover_redis_key, 0)
-
-      unique_ids.each_slice(COVER_JOB_BATCH_SIZE).with_index do |batch, idx|
-        delay = idx * COVER_JOB_DELAY_SECONDS
-        Jobs.enqueue_in(
-          delay,
-          Jobs::DiscourseJournals::ProcessJournalCovers,
-          topic_ids: batch,
-          analysis_id: @analysis.id,
-          user_id: user_id,
-          cover_total: cover_total,
-        )
-      end
-
-      MessageBus.publish(
-        "/journals/cover-processing",
-        {
-          analysis_id: @analysis.id,
-          status: "processing",
-          progress: 0,
-          total: cover_total,
-          processed: 0,
-          message: "封面处理已排队... 0/#{cover_total}",
-        },
-        user_ids: [user_id],
-      )
-
-      Rails.logger.info(
-        "[DiscourseJournals::MappingApplier] Enqueued cover processing for #{cover_total} topics (staggered over #{cover_total / COVER_JOB_BATCH_SIZE * COVER_JOB_DELAY_SECONDS}s)",
-      )
     end
 
     def format_eta(seconds)

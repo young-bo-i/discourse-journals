@@ -12,21 +12,46 @@ module DiscourseJournals
       discourse_journals_api_id
     ].freeze
 
-    attr_reader :last_topic_id
-
-    def initialize(system_user: Discourse.system_user, defer_images: false, category: nil)
+    def initialize(system_user: Discourse.system_user, category: nil)
       @system_user = system_user
       @category_cache = category
-      @defer_images = defer_images
-      @last_topic_id = nil
     end
 
     def normalize_and_render(journal_data)
-      normalize_and_render!(journal_data)
+      normalizer = FieldNormalizer.new(journal_data)
+      normalized = normalizer.normalize
+
+      title = normalized.dig(:identity, :title)
+      raise ArgumentError, "Missing title in normalized data" if title.blank?
+      normalized_title_key = TitleMatcher.normalized_title_key(title)
+      normalized_json = normalized.to_json
+
+      html = nil
+      raw_text = nil
+      I18n.with_locale(SiteSetting.default_locale) do
+        renderer = MasterRecordRenderer.new(normalized)
+        html = renderer.render
+        raw_text = renderer.render_plain_text
+      end
+      raise ArgumentError, "Empty content generated" if html.blank?
+
+      {
+        api_id: normalized.dig(:unified, :id),
+        title: title,
+        html: html,
+        raw_text: raw_text,
+        normalized: normalized,
+        normalized_json: normalized_json,
+        normalized_title_key: normalized_title_key,
+        issn_l: normalized.dig(:identity, :issn_l),
+        publisher: normalized.dig(:publication, :publisher_name),
+        cover_url: normalized.dig(:identity, :cover_url),
+        country: normalized.dig(:publication, :country_name) || normalized.dig(:publication, :country_code),
+      }
     end
 
     def upsert!(journal_data, existing_topic_id: nil)
-      prepared = normalize_and_render!(journal_data)
+      prepared = normalize_and_render(journal_data)
       upsert_prepared!(prepared, existing_topic_id: existing_topic_id)
     end
 
@@ -35,7 +60,6 @@ module DiscourseJournals
         topic = Topic.find_by(id: existing_topic_id)
         if topic
           update_topic!(topic, prepared)
-          @last_topic_id = topic.id
           return :updated
         end
       end
@@ -43,12 +67,10 @@ module DiscourseJournals
       existing = find_existing_topic(prepared)
       if existing
         update_topic!(existing, prepared)
-        @last_topic_id = existing.id
         return :updated
       end
 
-      topic = create_topic!(prepared)
-      @last_topic_id = topic.id
+      create_topic!(prepared)
       :created
     end
 
@@ -80,10 +102,6 @@ module DiscourseJournals
       store_custom_fields!(topic, prepared)
       JournalTagManager.apply_tags!(topic, prepared[:normalized])
       ensure_closed!(topic)
-
-      unless @defer_images
-        process_topic_cover!(topic, prepared)
-      end
 
       topic
     end
@@ -135,10 +153,6 @@ module DiscourseJournals
       JournalTagManager.apply_tags!(topic, prepared[:normalized])
       ensure_closed!(topic)
 
-      unless @defer_images
-        process_topic_cover!(topic, prepared)
-      end
-
       topic
     end
 
@@ -159,7 +173,7 @@ module DiscourseJournals
         desired = {}
         desired["discourse_journals_issn_l"] = prepared[:issn_l].to_s if prepared[:issn_l].present?
         desired["discourse_journals_publisher"] = prepared[:publisher].to_s if prepared[:publisher].present?
-        normalized_cover_url = TopicCoverManager.normalize_cover_url(prepared[:cover_url])
+        normalized_cover_url = normalize_cover_url(prepared[:cover_url])
         desired["discourse_journals_cover_url"] = normalized_cover_url if normalized_cover_url.present?
         desired["discourse_journals_country"] = prepared[:country].to_s if prepared[:country].present?
         desired["discourse_journals_data"] = prepared[:normalized_json] if prepared[:normalized_json].present?
@@ -208,6 +222,13 @@ module DiscourseJournals
       return unless SiteSetting.discourse_journals_close_topics
       return if topic.closed?
       topic.update_column(:closed, true)
+    end
+
+    def normalize_cover_url(cover_url)
+      url = cover_url.to_s.strip
+      return nil if url.blank?
+
+      url.start_with?("http") ? url : "#{SiteSetting.discourse_journals_api_base_url}#{url}"
     end
 
     def find_existing_topic(prepared)
@@ -299,51 +320,6 @@ module DiscourseJournals
         Rails.logger.warn(
           "[DiscourseJournals] Ambiguous compatibility title match for #{raw_title.inspect} " \
             "in category #{category.id}",
-        )
-      end
-    end
-
-    def normalize_and_render!(journal_data)
-      normalizer = FieldNormalizer.new(journal_data)
-      normalized = normalizer.normalize
-
-      title = normalized.dig(:identity, :title)
-      raise ArgumentError, "Missing title in normalized data" if title.blank?
-      normalized_title_key = TitleMatcher.normalized_title_key(title)
-      normalized_json = normalized.to_json
-
-      html = nil
-      raw_text = nil
-      I18n.with_locale(SiteSetting.default_locale) do
-        renderer = MasterRecordRenderer.new(normalized)
-        html = renderer.render
-        raw_text = renderer.render_plain_text
-      end
-      raise ArgumentError, "Empty content generated" if html.blank?
-
-      {
-        api_id: normalized.dig(:unified, :id),
-        title: title,
-        html: html,
-        raw_text: raw_text,
-        normalized: normalized,
-        normalized_json: normalized_json,
-        normalized_title_key: normalized_title_key,
-        issn_l: normalized.dig(:identity, :issn_l),
-        publisher: normalized.dig(:publication, :publisher_name),
-        cover_url: normalized.dig(:identity, :cover_url),
-        country: normalized.dig(:publication, :country_name) || normalized.dig(:publication, :country_code),
-      }
-    end
-
-    def process_topic_cover!(topic, prepared)
-      PerformanceLogger.measure("sync.topic_cover", topic_id: topic.id) do
-        TopicCoverManager.process!(
-          topic: topic,
-          cover_url: prepared[:cover_url],
-          issn: prepared[:issn_l],
-          country: prepared[:country],
-          publisher: prepared[:publisher],
         )
       end
     end

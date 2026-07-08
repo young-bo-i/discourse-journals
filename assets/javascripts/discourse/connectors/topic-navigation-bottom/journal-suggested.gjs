@@ -5,8 +5,6 @@ import { fn } from "@ember/helper";
 import DiscourseURL from "discourse/lib/url";
 import { i18n } from "discourse-i18n";
 
-const COVER_BASE = "https://journal.scholay.com";
-
 const HIGHLIGHT_PREFIXES = [
   "jcr:",
   "sjr:",
@@ -84,7 +82,8 @@ export default class JournalSuggested extends Component {
     if (raw.startsWith("http")) {
       return raw;
     }
-    return `${COVER_BASE}${raw}`;
+    const base = this.siteSettings.discourse_journals_api_base_url || "";
+    return `${base}${raw}`;
   }
 
   _filterTags(tags) {

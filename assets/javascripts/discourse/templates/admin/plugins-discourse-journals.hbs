@@ -7,6 +7,87 @@
   </div>
 
   <div class="journals-main">
+    {{! ═══ 账号池 ═══ }}
+    <section class="journals-section personas-section">
+      <div class="section-header">
+        <h3>{{i18n "discourse_journals.admin.personas.heading"}}</h3>
+      </div>
+      <div class="section-content">
+        <p class="personas-desc">{{i18n
+            "discourse_journals.admin.personas.description"
+          }}</p>
+        <p class="personas-count">{{i18n
+            "discourse_journals.admin.personas.current_count"
+            count=this.personaCount
+          }}</p>
+
+        {{#unless this.personaImporting}}
+          <div class="personas-upload">
+            <input
+              type="file"
+              accept=".csv,.json"
+              {{on "change" this.setPersonaFile}}
+            />
+            <DButton
+              @action={{this.uploadPersonas}}
+              @disabled={{this.personaUploadDisabled}}
+              @label="discourse_journals.admin.personas.upload"
+              class="btn-primary"
+            />
+          </div>
+        {{/unless}}
+
+        {{#if this.personaImporting}}
+          <div class="personas-progress">
+            <div class="progress-container">
+              <div class="progress-track">
+                <div
+                  class="progress-fill"
+                  style="width: {{this.personaProgress}}%"
+                ></div>
+              </div>
+              <span class="progress-percent">{{this.personaProgress}}%</span>
+            </div>
+            <p class="progress-status">{{i18n
+                "discourse_journals.admin.personas.importing"
+              }}</p>
+          </div>
+        {{/if}}
+
+        {{#if this.personaStats}}
+          <div class="stats-grid personas-stats-grid">
+            <div class="stat-item stat-success">
+              <span class="stat-value">{{this.personaStats.created}}</span>
+              <span class="stat-label">{{i18n
+                  "discourse_journals.admin.personas.created"
+                }}</span>
+            </div>
+            <div class="stat-item">
+              <span class="stat-value">{{this.personaStats.skipped}}</span>
+              <span class="stat-label">{{i18n
+                  "discourse_journals.admin.personas.skipped"
+                }}</span>
+            </div>
+            <div class="stat-item stat-error">
+              <span class="stat-value">{{this.personaStats.errors}}</span>
+              <span class="stat-label">{{i18n
+                  "discourse_journals.admin.personas.errors"
+                }}</span>
+            </div>
+          </div>
+        {{/if}}
+
+        {{#if this.personaMessage}}
+          <div
+            class="message-box
+              {{if this.personaFailed 'message-error' 'message-success'}}"
+          >
+            {{this.personaMessage}}
+          </div>
+        {{/if}}
+      </div>
+    </section>
+
     {{! ═══ Phase 1: 映射分析 ═══ }}
     <section class="journals-section mapping-section">
       <div class="section-header">
@@ -585,81 +666,6 @@
                       }}</span>
                   </div>
                 </div>
-              {{/if}}
-            </div>
-          {{/if}}
-        </div>
-      </section>
-    {{/if}}
-
-    {{! ═══ Phase 3: 封面处理 ═══ }}
-    {{#if (or this.coverProcessing this.coverCompleted this.coverFailed)}}
-      <section class="journals-section cover-section">
-        <div class="section-header">
-          <h3>{{i18n "discourse_journals.admin.mapping.cover_heading"}}</h3>
-        </div>
-
-        <div class="section-content">
-          <p class="cover-desc">{{i18n
-              "discourse_journals.admin.mapping.cover_description"
-            }}</p>
-
-          {{#if this.coverProcessing}}
-            <div class="mapping-cover-progress">
-              <div class="progress-container">
-                <div class="progress-track">
-                  <div
-                    class="progress-fill"
-                    style="width: {{this.coverProgress}}%"
-                  ></div>
-                </div>
-                <span class="progress-percent">{{this.coverProgress}}%</span>
-              </div>
-              <p class="progress-status">{{this.coverMessage}}</p>
-              {{#if this.coverStats}}
-                <div class="stats-grid cover-stats-grid">
-                  <div class="stat-item stat-info">
-                    <span
-                      class="stat-value"
-                    >{{this.coverStats.processed}}</span>
-                    <span class="stat-label">{{i18n
-                        "discourse_journals.admin.mapping.cover_stats_processed"
-                      }}</span>
-                  </div>
-                  <div class="stat-item">
-                    <span class="stat-value">{{this.coverStats.total}}</span>
-                    <span class="stat-label">{{i18n
-                        "discourse_journals.admin.mapping.cover_stats_total"
-                      }}</span>
-                  </div>
-                </div>
-              {{/if}}
-            </div>
-          {{/if}}
-
-          {{#if this.coverCompleted}}
-            <div class="message-box message-success mapping-cover-result">
-              <strong>{{i18n
-                  "discourse_journals.admin.mapping.cover_completed"
-                }}</strong>
-              {{#if this.coverStats}}
-                <p>{{i18n
-                    "discourse_journals.admin.mapping.cover_stats_processed"
-                  }}:
-                  {{this.coverStats.processed}}
-                  /
-                  {{this.coverStats.total}}</p>
-              {{/if}}
-            </div>
-          {{/if}}
-
-          {{#if this.coverFailed}}
-            <div class="message-box message-error mapping-cover-result">
-              <strong>{{i18n
-                  "discourse_journals.admin.mapping.cover_failed"
-                }}</strong>
-              {{#if this.coverMessage}}
-                <p>{{this.coverMessage}}</p>
               {{/if}}
             </div>
           {{/if}}

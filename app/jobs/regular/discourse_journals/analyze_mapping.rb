@@ -179,9 +179,13 @@ module Jobs
           (e[:forum] || []).each { |f| deletes << f[:topic_id] }
         end
 
+        # Create a topic for every api-only record. TitleMatcher already dedupes
+        # API rows by ISSN-L, so multiple records under one normalized title are
+        # genuinely distinct journals — keep them all (matches MappingApplier's
+        # process_api_only fallback and its spec). Future re-syncs match on the
+        # authoritative ISSN-L custom field, not the title key.
         results[:api_only].each do |e|
-          apis = e[:api] || []
-          creates << apis.first[:api_id] if apis.any?
+          (e[:api] || []).each { |a| creates << a[:api_id] }
         end
 
         { "updates" => updates, "creates" => creates, "deletes" => deletes }

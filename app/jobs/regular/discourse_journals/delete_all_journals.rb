@@ -74,6 +74,16 @@ module Jobs
 
         publish_progress(user_id, 95, deleted_count, total, error_count, "正在更新缓存...")
         ::DiscourseJournals::BulkTopicDeleter.update_category_stats(category_id)
+        # BulkTopicDeleter removes topic_tags via raw SQL, bypassing TopicTag's
+        # per-row counter callbacks, so tag / CategoryTagStat counts stay inflated
+        # until the 12h EnsureDbConsistency job. Reconcile now (same helper the
+        # apply pipeline uses). Self-guarded: a reconcile failure must not fail the
+        # delete that already succeeded.
+        begin
+          ::DiscourseJournals::JournalTagManager.reconcile_counts!
+        rescue StandardError => e
+          Rails.logger.warn("[DiscourseJournals::DeleteAll] reconcile_counts! failed: #{e.message}")
+        end
 
         message = "删除完成：已删除 #{deleted_count} 个话题"
         message += "，#{error_count} 个失败" if error_count > 0

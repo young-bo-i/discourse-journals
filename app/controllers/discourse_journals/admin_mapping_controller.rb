@@ -40,7 +40,7 @@ module DiscourseJournals
 
     # GET /admin/journals/mapping/status
     def status
-      analysis = MappingAnalysis.current
+      analysis = MappingAnalysis.current_light
 
       if analysis.nil?
         return render_json_dump({ has_analysis: false })
@@ -128,7 +128,7 @@ module DiscourseJournals
 
     # GET /admin/journals/mapping/apply_status
     def apply_status
-      analysis = MappingAnalysis.current
+      analysis = MappingAnalysis.current_light
 
       if analysis.nil?
         return render_json_dump({ has_analysis: false })
@@ -197,23 +197,12 @@ module DiscourseJournals
       render_json_error("恢复应用失败: #{e.message}")
     end
 
-    # GET /admin/journals/mapping/cover_status
-    def cover_status
-      analysis = MappingAnalysis.current
-
-      if analysis.nil?
-        return render_json_dump({ has_analysis: false })
-      end
-
-      render_json_dump({
-        has_analysis: true,
-        cover_status: analysis.cover_status,
-        cover_stats: analysis.cover_stats || {},
-      })
-    end
-
     # DELETE /admin/journals/delete_all
     def delete_all
+      if MappingAnalysis.current_light&.sync_processing?
+        return render_json_error("映射应用正在执行中，请先暂停应用任务再删除")
+      end
+
       Jobs.enqueue(Jobs::DiscourseJournals::DeleteAllJournals, user_id: current_user.id)
       render json: { status: "started", message: "删除任务已启动..." }
     rescue StandardError => e
@@ -223,7 +212,7 @@ module DiscourseJournals
 
     # GET /admin/journals/mapping/details?category=exact_1to1&page=1
     def details
-      analysis = MappingAnalysis.current
+      analysis = MappingAnalysis.current_light
 
       if analysis.nil?
         return render_json_error("没有分析结果")
@@ -278,8 +267,6 @@ module DiscourseJournals
         apply_error_message: analysis.apply_error_message,
         apply_started_at: analysis.apply_started_at,
         apply_completed_at: analysis.apply_completed_at,
-        cover_status: analysis.cover_status,
-        cover_stats: analysis.cover_stats || {},
       }
     end
   end

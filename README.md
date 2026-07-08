@@ -1,492 +1,105 @@
 # 📚 Discourse Journals Plugin
 
-期刊统一档案系统 - 从外部 API 同步期刊数据到 Discourse 论坛
+学术期刊统一档案系统 —— 把上游期刊数据库（`journal.scholay.com` 的开放 API）镜像为 Discourse 某个分类下的话题：**一本期刊 = 一个话题**，首帖是服务端渲染的结构化期刊档案页，并叠加 SEO 增强与站内推广位。
+
+> ⚠️ 本插件为 scholay 站点定制，面向单一中文站运行；后台进度/错误文案目前为硬编码中文。
 
 ---
 
-## ✨ 功能特性
+## 核心概念（先读这三条）
 
-- 🔄 **API 同步**：从外部 API 自动同步期刊数据
-- 🎯 **智能筛选**：支持多条件筛选（DOAJ、NLM、Wikidata、开放获取等）
-- 📊 **实时进度**：导入过程实时显示进度和统计
-- 🛡️ **错误处理**：数据验证失败时跳过，不污染数据库
-- 🗑️ **智能恢复**：自动恢复被误删的期刊话题
-- 🔍 **SEO 优化**：自动添加 SEO 友好的标题后缀
+1. **数据真理源是 custom field，不是帖子 raw。** 每本期刊的归一化 JSON 存在话题 custom field `discourse_journals_data` 里；首帖 cooked HTML 由 `MasterRecordRenderer` 从该 JSON 渲染后用 `update_columns` **直写 cooked**，完全绕过 markdown/sanitize 管线（因为页面含 `<svg>`、CSS checkbox 切换等会被 sanitizer 剥掉的结构）。帖子 raw 只是一行纯文本占位。任何 rebake 都会触发 `before_post_process_cooked` 钩子从 JSON 重新渲染自愈。
+   - 含义：XSS 防护完全依赖渲染器自身的 `h()`（HTML escape）纪律，core 的 sanitize 不再兜底——改渲染器时务必保持转义。
 
----
+2. **同步 = 后台三阶段流水线，状态存单表 `discourse_journals_mapping_analyses`（一行，三个独立 enum 状态机）。**
+   - **分析（Analyze）** `Jobs::DiscourseJournals::AnalyzeMapping` → `TitleMatcher`：游标分页拉取 API 全量 + 扫描论坛全量，按 **ISSN-L → api_id → 归一化标题** 三级交叉匹配，产出 6 个桶（`exact_1to1` / `forum_1_to_api_n` / `forum_n_to_api_1` / `forum_n_to_api_m` / `forum_only` / `api_only`）与一份完整 `_action_plan`（updates / creates / deletes）。
+   - **应用（Apply）** `Jobs::DiscourseJournals::ApplyMapping` → `MappingApplier`：先把「论坛有、API 没有」的话题**软删除**（标过时，不是硬删），再流水线拉详情（每请求 50 id × 4 并发 + 预取）、4 线程 transform、并行 upsert，写话题/custom fields/tags。每批落 `apply_checkpoint`（含心跳），支持暂停 / 失败 / 进程崩溃（15 分钟无心跳判定为可恢复）后**断点续传**。收尾 `reconcile_counts!` 重算 tag 计数。
+   - 一次「分析 → 应用」是全量对账：首次全落在 `api_only` 桶（→ 新建），之后是增量更新 / 去重 / 软删。
 
-## 🚀 快速开始
-
-### 1. 启用插件
-
-```
-Admin → Settings → Plugins → discourse_journals_enabled = true
-```
-
-### 2. 配置分类
-
-```
-Admin → Settings → Plugins → discourse_journals_category_id
-选择用于存放期刊的分类
-```
-
-### 3. 配置 API
-
-```
-Admin → Plugins → discourse-journals
-输入 API URL（例如：https://api.example.com）
-点击"测试连接"验证
-```
-
-### 4. 开始导入
-
-```
-方式 A：导入第一页（测试）
-  - 约 100 个期刊
-  - 用于验证数据正确性
-
-方式 B：导入所有数据
-  - 所有期刊（如 15 万个）
-  - 后台运行，可安全关闭页面
-```
+3. **SEO 是一等公民，很多「怪」设计都是为它。** 软删除保 URL 不 404（`OutdatedMarker`：打 `discourse_journals_outdated` 标记 + 渲染「已过时」横幅 + 关帖，期刊回到 API 后自动复活）；更新时「cooked 无条件重写、但 `updated_at`/搜索索引仅在内容 MD5 真变化时才动、永不 bump」防止 sitemap 抖动；`plugin.rb` 还 monkey-patch 了 core 的 `Sitemap`（顺带修了一个 core 的 `LIMIT/OFFSET` + 聚合分页 bug）。
 
 ---
 
-## ⚙️ 配置选项
+## 快速开始
 
-访问：`Admin → Settings → Plugins → discourse-journals`
-
-| 配置项 | 默认值 | 说明 |
-|--------|--------|------|
-| `discourse_journals_enabled` | `false` | 是否启用插件 |
-| `discourse_journals_category_id` | - | 期刊分类 ID |
-| `discourse_journals_api_url` | - | 外部 API URL |
-| `discourse_journals_title_suffix` | `期刊详情 \| 学术期刊库 \| 开放获取期刊` | SEO 标题后缀 |
-| `discourse_journals_auto_recover_deleted` | `true` | 自动恢复已删除的话题 |
-| `discourse_journals_close_topics` | `true` | 导入后自动关闭话题 |
-| `discourse_journals_bypass_bump` | `true` | 更新时不顶帖 |
+1. 启用插件：`Admin → Settings → Plugins → discourse_journals_enabled = true`
+2. 配置期刊分类：`discourse_journals_category_id`
+3. 配置上游 API 域名（默认 `https://journal.scholay.com`）：`discourse_journals_api_base_url`
+4. 进入 `Admin → Plugins → discourse-journals`，点击「开始分析」，分析完成后「应用映射」。
 
 ---
 
-## 🎯 筛选条件
+## 站点设置（`config/settings.yml`）
 
-支持以下筛选条件：
-
-| 参数 | 类型 | 说明 |
-|------|------|------|
-| `q` | string | 搜索关键词（ISSN、标题、出版商） |
-| `inDoaj` | boolean | 是否在 DOAJ 中 |
-| `inNlm` | boolean | 是否在 NLM 中 |
-| `hasWikidata` | boolean | 是否有 Wikidata 记录 |
-| `isOpenAccess` | boolean | 是否为开放获取 |
-
-**使用方法**：
-```
-Admin → Plugins → discourse-journals
-→ 显示筛选
-→ 设置筛选条件
-→ 开始导入
-```
+| 设置 | 默认 | 说明 |
+|---|---|---|
+| `discourse_journals_enabled` | false | 插件总开关 |
+| `discourse_journals_category_id` | "" | 期刊分类（所有同步/删除的作用域） |
+| `discourse_journals_api_base_url` | `https://journal.scholay.com` | 上游 API 基础地址（协议+域名），也用于拼接封面绝对 URL；`client: true` 前端可读 |
+| `discourse_journals_title_suffix` | 期刊详情 \| … | SEO 标题后缀（仅 HTML title） |
+| `discourse_journals_meta_description` / `_meta_keywords` | 模板 | meta 模板，占位符 `{{title}}/{{issn}}/{{publisher}}/{{category}}/{{tags}}/{{site_name}}` |
+| `discourse_journals_close_topics` | true | upsert 后关闭话题 |
+| `discourse_journals_suggested_mode` / `_criteria` / `_count` | custom_first / `tags\|publisher` / 5 | 「相关期刊」推荐 |
+| `discourse_journals_performance_logging` | false | 结构化性能日志（`PerformanceLogger`） |
+| `discourse_journals_major_publishers` | 20 家 | 仅这些出版商的期刊打 publisher tag |
 
 ---
 
-## 📊 导入行为
+## 话题 custom fields
 
-### ✅ 成功创建/更新
+真理源 `discourse_journals_data`（归一化 JSON）。匹配键：`discourse_journals_issn_l`、`discourse_journals_api_id`、`discourse_journals_normalized_title_key`（前两者有 `topic_custom_fields` 部分索引）。其余：`discourse_journals_publisher`、`discourse_journals_country`、`discourse_journals_cover_url`、`discourse_journals_outdated`（软删标记，值为 ISO8601 时间）。
+
+> 匹配键的规范列表在 `JournalUpserter::CUSTOM_FIELD_NAMES`（唯一读写方）。
+
+---
+
+## 后台工作流与路由
+
+管理页（`admin.adminPlugins → discourse-journals`）驱动整条流水线，通过 4 个 MessageBus 频道实时进度 + `GET status` 轮询恢复（刷新页面不丢状态）。
+
+- `POST /admin/journals/mapping/analyze|pause|restart` · `GET /admin/journals/mapping/status|details`
+- `POST /admin/journals/mapping/apply|apply_pause|apply_resume` · `GET /admin/journals/mapping/apply_status`
+- `GET /admin/journals/promo_stats` · `DELETE /admin/journals/delete_all`
+- `POST /journals/promo/track`（**公开、匿名**，白名单 + 每 IP 120 次/分限流，用于推广位曝光/点击埋点，按「天 × slide」聚合无 PII）
+
+Jobs：`AnalyzeMapping`、`ApplyMapping`（`retry: 0`）、`DeleteAllJournals`。
+MessageBus 频道：`/journals/mapping`、`/journals/mapping-apply`、`/journals/delete`。
+
+---
+
+## 前端展示（期刊话题页）
+
+- `MasterRecordRenderer` 输出的档案页：hero（封面图，加载失败时纯 CSS 露出首字母兜底图）、JCR/SJR/中科院/新锐分区可视化、指标图表（服务端内联 SVG，图/表用 CSS checkbox 切换，cooked 内零 JS）。
+- 三个 connector：帖子流上方期刊搜索框、右侧导航区的章节 TOC + 推广轮播、导航底部「相关期刊」卡片（服务端 `JournalSuggestedProvider` 按 tags×3 + publisher×2 + country×1 打分，缓存 30 分钟）。
+- SEO：title 后缀、meta description/keywords、schema.org `Periodical` JSON-LD；期刊页服务端注入 CSS 隐藏 sidebar。
+
+---
+
+## 目录结构
 
 ```
-数据完整 → 归一化成功 → 渲染成功 → 创建/更新帖子
-```
-
-**统计**：
-- ✅ 新建：创建新期刊话题
-- 🔄 更新：更新已存在的期刊
-
-### ⏭️ 跳过（不创建帖子）
-
-以下情况会跳过该期刊：
-
-- ❌ 缺少必要字段（ISSN、标题）
-- ❌ 数据归一化失败
-- ❌ 内容渲染失败
-- ❌ 话题已被删除（如果 `auto_recover_deleted = false`）
-
-**日志**：
-```
-[DiscourseJournals] ✗ Skipped: Unknown (2008-6164)
-[DiscourseJournals]   Reason: 缺少 title 字段
+app/
+  models/discourse_journals/       mapping_analysis.rb（三阶段状态机）· promo_stat.rb
+  controllers/discourse_journals/  admin_mapping_controller.rb · promo_controller.rb
+  services/discourse_journals/     title_matcher · api_data_transformer · field_normalizer ·
+                                   journal_upserter · journal_tag_manager · mapping_applier ·
+                                   master_record_renderer · svg_chart_builder ·
+                                   journal_seo_context · journal_suggested_provider ·
+                                   outdated_marker · bulk_topic_deleter ·
+                                   api_rate_limiter · performance_logger · topic_title_key_backfill
+  jobs/regular/discourse_journals/ analyze_mapping · apply_mapping · delete_all_journals
+assets/javascripts/discourse/      admin controller/template · connectors · components · initializers
+assets/stylesheets/common/         discourse-journals.scss（档案页）· discourse-journals-admin.scss（后台）
+config/                            settings.yml · locales/{client,server}.{en,zh_CN}.yml
+db/migrate · db/post_migrate       mapping_analyses / promo_stats 表与部分索引
+lib/tasks/                         discourse_journals:backfill_normalized_title_keys
 ```
 
 ---
 
-## 🗑️ 删除话题的处理
-
-### 场景 1：软删除（默认管理员删除）
-
-**auto_recover_deleted = true**（默认）：
-```
-话题被删除 → 下次导入 → 自动恢复 → 更新内容
-```
-
-**auto_recover_deleted = false**：
-```
-话题被删除 → 下次导入 → 跳过该期刊
-```
-
-### 场景 2：永久删除
-
-```
-话题被永久删除 → 清理孤立数据 → 创建新话题
-```
-
-### 推荐配置
-
-**✅ 推荐**：`auto_recover_deleted = true`
-
-**理由**：
-- 保持数据完整性
-- 避免因误删除导致数据缺失
-- 不会创建重复话题
-
-**如何永久排除某个期刊**：
-- ✅ 使用筛选条件排除
-- ❌ 不要反复删除话题（会被自动恢复）
-
----
-
-## 🛡️ 错误处理
-
-### 原则
-
-**数据质量第一，宁可跳过，不可污染！**
-
-- ✅ 数据验证失败 → 跳过该期刊
-- ✅ 不创建/更新帖子
-- ✅ 记录详细错误日志
-- ❌ 不会创建带错误信息的帖子
-
-### 错误分类
-
-| 错误类型 | 处理方式 |
-|----------|----------|
-| 缺少必要字段 | 跳过，记录日志 |
-| 数据格式错误 | 跳过，记录堆栈 |
-| 归一化失败 | 跳过，记录错误 |
-| 渲染失败 | 跳过，记录错误 |
-
-### 查看错误日志
-
-**前端**：
-```
-Admin → Plugins → discourse-journals
-→ 导入完成后显示"❌ 错误日志"
-→ 点击"显示错误"查看详情
-→ 点击"复制错误日志"复制
-```
-
-**服务器**：
-```bash
-tail -f log/production.log | grep "DiscourseJournals"
-
-# 查看跳过的期刊
-tail -f log/production.log | grep "✗ Skipped"
-
-# 查看成功的期刊
-tail -f log/production.log | grep "✓ Created\|✓ Updated"
-```
-
----
-
-## 🔍 SEO 优化
-
-### 标题后缀
-
-**功能**：为期刊话题添加 SEO 友好的标题后缀
-
-**效果**：
-
-```html
-<!-- 之前 -->
-<title>Agronomy (2073-4395) - 测试期刊 - Discourse</title>
-
-<!-- 之后 -->
-<title>Agronomy (2073-4395) - 期刊详情 | 学术期刊库 | 开放获取期刊</title>
-```
-
-**特点**：
-- ✅ 服务器端渲染（SEO 友好）
-- ✅ 只修改 `<title>` 标签
-- ✅ 页面内容不变
-- ✅ 可在设置中自定义
-
-**配置**：
-```
-Admin → Settings → Plugins
-→ discourse_journals_title_suffix
-→ 输入自定义后缀
-```
-
-**建议后缀**：
-
-中文站点：
-```
-期刊详情 | 学术期刊库 | 开放获取期刊
-SCI期刊 | 影响因子查询 | ISSN数据库
-学术期刊 | 论文发表 | 期刊评价
-```
-
-英文站点：
-```
-Journal Details | Academic Database | Open Access
-Scientific Journal | Impact Factor | ISSN Lookup
-```
-
----
-
-## 📈 导入统计
-
-### 实时显示
-
-```
-📊 已处理: 100/15000
-✅ 新建: 10
-🔄 更新: 85
-⏭️ 跳过: 5
-❌ 错误: 5
-```
-
-### 完成消息
-
-```
-✅ 同步完成！新建 10 个，更新 85 个，跳过 5 个
-```
-
----
-
-## 🧪 测试建议
-
-### 1. 首次导入
-
-```
-1. 导入第一页（100 个期刊）
-2. 检查错误日志
-3. 错误率 < 5% → 继续导入全部
-4. 错误率 > 5% → 检查数据质量
-```
-
-### 2. 验证数据
-
-```
-1. 访问期刊分类
-2. 随机打开几个期刊话题
-3. 检查内容是否完整
-4. 确认没有"数据归一化失败"的帖子
-```
-
-### 3. 测试删除恢复
-
-```
-1. 手动删除一个期刊话题
-2. 运行导入（第一页）
-3. 验证话题是否被恢复
-4. 检查内容是否更新
-```
-
----
-
-## 🎯 最佳实践
-
-### 1. 配置建议
-
-```yaml
-✅ discourse_journals_auto_recover_deleted: true
-✅ discourse_journals_close_topics: true
-✅ discourse_journals_bypass_bump: true
-✅ discourse_journals_title_suffix: "自定义 SEO 后缀"
-```
-
-### 2. 排除特定期刊
-
-**✅ 正确方法**：
-```
-使用筛选条件排除
-例如：inDoaj = true（只导入 DOAJ 收录的期刊）
-```
-
-**❌ 错误方法**：
-```
-反复删除话题（会被自动恢复）
-```
-
-### 3. 数据质量监控
-
-```
-1. 每次导入后记录跳过率
-2. 跳过率 > 10% 时调查原因
-3. 定期检查服务器日志中的错误模式
-4. 优化数据源或归一化逻辑
-```
-
----
-
-## 📁 文件结构
-
-```
-discourse-journals/
-├── README.md                           # 本文件
-├── plugin.rb                           # 插件主文件
-├── config/
-│   ├── settings.yml                    # 配置项
-│   └── locales/                        # 国际化文件
-├── app/
-│   ├── controllers/                    # 控制器
-│   │   └── discourse_journals/
-│   │       └── admin_sync_controller.rb
-│   ├── jobs/                           # 后台任务
-│   │   └── regular/discourse_journals/
-│   │       └── sync_from_api.rb
-│   ├── models/                         # 模型
-│   │   └── discourse_journals/
-│   │       └── import_log.rb
-│   └── services/                       # 服务对象
-│       └── discourse_journals/
-│           ├── field_normalizer.rb     # 字段归一化
-│           ├── master_record_renderer.rb # 内容渲染
-│           ├── journal_upserter.rb     # 创建/更新话题
-│           └── api_sync/
-│               ├── client.rb           # API 客户端
-│               └── importer.rb         # 导入器
-├── assets/
-│   └── javascripts/discourse/
-│       ├── controllers/                # 前端控制器
-│       ├── templates/                  # 前端模板
-│       └── initializers/               # 前端初始化
-└── db/
-    └── migrate/                        # 数据库迁移
-```
-
----
-
-## 🔧 开发
-
-### 运行测试
-
-```bash
-# Ruby 测试
-bin/rspec plugins/discourse-journals/spec
-
-# 语法检查
-ruby -c plugins/discourse-journals/plugin.rb
-
-# Linting
-bin/lint plugins/discourse-journals/
-```
-
-### 日志调试
-
-```bash
-# 查看所有日志
-tail -f log/production.log | grep "DiscourseJournals"
-
-# 只看错误
-tail -f log/production.log | grep "DiscourseJournals.*ERROR"
-
-# 只看成功
-tail -f log/production.log | grep "✓"
-```
-
----
-
-## ❓ 常见问题
-
-### Q: 导入失败怎么办？
-
-**A**: 检查以下几点：
-1. API URL 是否正确
-2. 网络连接是否正常
-3. 查看错误日志获取详细信息
-4. 检查服务器日志
-
-### Q: 为什么有些期刊被跳过？
-
-**A**: 可能原因：
-1. 缺少必要字段（ISSN、标题）
-2. 数据格式错误
-3. 归一化或渲染失败
-4. 话题已被删除（如果 auto_recover = false）
-
-查看错误日志获取具体原因。
-
-### Q: 如何永久排除某个期刊？
-
-**A**: 
-- ✅ 使用筛选条件排除
-- ❌ 不要反复删除话题（会被自动恢复）
-
-### Q: SEO 标题后缀没有生效？
-
-**A**: 检查：
-1. 是否已设置 `discourse_journals_title_suffix`
-2. 是否重启了服务器
-3. 浏览器是否有缓存（查看页面源代码）
-
-### Q: 导入速度慢怎么办？
-
-**A**: 
-- 导入在后台运行，可安全关闭页面
-- 15 万期刊约需 50-90 分钟
-- 服务器性能影响速度
-
----
-
-## 📝 更新日志
-
-### v0.8 (2026-01-19)
-
-- 🎨 **全新期刊帖子布局**
-  - 顶部摘要卡片：期刊名称、ISSN、出版商、徽章、关键指标
-  - 折叠分区：使用 `[details]` 标签组织 9 个内容分区
-  - 学术期刊风格设计
-- 📊 **字段使用追踪**
-  - 新增 `FieldUsageTracker` 服务
-  - 自动记录未使用的数据字段到日志
-  - 帮助开发者发现未展示的数据
-- 🎯 **视觉徽章**
-  - OA、DOAJ、NLM、许可证状态徽章
-  - 关键指标突出显示
-
-### v0.7.1 (2026-01-19)
-
-- 🐛 修复 `FieldNormalizer` 类型转换错误
-- 🛡️ 增强数据类型检查（ISSN、标题等字段）
-- ✅ 正确处理数组、字符串、Hash 等不同数据类型
-
-### v0.7 (2026-01-19)
-
-- ✨ 添加 SEO 标题后缀功能
-- 🛡️ 增强错误处理机制
-- 🗑️ 智能处理已删除话题
-- 🎯 支持 API 筛选条件
-- 📊 改进进度显示和统计
-
-### v0.6
-
-- 🔄 从文件导入改为 API 同步
-- 📈 实时进度和错误日志
-- ✨ 数据归一化和渲染
-
----
-
-## 📄 许可证
-
-MIT License
-
----
-
-## 🙏 致谢
-
-感谢 Discourse 社区的支持！
-
----
-
-**开始使用，导入你的期刊数据库！** 🚀
+## 开发注意
+
+- 上游 API：`GET /api/open/journals?pageSize=100&afterId=<cursor>`（分析期全量，游标分页——上游 pageSize>100 会丢数据、深分页 ~10 万封顶）；`GET /api/open/journals/byIds?ids=…&full=1`（应用期批量取详情）。
+- 大量写库刻意绕过 AR 回调（`PostCreator(skip_validations, skip_jobs)`、`update_columns`、`insert_all`/`delete_all`）换吞吐；tag 计数与分类计数分别由 `reconcile_counts!` / `update_category_stats` 手工补一致性。
+- 管理员手工给期刊话题加的 tag 会在下次同步被清掉（tag 是全量替换语义）。
+- `rake discourse_journals:backfill_normalized_title_keys` 为存量话题回填标题匹配键；改动 `TitleMatcher.normalized_title_key` 算法后必须重跑，否则匹配会 miss。

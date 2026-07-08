@@ -126,6 +126,26 @@
   }
 }
 
+// When a cover image is present, the initials art (rendered first) sizes the box
+// and the image is layered on top. A loaded image hides the art; a broken/slow one
+// reveals it — a pure-CSS fallback with no inline onerror JS (blocked by CSP).
+.dj-hero__cover--with-img {
+  position: relative;
+
+  .dj-hero__cover-img {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    bottom: 0.5rem;
+    left: 0.5rem;
+    width: auto;
+    height: auto;
+    object-fit: cover;
+    border-radius: 10px;
+    display: block;
+  }
+}
+
 .dj-hero__cover-art {
   position: relative;
   width: 100%;
@@ -1318,239 +1338,6 @@
   .dj-pr-callouts {
     justify-content: center;
   }
-}
-
-// ============================================================
-// Admin page styles (preserved from original)
-// ============================================================
-.journals-admin-page {
-  max-width: 900px;
-
-  h2 {
-    margin-bottom: 20px;
-  }
-}
-
-.journals-sync-section {
-  background: var(--primary-very-low);
-  padding: 20px;
-  border-radius: 8px;
-  margin-top: 20px;
-}
-
-.sync-config {
-  margin-bottom: 30px;
-}
-
-.api-url-input {
-  width: 100%;
-  max-width: 500px;
-}
-
-.help-text {
-  color: var(--primary-medium);
-  font-size: 0.9em;
-  margin-top: 5px;
-}
-
-.sync-actions {
-  margin-top: 30px;
-  padding-top: 20px;
-  border-top: 1px solid var(--primary-low);
-}
-
-.action-buttons {
-  display: flex;
-  gap: 20px;
-  margin-top: 15px;
-}
-
-.action-item {
-  flex: 1;
-  padding: 15px;
-  background: var(--secondary);
-  border-radius: 6px;
-  border: 1px solid var(--primary-low);
-}
-
-.action-description {
-  margin-top: 10px;
-  font-size: 0.9em;
-  color: var(--primary-medium);
-}
-
-.filters-section {
-  margin-top: 20px;
-  padding: 20px;
-  background: var(--secondary);
-  border-radius: 6px;
-  border: 1px solid var(--primary-low);
-
-  h4 {
-    margin-top: 0;
-    margin-bottom: 15px;
-    color: var(--primary);
-  }
-}
-
-.filters-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  gap: 15px;
-  margin-bottom: 15px;
-}
-
-.filter-item {
-  display: flex;
-  flex-direction: column;
-
-  label {
-    margin-bottom: 5px;
-    font-weight: 500;
-    font-size: 0.9em;
-    color: var(--primary-high);
-  }
-
-  input,
-  select {
-    width: 100%;
-    padding: 6px 10px;
-    border: 1px solid var(--primary-low);
-    border-radius: 4px;
-    background: var(--secondary);
-    color: var(--primary);
-  }
-}
-
-.filter-actions {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-top: 15px;
-  border-top: 1px solid var(--primary-low);
-}
-
-.filter-info {
-  font-size: 0.9em;
-  color: var(--primary-medium);
-}
-
-.import-progress {
-  margin: 20px 0;
-  padding: 15px;
-  background: var(--secondary);
-  border-radius: 6px;
-  border: 1px solid var(--primary-low);
-}
-
-.progress-bar-container {
-  width: 100%;
-  height: 30px;
-  background: var(--primary-very-low);
-  border-radius: 15px;
-  overflow: hidden;
-  position: relative;
-}
-
-.progress-bar {
-  height: 100%;
-  background: linear-gradient(90deg, var(--tertiary), var(--success));
-  transition: width 0.3s ease;
-  will-change: width;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 50px;
-}
-
-.progress-text {
-  color: white;
-  font-weight: bold;
-  font-size: 14px;
-}
-
-.progress-message {
-  margin-top: 10px;
-  font-size: 14px;
-  color: var(--primary-high);
-}
-
-.import-stats {
-  display: flex;
-  gap: 15px;
-  margin-top: 10px;
-  flex-wrap: wrap;
-
-  .stat {
-    padding: 5px 10px;
-    background: var(--primary-very-low);
-    border-radius: 4px;
-    font-size: 13px;
-
-    &.warning {
-      background: var(--highlight-low);
-      color: var(--highlight);
-    }
-
-    &.error {
-      background: var(--danger-low);
-      color: var(--danger);
-    }
-  }
-}
-
-.import-errors {
-  margin-top: 20px;
-  padding: 15px;
-  background: var(--danger-low);
-  border: 1px solid var(--danger);
-  border-radius: 6px;
-}
-
-.errors-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-
-  h4 {
-    margin: 0;
-    color: var(--danger);
-  }
-}
-
-.errors-actions {
-  display: flex;
-  gap: 10px;
-}
-
-.errors-list {
-  max-height: 400px;
-  overflow-y: auto;
-  margin-top: 15px;
-}
-
-.error-item {
-  padding: 10px;
-  margin-bottom: 10px;
-  background: var(--secondary);
-  border-radius: 4px;
-  border-left: 3px solid var(--danger);
-}
-
-.error-message {
-  color: var(--primary);
-  margin-bottom: 5px;
-}
-
-.error-details {
-  margin: 8px 0 0 0;
-  padding: 8px;
-  background: var(--primary-very-low);
-  border-radius: 3px;
-  font-size: 12px;
-  color: var(--primary-medium);
-  overflow-x: auto;
 }
 
 // ============================================================

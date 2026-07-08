@@ -36,14 +36,6 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
   @tracked applyPaused = false;
   @tracked applyPausing = false;
 
-  // 封面处理
-  @tracked coverProcessing = false;
-  @tracked coverProgress = 0;
-  @tracked coverMessage = null;
-  @tracked coverStats = null;
-  @tracked coverCompleted = false;
-  @tracked coverFailed = false;
-
   // 删除
   @tracked deleting = false;
   @tracked deleteMessage = null;
@@ -60,10 +52,104 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
   @tracked promoSlide = "total";
   @tracked loadingPromoStats = false;
 
+  // 账号池
+  @tracked personaCount = 0;
+  @tracked personaFile = null;
+  @tracked personaImporting = false;
+  @tracked personaProgress = 0;
+  @tracked personaStats = null;
+  @tracked personaMessage = null;
+  @tracked personaFailed = false;
+
   constructor() {
     super(...arguments);
     this.checkMappingStatus();
     this.loadPromoStats();
+    this.loadPersonaStatus();
+  }
+
+  // ============ 账号池 ============
+
+  get personaUploadDisabled() {
+    return !this.personaFile || this.personaImporting;
+  }
+
+  @action
+  setPersonaFile(event) {
+    this.personaFile = event.target.files?.[0] || null;
+  }
+
+  @action
+  async uploadPersonas() {
+    if (!this.personaFile) {
+      return;
+    }
+    const formData = new FormData();
+    formData.append("file", this.personaFile);
+
+    this.personaImporting = true;
+    this.personaFailed = false;
+    this.personaProgress = 0;
+    this.personaStats = null;
+    this.personaMessage = null;
+
+    try {
+      const result = await ajax("/admin/journals/personas/import", {
+        type: "POST",
+        data: formData,
+        processData: false,
+        contentType: false,
+      });
+      this.personaMessage = result.message;
+      this.personaFile = null; // avoid re-uploading the same file from an empty picker
+      this.subscribeToPersonaProgress();
+    } catch (e) {
+      this.personaImporting = false;
+      popupAjaxError(e);
+    }
+  }
+
+  subscribeToPersonaProgress() {
+    const channel = "/journals/persona-import";
+    this.messageBus.subscribe(channel, (data) => {
+      this.personaProgress = Math.round(data.progress || 0);
+      this.personaStats = data.stats;
+      if (data.status === "completed") {
+        this.personaImporting = false;
+        this.personaProgress = 100;
+        this.personaMessage = i18n(
+          "discourse_journals.admin.personas.completed"
+        );
+        this.loadPersonaStatus();
+        this.messageBus.unsubscribe(channel);
+      } else if (data.status === "failed") {
+        this.personaImporting = false;
+        this.personaFailed = true;
+        this.personaMessage = i18n("discourse_journals.admin.personas.failed");
+        this.messageBus.unsubscribe(channel);
+      }
+    });
+  }
+
+  async loadPersonaStatus() {
+    try {
+      const result = await ajax("/admin/journals/personas/status", {
+        type: "GET",
+      });
+      this.personaCount = result.persona_count || 0;
+      const imp = result.import;
+      if (imp && (imp.status === "processing" || imp.status === "pending")) {
+        this.personaImporting = true;
+        this.personaStats = {
+          created: imp.created,
+          skipped: imp.skipped,
+          errors: imp.errors,
+        };
+        this.subscribeToPersonaProgress();
+      }
+    } catch {
+      // Silently fail on initial load
+    }
   }
 
   formatEta(seconds) {
@@ -285,30 +371,6 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
       );
       this.applyStats = analysis.apply_stats || {};
     }
-
-    this.restoreCoverState(analysis);
-  }
-
-  restoreCoverState(analysis) {
-    const cs = analysis.cover_status;
-    if (cs === "cover_processing") {
-      this.coverProcessing = true;
-      this.coverStats = analysis.cover_stats || {};
-      const total = this.coverStats.total || 0;
-      const processed = this.coverStats.processed || 0;
-      this.coverProgress =
-        total > 0 ? Math.round((processed / total) * 100) : 0;
-      this.coverMessage = i18n(
-        "discourse_journals.admin.mapping.cover_in_progress"
-      );
-      this.subscribeToCoverProgress();
-    } else if (cs === "cover_completed") {
-      this.coverCompleted = true;
-      this.coverStats = analysis.cover_stats || {};
-    } else if (cs === "cover_failed") {
-      this.coverFailed = true;
-      this.coverStats = analysis.cover_stats || {};
-    }
   }
 
   @action
@@ -515,7 +577,6 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
         this.applyCompleted = true;
         this.applyProgress = 100;
         this.messageBus.unsubscribe(channel);
-        this.subscribeToCoverProgress();
       } else if (data.status === "failed") {
         this.applying = false;
         this.applyPausing = false;
@@ -525,34 +586,6 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
         this.applying = false;
         this.applyPausing = false;
         this.applyPaused = true;
-        this.messageBus.unsubscribe(channel);
-      }
-    });
-  }
-
-  subscribeToCoverProgress() {
-    const channel = "/journals/cover-processing";
-    this.messageBus.subscribe(channel, (data) => {
-      this.coverProgress = Math.round(data.progress || 0);
-      this.coverMessage =
-        data.message ||
-        i18n("discourse_journals.admin.mapping.cover_in_progress");
-
-      if (data.total && data.processed !== undefined) {
-        this.coverStats = {
-          total: data.total,
-          processed: data.processed,
-        };
-      }
-
-      if (data.status === "completed") {
-        this.coverProcessing = false;
-        this.coverCompleted = true;
-        this.coverProgress = 100;
-        this.messageBus.unsubscribe(channel);
-      } else if (data.status === "failed") {
-        this.coverProcessing = false;
-        this.coverFailed = true;
         this.messageBus.unsubscribe(channel);
       }
     });
@@ -578,16 +611,6 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
     this.applyFailed = false;
     this.applyPaused = false;
     this.applyPausing = false;
-    this._resetCoverUI();
-  }
-
-  _resetCoverUI() {
-    this.coverProcessing = false;
-    this.coverProgress = 0;
-    this.coverMessage = null;
-    this.coverStats = null;
-    this.coverCompleted = false;
-    this.coverFailed = false;
   }
 
   // ============ 删除所有期刊 ============
