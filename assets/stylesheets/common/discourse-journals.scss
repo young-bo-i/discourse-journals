@@ -1936,22 +1936,21 @@
 
 // ============================================================
 // Site banner (below the site header, all pages)
+// Constrained to the content width via core's .wrap; scales with it.
 // ============================================================
+.dj-site-banner-wrap {
+  // .wrap already centers horizontally; just add vertical breathing room
+  margin-top: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
 .dj-site-banner {
   display: block;
-  width: 100%;
-  // matches the banner's own cream background so any letterboxing on
-  // very wide screens blends in seamlessly
-  background: #f6f4ee;
   line-height: 0;
 
   &__img {
     display: block;
     width: 100%;
     height: auto;
-    // cap the height on wide screens; object-fit keeps the 1940:180 ratio
-    max-height: 150px;
-    object-fit: contain;
-    object-position: center;
   }
 }
