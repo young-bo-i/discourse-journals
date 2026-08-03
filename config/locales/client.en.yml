@@ -11,6 +11,7 @@ en:
           peer_review: "Smart Peer Review"
           prism: "Smart Writing"
           claw: "Smart Assistant Claw"
+          banner: "Header banner"
       search:
         placeholder: "Search journals (name, ISSN, publisher...)"
         no_results: "No journals found"

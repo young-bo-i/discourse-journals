@@ -7,8 +7,9 @@ module DiscourseJournals
   class PromoStat < ActiveRecord::Base
     self.table_name = "discourse_journals_promo_stats"
 
-    # Slide keys mirror the frontend carousel (see journal-promo.gjs).
-    SLIDES = %w[peer_review prism claw].freeze
+    # Slide keys mirror the frontend carousel (journal-promo.gjs) plus the
+    # site-wide header banner (below-site-header/scholay-banner.gjs).
+    SLIDES = %w[peer_review prism claw banner].freeze
     EVENTS = %w[impression click].freeze
 
     DEFAULT_RANGE_DAYS = 30

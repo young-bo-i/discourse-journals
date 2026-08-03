@@ -11,6 +11,7 @@ zh_CN:
           peer_review: "智能审稿"
           prism: "智能写作"
           claw: "智能助手Claw"
+          banner: "顶部横幅"
       search:
         placeholder: "搜索期刊（输入名称、ISSN、出版商...）"
         no_results: "没有找到相关期刊"

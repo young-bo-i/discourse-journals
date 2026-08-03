@@ -25,6 +25,15 @@ describe DiscourseJournals::PromoStat do
       expect(described_class.track!(slide: "claw", event: "hover")).to eq(false)
       expect(described_class.count).to eq(0)
     end
+
+    it "tracks the site header banner as its own slide" do
+      expect(described_class.track!(slide: "banner", event: "impression")).to eq(true)
+      expect(described_class.track!(slide: "banner", event: "click")).to eq(true)
+
+      row = described_class.find_by(day: Time.zone.today, slide: "banner")
+      expect(row.impressions).to eq(1)
+      expect(row.clicks).to eq(1)
+    end
   end
 
   describe ".report" do

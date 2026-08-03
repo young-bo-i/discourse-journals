@@ -761,6 +761,7 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
       },
       { key: "prism", label: i18n("discourse_journals.promo.titles.prism") },
       { key: "claw", label: i18n("discourse_journals.promo.titles.claw") },
+      { key: "banner", label: i18n("discourse_journals.promo.titles.banner") },
     ];
   }
 
