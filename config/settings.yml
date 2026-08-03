@@ -9,6 +9,12 @@ plugins:
   discourse_journals_api_base_url:
     default: "https://journal.scholay.com"
     client: true
+  discourse_journals_banner_enabled:
+    default: false
+    client: true
+  discourse_journals_banner_url:
+    default: "https://www.scholay.com"
+    client: true
   discourse_journals_title_suffix:
     default: "期刊详情 | 学术期刊库 | 开放获取期刊"
     client: true

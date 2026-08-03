@@ -1933,3 +1933,25 @@
 .dj-outdated-notice__text {
   flex: 1;
 }
+
+// ============================================================
+// Site banner (below the site header, all pages)
+// ============================================================
+.dj-site-banner {
+  display: block;
+  width: 100%;
+  // matches the banner's own cream background so any letterboxing on
+  // very wide screens blends in seamlessly
+  background: #f6f4ee;
+  line-height: 0;
+
+  &__img {
+    display: block;
+    width: 100%;
+    height: auto;
+    // cap the height on wide screens; object-fit keeps the 1940:180 ratio
+    max-height: 150px;
+    object-fit: contain;
+    object-position: center;
+  }
+}

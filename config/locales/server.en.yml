@@ -3,6 +3,8 @@ en:
     discourse_journals_enabled: "Enable journals plugin"
     discourse_journals_category_id: "Journals category"
     discourse_journals_api_base_url: "Base URL (scheme + host) of the upstream journal API. Used for fetching journal data and for building absolute cover image URLs."
+    discourse_journals_banner_enabled: "Show the Scholay promo banner below the site header on all pages."
+    discourse_journals_banner_url: "URL opened (in a new tab) when the banner is clicked. Leave blank for a non-clickable banner."
     discourse_journals_title_suffix: "Title suffix for SEO (only in HTML title tag)"
     discourse_journals_meta_description: "Meta description template for journal topics. Placeholders: {{title}}, {{issn}}, {{publisher}}, {{category}}, {{tags}}, {{site_name}}"
     discourse_journals_meta_keywords: "Meta keywords template for journal topics. Placeholders: {{title}}, {{issn}}, {{publisher}}, {{category}}, {{tags}}, {{site_name}}"

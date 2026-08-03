@@ -3,6 +3,8 @@ zh_CN:
     discourse_journals_enabled: "启用期刊插件"
     discourse_journals_category_id: "期刊分类"
     discourse_journals_api_base_url: "上游期刊 API 的基础地址（协议 + 域名）。用于抓取期刊数据以及拼接封面图片的绝对地址。"
+    discourse_journals_banner_enabled: "在全站头部下方显示 Scholay 推广横幅。"
+    discourse_journals_banner_url: "点击横幅时打开的链接（新标签页打开）。留空则横幅不可点击。"
     discourse_journals_title_suffix: "SEO 标题后缀"
     discourse_journals_meta_description: "期刊话题的 meta description 模板。可用占位符: {{title}}, {{issn}}, {{publisher}}, {{category}}, {{tags}}, {{site_name}}"
     discourse_journals_meta_keywords: "期刊话题的 meta keywords 模板。可用占位符: {{title}}, {{issn}}, {{publisher}}, {{category}}, {{tags}}, {{site_name}}"
