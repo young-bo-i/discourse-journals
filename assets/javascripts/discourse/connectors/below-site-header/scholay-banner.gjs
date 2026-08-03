@@ -59,8 +59,8 @@ export default class ScholayBanner extends Component {
 
   <template>
     {{#unless this.onAdminRoute}}
-      {{! .wrap constrains + centers the banner to the site content width
-          (auto-adapts to the sidebar), so it aligns with the content below }}
+      {{! .wrap follows the site's content width; the banner itself has a
+          smaller maximum width so it stays visually subordinate to the page }}
       <div class="wrap dj-site-banner-wrap">
         <a
           class="dj-site-banner"
@@ -74,7 +74,7 @@ export default class ScholayBanner extends Component {
             class="dj-site-banner__img"
             src="{{BASE}}/scholay-banner-1940.webp"
             srcset="{{BASE}}/scholay-banner-1200.webp 1200w, {{BASE}}/scholay-banner-1940.webp 1940w, {{BASE}}/scholay-banner-3234.webp 3234w"
-            sizes="(max-width: 1400px) 100vw, 1400px"
+            sizes="(max-width: 56rem) 100vw, 56rem"
             width="1940"
             height="180"
             alt="SCHOLAY"

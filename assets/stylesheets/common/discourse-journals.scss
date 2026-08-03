@@ -1936,21 +1936,25 @@
 
 // ============================================================
 // Site banner (below the site header, all pages)
-// Constrained to the content width via core's .wrap; scales with it.
+// Centered and capped so it does not dominate wide layouts.
 // ============================================================
 .dj-site-banner-wrap {
-  // .wrap already centers horizontally; just add vertical breathing room
-  margin-top: 0.5rem;
-  margin-bottom: 0.5rem;
+  margin-block: 0.75rem;
 }
 
 .dj-site-banner {
   display: block;
+  width: 100%;
+  max-width: 56rem;
+  margin-inline: auto;
+  overflow: hidden;
   line-height: 0;
+  border-radius: max(var(--d-border-radius-large), 1rem);
 
   &__img {
     display: block;
     width: 100%;
     height: auto;
+    border-radius: inherit;
   }
 }
