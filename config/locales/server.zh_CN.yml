@@ -26,6 +26,7 @@ zh_CN:
       missing_category: "请在站点设置中选择期刊分类"
       missing_api_key: "请先在站点设置中填写上游 API 密钥 (discourse_journals_api_key)"
       invalid_api_key: "上游 API 密钥无效或已被撤销，请在站点设置中更新 discourse_journals_api_key"
+      apply_interrupted: "同步进程被中断（内存超限重启），可从断点继续"
     render:
       unknown_journal: "未知期刊"
       outdated_notice: "此期刊信息已过时，建议重新搜索最新内容。"

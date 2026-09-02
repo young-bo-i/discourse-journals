@@ -10,7 +10,10 @@ module Jobs
         analysis_id = args[:analysis_id]
         resume = args[:resume] == true
 
-        analysis = ::DiscourseJournals::MappingAnalysis.find_by(id: analysis_id)
+        # `lightweight` omits details_data (6.4 MB of jsonb): nothing in this job
+        # reads it, and MappingApplier#build_action_plan re-queries the column by
+        # id anyway. Loading it here pinned the whole string for the job's life.
+        analysis = ::DiscourseJournals::MappingAnalysis.lightweight.find_by(id: analysis_id)
         unless analysis
           Rails.logger.warn("[DiscourseJournals::ApplyMapping] Job skipped: analysis #{analysis_id} not found")
           return
@@ -43,6 +46,11 @@ module Jobs
           apply_status: :sync_processing,
           apply_started_at: resume ? analysis.apply_started_at || Time.current : Time.current,
           apply_error_message: nil,
+          # Claim the row with a fresh heartbeat. Without this the row stays
+          # stale through build_action_plan and the first batch, so the admin UI
+          # would offer Resume again and a second applier could start — there is
+          # no lock anywhere in this plugin.
+          apply_checkpoint: resume_checkpoint.merge("heartbeat" => Time.current.to_i),
         )
         analysis.update_columns(apply_stats: resume_stats) if resume
 

@@ -88,7 +88,8 @@ module DiscourseJournals
     def save_checkpoint(phase, offset_key, offset_value)
       # "heartbeat" lets MappingAnalysis#stale_sync_processing? tell a live apply
       # from a crashed one, so resuming a healthy job never spawns a duplicate.
-      cp = { "phase" => phase, offset_key => offset_value, "heartbeat" => Time.current.to_i }
+      cp = (@analysis.apply_checkpoint || {})
+        .merge("phase" => phase, offset_key => offset_value, "heartbeat" => Time.current.to_i)
       @analysis.update_columns(apply_checkpoint: cp, apply_stats: @stats.transform_keys(&:to_s))
     end
 
@@ -107,9 +108,14 @@ module DiscourseJournals
         plan = details["_action_plan"]
 
         if plan
-          @update_map = (plan["updates"] || {}).transform_keys(&:to_i).transform_values(&:to_i)
+          # transform_keys.transform_values held THREE 301,835-entry hashes at
+          # once alongside the still-live parse tree. Build once, then drop
+          # `plan` so the `details = nil` below can actually collect.
+          @update_map = {}
+          (plan["updates"] || {}).each { |k, v| @update_map[k.to_i] = v.to_i }
           @create_ids = (plan["creates"] || []).map(&:to_i)
           @topics_to_delete = (plan["deletes"] || []).map(&:to_i)
+          plan = nil
         else
           process_exact_matches(details["exact_1to1"] || [])
           process_forum_1_to_api_n(details["forum_1_to_api_n"] || [])
@@ -322,15 +328,18 @@ module DiscourseJournals
         batch_groups.each_with_index do |concurrent_batches, batch_group_idx|
           check_cancelled!
 
-          rows = if prefetch_thread
-            prefetch_thread.join
-            r = prefetch_rows
-            prefetch_thread = nil
-            prefetch_rows = nil
-            r
-          else
-            safe_fetch(clients, concurrent_batches)
-          end
+          # #tap hands the array over without binding it to a block-local. The
+          # old `r = prefetch_rows` was never cleared, so the `rows = nil` below
+          # freed nothing from the second group onward and all 200 raw rows
+          # (~35 MiB parsed) stayed pinned through the whole upsert phase.
+          row_batches =
+            if prefetch_thread
+              prefetch_thread.join
+              prefetch_thread = nil
+              prefetch_rows.tap { prefetch_rows = nil }
+            else
+              safe_fetch(clients, concurrent_batches)
+            end
 
           next_group = batch_groups[batch_group_idx + 1]
           if next_group
@@ -339,21 +348,33 @@ module DiscourseJournals
             end
           end
 
-          prepared_items = parallel_transform(rows)
-          rows = nil
+          # Transform + upsert one DETAIL_BATCH_SIZE batch at a time instead of
+          # the whole API_CONCURRENCY-wide group. Fetch stays 4-wide and the
+          # prefetch is unchanged, but raw rows and prepared items are released
+          # 4x sooner — and the checkpoint advances 4x more often, so a resume
+          # redoes at most one batch instead of one group.
+          row_batches.each_index do |i|
+            batch_rows = row_batches[i]
+            row_batches[i] = nil
 
-          updates, creates = prepared_items.partition { |item| item[:action] == :update }
+            prepared_items = parallel_transform(batch_rows)
+            batch_rows = nil
 
-          parallel_upsert(updates)
-          creates.each { |item| serial_upsert(item) }
+            updates, creates = prepared_items.partition { |item| item[:action] == :update }
+            prepared_items = nil
 
-          # Advance by ids REQUESTED, not rows returned: upstream drops ids it has
-          # deleted, so counting rows would leave the checkpoint permanently
-          # behind the real position and re-fetch finished ids on every resume.
-          processed += concurrent_batches.sum(&:size)
-          report_progress(processed, base_offset, total, start_time)
+            parallel_upsert(updates)
+            serial_upsert(creates.shift) until creates.empty?
 
-          save_checkpoint("api_sync", "api_offset", base_offset + processed)
+            # Advance by ids REQUESTED, not rows returned: upstream drops ids it
+            # has deleted, so counting rows would leave the checkpoint
+            # permanently behind the real position and re-fetch finished ids on
+            # every resume.
+            processed += concurrent_batches[i].size
+            report_progress(processed, base_offset, total, start_time)
+
+            save_checkpoint("api_sync", "api_offset", base_offset + processed)
+          end
         end
 
         if prefetch_thread
@@ -387,7 +408,10 @@ module DiscourseJournals
 
       PerformanceLogger.measure("sync.parallel_transform", source_type: "mapping_applier", batch_size: rows.size) do
         queue = Queue.new
-        rows.each { |r| queue << r }
+        # Drain rather than copy: each row becomes collectable the moment its
+        # worker is done with it, instead of being pinned by the caller's array
+        # for the whole phase.
+        queue << rows.shift until rows.empty?
         UPSERT_CONCURRENCY.times { queue << :done }
 
         result = []
@@ -435,7 +459,7 @@ module DiscourseJournals
 
       PerformanceLogger.measure("sync.parallel_upsert", source_type: "mapping_applier", batch_size: items.size) do
         queue = Queue.new
-        items.each { |item| queue << item }
+        queue << items.shift until items.empty?
         UPSERT_CONCURRENCY.times { queue << :done }
 
         threads = UPSERT_CONCURRENCY.times.map do
@@ -525,7 +549,9 @@ module DiscourseJournals
       results = threads.map(&:value)
 
       results.each { |result| absorb_redirects!(result[:redirects]) }
-      results.flat_map { |result| result[:rows] }
+      # One array per requested batch (not flattened): execute_api_sync releases
+      # each batch's rows as soon as that batch has been upserted.
+      results.map { |result| result[:rows] }
     end
 
     def format_eta(seconds)

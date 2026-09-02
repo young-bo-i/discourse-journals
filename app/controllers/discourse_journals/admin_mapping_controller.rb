@@ -136,9 +136,20 @@ module DiscourseJournals
 
       render_json_dump({
         has_analysis: true,
-        apply_status: analysis.apply_status,
+        # A SIGKILLed job (e.g. the sidekiq RSS watchdog restarting the process)
+        # leaves the row at sync_processing forever, because ApplyMapping's
+        # rescue never runs. The model already classifies that as stale — report
+        # it as failed on the wire so the client offers Resume instead of
+        # spinning on a progress bar that will never move again.
+        apply_status:
+          analysis.stale_sync_processing? ? "sync_failed" : analysis.apply_status,
         apply_stats: analysis.apply_stats || {},
-        apply_error_message: analysis.apply_error_message,
+        apply_error_message:
+          if analysis.stale_sync_processing?
+            I18n.t("discourse_journals.errors.apply_interrupted")
+          else
+            analysis.apply_error_message
+          end,
         apply_started_at: analysis.apply_started_at,
         apply_completed_at: analysis.apply_completed_at,
       })
