@@ -6,7 +6,12 @@ module DiscourseJournals
   class ApiRateLimiter
     DEFAULT_REQUESTS_PER_SECOND = 5
 
-    def initialize(rate: DEFAULT_REQUESTS_PER_SECOND)
+    def self.configured_rate
+      rate = SiteSetting.discourse_journals_api_rate_limit.to_i
+      rate.positive? ? rate : DEFAULT_REQUESTS_PER_SECOND
+    end
+
+    def initialize(rate: self.class.configured_rate)
       @mutex = Mutex.new
       @interval = 1.0 / rate
       @last_request_at = 0.0

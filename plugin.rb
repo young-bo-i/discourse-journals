@@ -27,6 +27,7 @@ after_initialize do
   require_relative "app/services/discourse_journals/persona_builder"
   require_relative "app/services/discourse_journals/persona_file_parser"
   require_relative "app/services/discourse_journals/api_rate_limiter"
+  require_relative "app/services/discourse_journals/api_client"
   require_relative "app/services/discourse_journals/outdated_marker"
   require_relative "app/services/discourse_journals/bulk_topic_deleter"
   require_relative "app/services/discourse_journals/field_normalizer"
@@ -143,6 +144,19 @@ after_initialize do
         jsonld["about"] = subjects.first(5).map do |s|
           { "@type" => "Thing", "name" => s }
         end
+      end
+
+      # Reader-reported submission experiences (upstream `comments` source) map
+      # cleanly onto schema.org aggregateRating.
+      rv = data[:reviews] || {}
+      if rv[:rating].present? && rv[:count].to_i.positive?
+        jsonld["aggregateRating"] = {
+          "@type" => "AggregateRating",
+          "ratingValue" => rv[:rating],
+          "ratingCount" => rv[:count],
+          "bestRating" => 5,
+          "worstRating" => 0,
+        }
       end
 
       m = data[:metrics] || {}
@@ -487,5 +501,10 @@ after_initialize do
 
     # Public: promo carousel impression/click tracking (anonymous allowed)
     post "/journals/promo/track" => "discourse_journals/promo#track"
+
+    # Public: server-side proxy for upstream submission guideline / LaTeX
+    # template downloads, which sit behind the API key a browser cannot send.
+    get "/journals/:api_id/submission/:kind" => "discourse_journals/submission#show",
+        :constraints => { api_id: /\d+/, kind: /guideline|latex/ }
   end
 end

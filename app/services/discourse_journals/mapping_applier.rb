@@ -1,20 +1,12 @@
 # frozen_string_literal: true
 
-require "net/http"
-require "json"
-
 module DiscourseJournals
   class MappingApplier
     class PausedError < StandardError; end
-    class RateLimitedError < StandardError
-      attr_reader :retry_after
-      def initialize(retry_after = 5)
-        @retry_after = retry_after
-        super("429 Too Many Requests")
-      end
-    end
 
-    BYIDS_BATCH_SIZE = 50
+    # Detail fetches go through `GET /journals?ids=…&full=1` — /journals/byIds
+    # was retired (410 endpoint_gone) in upstream contract v4.
+    DETAIL_BATCH_SIZE = ApiClient::IDS_BATCH_SIZE
     API_CONCURRENCY = 4
     UPSERT_CONCURRENCY = 4
     DELETE_BATCH_SIZE = BulkTopicDeleter::BATCH_SIZE
@@ -39,9 +31,15 @@ module DiscourseJournals
       @system_user = Discourse.system_user
       @mutex = Mutex.new
       @last_cancel_check_at = 0.0
+      # api_id -> topic_id aliases learned from the upstream `redirects` map when
+      # a journal we track was merged into another id, plus the topics whose
+      # journal upstream deleted outright.
+      @redirect_aliases = {}
+      @gone_topic_ids = []
     end
 
     def run!
+      ApiClient.ensure_configured!
       build_action_plan
 
       resume_phase = @checkpoint["phase"]
@@ -62,6 +60,8 @@ module DiscourseJournals
         execute_deletes(skip_offset: delete_offset)
         execute_api_sync(skip_offset: 0)
       end
+
+      mark_upstream_deleted!
 
       # Recompute tag/category-tag counts once, since apply_tag_delta! and
       # BulkTopicDeleter both skip TopicTag's per-row counter callbacks.
@@ -209,11 +209,46 @@ module DiscourseJournals
     end
 
     def lookup_action(api_id)
-      topic_id = @update_map[api_id]
+      topic_id = @update_map[api_id] || @redirect_aliases[api_id]
       if topic_id
         [:update, topic_id]
       else
         [:create, nil]
+      end
+    end
+
+    # `resolveIds=follow` folds a merged id into its new target row, so the row we
+    # get back is keyed by the NEW api_id while our plan is keyed by the old one.
+    # The response's `redirects` map ({old_id => new_id | nil}) closes that gap:
+    # a merge becomes an alias onto the same topic (so it is updated, not
+    # duplicated), and a deletion queues the topic for the outdated banner.
+    def absorb_redirects!(redirects)
+      return if redirects.blank?
+
+      redirects.each do |old_id, new_id|
+        topic_id = @update_map[old_id.to_i]
+        next unless topic_id
+
+        if new_id.nil?
+          @mutex.synchronize { @gone_topic_ids << topic_id }
+        else
+          @mutex.synchronize { @redirect_aliases[new_id.to_i] = topic_id }
+        end
+      end
+    end
+
+    # Journals upstream removed while we were mid-sync. Soft-delete them the same
+    # way execute_deletes does, so the URL keeps resolving instead of 404ing.
+    def mark_upstream_deleted!
+      ids = @gone_topic_ids.uniq
+      return if ids.empty?
+
+      Rails.logger.info(
+        "[DiscourseJournals::MappingApplier] #{ids.size} tracked journals were deleted upstream, marking outdated",
+      )
+
+      ids.each_slice(DELETE_BATCH_SIZE) do |batch_ids|
+        increment_stat(:deleted, OutdatedMarker.mark_batch(batch_ids))
       end
     end
 
@@ -276,11 +311,11 @@ module DiscourseJournals
       base_offset = skip_offset
       start_time = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 
-      connections = API_CONCURRENCY.times.map { create_persistent_connection }
-      prefetch_connections = API_CONCURRENCY.times.map { create_persistent_connection }
+      clients = API_CONCURRENCY.times.map { new_client }
+      prefetch_clients = API_CONCURRENCY.times.map { new_client }
 
       begin
-        batch_groups = remaining_ids.each_slice(BYIDS_BATCH_SIZE).each_slice(API_CONCURRENCY).to_a
+        batch_groups = remaining_ids.each_slice(DETAIL_BATCH_SIZE).each_slice(API_CONCURRENCY).to_a
         prefetch_rows = nil
         prefetch_thread = nil
 
@@ -294,13 +329,13 @@ module DiscourseJournals
             prefetch_rows = nil
             r
           else
-            safe_fetch(connections, concurrent_batches)
+            safe_fetch(clients, concurrent_batches)
           end
 
           next_group = batch_groups[batch_group_idx + 1]
           if next_group
             prefetch_thread = Thread.new do
-              prefetch_rows = safe_fetch(prefetch_connections, next_group)
+              prefetch_rows = safe_fetch(prefetch_clients, next_group)
             end
           end
 
@@ -312,7 +347,10 @@ module DiscourseJournals
           parallel_upsert(updates)
           creates.each { |item| serial_upsert(item) }
 
-          processed += prepared_items.size
+          # Advance by ids REQUESTED, not rows returned: upstream drops ids it has
+          # deleted, so counting rows would leave the checkpoint permanently
+          # behind the real position and re-fetch finished ids on every resume.
+          processed += concurrent_batches.sum(&:size)
           report_progress(processed, base_offset, total, start_time)
 
           save_checkpoint("api_sync", "api_offset", base_offset + processed)
@@ -324,9 +362,7 @@ module DiscourseJournals
         end
       ensure
         prefetch_thread&.join rescue nil
-        (connections + prefetch_connections).each do |conn|
-          conn&.finish rescue nil
-        end
+        (clients + prefetch_clients).each { |client| client&.finish! }
       end
 
       publish_progress(
@@ -335,14 +371,14 @@ module DiscourseJournals
       )
     end
 
-    def safe_fetch(connections, concurrent_batches)
-      fetch_byids_concurrent(connections, concurrent_batches)
+    def safe_fetch(clients, concurrent_batches)
+      fetch_details_concurrent(clients, concurrent_batches)
     rescue StandardError => e
       batch_ids = concurrent_batches.flatten
       Rails.logger.error(
         "[DiscourseJournals::MappingApplier] Batch fetch failed (#{batch_ids.size} ids), aborting current sync pass: #{e.class}: #{e.message}",
       )
-      connections.replace(reconnect_all!(connections))
+      clients.each { |client| client&.reconnect! rescue nil }
       raise
     end
 
@@ -457,10 +493,8 @@ module DiscourseJournals
     end
 
     def report_progress(processed, base_offset, total, start_time)
-      return if processed % 20 != 0
-
       elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - start_time
-      speed = (processed.to_f / elapsed).round(0)
+      speed = elapsed > 0 ? (processed.to_f / elapsed).round(0) : 0
       remaining = total - (base_offset + processed)
       eta = speed > 0 ? (remaining.to_f / speed).round(0) : 0
       eta_str = format_eta(eta)
@@ -472,96 +506,26 @@ module DiscourseJournals
       )
     end
 
-    def create_persistent_connection
-      uri = URI(SiteSetting.discourse_journals_api_base_url)
-      http = Net::HTTP.new(uri.host, uri.port)
-      http.use_ssl = uri.scheme == "https"
-      http.open_timeout = 30
-      http.read_timeout = 120
-      http.keep_alive_timeout = 120
-      http.start
-      http
+    def new_client
+      # A detail page is ~3.5 MB for a 50-id batch, so it needs a longer read
+      # timeout than the slim analysis pages.
+      ApiClient.new(rate_limiter: @rate_limiter, read_timeout: 120).start!
     end
 
-    def reconnect!(http)
-      http.finish
-    rescue StandardError
-      nil
-    ensure
-      http.start
-    end
-
-    def reconnect_all!(connections)
-      connections.map do |conn|
-        conn&.finish rescue nil
-        create_persistent_connection
-      rescue StandardError => e
-        Rails.logger.warn("[DiscourseJournals::MappingApplier] Reconnect failed: #{e.message}")
-        nil
-      end.compact
-    end
-
-    def fetch_byids_concurrent(connections, id_batches)
+    def fetch_details_concurrent(clients, id_batches)
       threads = id_batches.each_with_index.map do |ids, idx|
-        conn = connections[idx % connections.size]
-        Thread.new { fetch_byids_persistent(conn, ids) }
+        client = clients[idx % clients.size]
+        Thread.new { client.fetch_journals_by_ids(ids) }
       end
 
-      threads.flat_map(&:value)
-    end
+      # Wait for every thread before surfacing a failure: an abandoned thread keeps
+      # its connection and its parsed multi-MB payload alive for the rest of the
+      # job. #value then re-raises the first failure.
+      threads.each { |thread| thread.join rescue nil }
+      results = threads.map(&:value)
 
-    def fetch_byids_persistent(http, api_ids)
-      ids_param = api_ids.join(",")
-      path = "/api/open/journals/byIds?ids=#{ids_param}&full=1"
-      retries = 0
-      max_retries = 5
-
-      begin
-        @rate_limiter.throttle!
-        request = Net::HTTP::Get.new(path)
-        response = http.request(request)
-
-        if response.code.to_i == 429
-          raise RateLimitedError.new((response["Retry-After"] || retries * 5 + 5).to_i.clamp(2, 60))
-        end
-
-        unless response.is_a?(Net::HTTPSuccess)
-          raise "API byIds 请求失败: #{response.code} #{response.message}"
-        end
-
-        data = JSON.parse(response.body)
-        unless data["success"]
-          raise "API byIds 返回错误: #{data["error"] || "Unknown"}"
-        end
-
-        (data.dig("data", "rows") || [])
-      rescue RateLimitedError => e
-        retries += 1
-        if retries <= max_retries
-          Rails.logger.warn(
-            "[DiscourseJournals::MappingApplier] byIds rate-limited (429), retry #{retries}/#{max_retries}, waiting #{e.retry_after}s",
-          )
-          sleep e.retry_after
-          retry
-        end
-        raise "API byIds 请求被限流 (重试 #{max_retries} 次后仍为 429)"
-      rescue Net::OpenTimeout, Net::ReadTimeout, OpenSSL::SSL::SSLError, Errno::ECONNRESET, EOFError, IOError => e
-        retries += 1
-        if retries <= max_retries
-          wait = retries * 3
-          Rails.logger.warn(
-            "[DiscourseJournals::MappingApplier] byIds retry #{retries}/#{max_retries}: #{e.class}: #{e.message}",
-          )
-          begin
-            reconnect!(http)
-          rescue StandardError => re
-            Rails.logger.warn("[DiscourseJournals::MappingApplier] Reconnect failed: #{re.message}")
-          end
-          sleep wait
-          retry
-        end
-        raise "API byIds 请求失败 (重试 #{max_retries} 次后): #{e.message}"
-      end
+      results.each { |result| absorb_redirects!(result[:redirects]) }
+      results.flat_map { |result| result[:rows] }
     end
 
     def format_eta(seconds)

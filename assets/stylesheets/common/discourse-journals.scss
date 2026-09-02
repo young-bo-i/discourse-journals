@@ -869,6 +869,64 @@
   line-height: 1.4;
 }
 
+// ========================== REVIEW EXPERIENCE ==========================
+// Author-reported submission experiences (upstream `comments` aggregate).
+// Reuses .dj-pr-callout, .dj-coverage-* and .dj-info-card-grid; only the
+// wrapper, the header line and the sentiment pills are new.
+.dj-review-exp {
+  display: grid;
+  gap: 0.9rem;
+
+  > h3 {
+    margin-bottom: 0;
+  }
+}
+
+.dj-review-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.dj-review-count {
+  font-size: 0.82rem;
+  color: var(--dj-muted);
+}
+
+.dj-review-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.dj-pill--positive {
+  background: rgba(var(--success-rgb), 0.12);
+  color: var(--dj-green);
+}
+
+.dj-pill--negative {
+  background: rgba(var(--danger-rgb), 0.12);
+  color: var(--danger);
+}
+
+// ========================== NORMALIZED METRICS / SUBMISSION ==========================
+.dj-normalized-metrics,
+.dj-submission-panel {
+  display: grid;
+  gap: 0.9rem;
+
+  > h3 {
+    margin-bottom: 0;
+  }
+}
+
+.dj-submission-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
 // ========================== TOPIC DONUT ==========================
 .dj-topic-donut-panel {
   > h3 {
@@ -1336,6 +1394,11 @@
   }
 
   .dj-pr-callouts {
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+
+  .dj-review-head {
     justify-content: center;
   }
 }

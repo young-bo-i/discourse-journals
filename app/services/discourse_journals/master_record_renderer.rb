@@ -5,7 +5,7 @@ module DiscourseJournals
     MAX_BASIC_INFO_CARDS = 10
     MAX_RANKING_DETAIL_CARDS = 6
     MAX_TABLE_ROWS = 8
-    MAX_VISUAL_CHARTS = 5
+    MAX_VISUAL_CHARTS = 6
 
     EXTERNAL_LINK_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 3.5H3a1 1 0 0 0-1 1V13a1 1 0 0 0 1 1h8.5a1 1 0 0 0 1-1V9.5"/><path d="M9.5 2h4.5v4.5"/><path d="M14 2L7.5 8.5"/></svg>'
 
@@ -22,7 +22,9 @@ module DiscourseJournals
       sections << render_xinrui_section
       sections << render_status_grid
       sections << render_stats_narrative
-      sections << render_peer_review
+      sections << render_review_experience
+      sections << render_normalized_metrics
+      sections << render_submission_panel
       sections << render_coverage_bars
       sections << render_compact_info
       sections << render_indexing_panel
@@ -42,6 +44,9 @@ module DiscourseJournals
       parts << "IF: #{jcr[:impact_factor]} (#{jcr[:year]})" if jcr&.dig(:impact_factor)
       parts << "#{t("works")}: #{m[:works_count]}" if m[:works_count]
       parts << "#{t("cited_by")}: #{m[:cited_by_count]}" if m[:cited_by_count]
+      parts << "SNIP: #{format("%.3f", m[:snip])}" if m[:snip]
+      rv = @d[:reviews]
+      parts << "#{t("rv_title")}: #{format("%.1f", rv[:rating])}/5 (#{rv[:count]})" if rv&.dig(:rating)
       parts.compact.join(" | ")
     end
 
@@ -77,6 +82,11 @@ module DiscourseJournals
       sentences << stats_parts.join(", ") if stats_parts.any?
 
       sentences << t("seo_oa_yes") if oa[:is_oa]
+
+      rv = @d[:reviews]
+      if rv&.dig(:rating) && rv[:count].to_i.positive?
+        sentences << t("seo_reviews", rating: format("%.1f", rv[:rating]), count: fmt(rv[:count]))
+      end
 
       result = sentences.join(". ").strip
       result += "." unless result.end_with?(".")
@@ -658,7 +668,261 @@ module DiscourseJournals
       HTML
     end
 
-    def render_peer_review
+    # Aggregated submission experiences reported by authors (upstream `comments`
+    # source). Topics synced before contract v4 still carry the old `scirev`
+    # block, so fall back to it until they are re-synced.
+    def render_review_experience
+      rv = @d[:reviews]
+      return render_legacy_peer_review if rv.blank?
+
+      rating = rv[:rating]
+      header = ""
+      if rating
+        stars = SvgChartBuilder.star_rating(rating)
+        confidence = REVIEW_CONFIDENCE_KEYS[rv[:rating_confidence].to_s]
+        meta = [t("rv_based_on", count: fmt(rv[:count]))]
+        meta << t("rv_confidence", level: t(confidence)) if confidence
+        header = <<~HTML
+          <div class="dj-review-head">
+            <div class="dj-pr-rating">#{stars}<span class="dj-pr-rating-text">#{format("%.1f", rating)}/5</span></div>
+            <span class="dj-review-count">#{h(meta.join(" · "))}</span>
+          </div>
+        HTML
+      end
+
+      callouts = [
+        review_callout(rv[:median_first_review_days], t("rv_first_review"), t("rv_days")),
+        review_callout(rv[:median_total_handling_days], t("rv_total_handling"), t("rv_days")),
+        review_callout(rv[:avg_review_rounds], t("rv_rounds"), t("rv_rounds_unit")),
+      ].compact
+      callouts_html = callouts.any? ? %(<div class="dj-pr-callouts">#{callouts.join}</div>) : ""
+
+      bars = REVIEW_DIMENSIONS.filter_map { |key, i18n_key, color|
+        score = rv[key]
+        next unless score
+        pct = (score.to_f / 5 * 100).clamp(0, 100).round
+        <<~HTML
+          <div class="dj-coverage-row">
+            <span class="dj-coverage-label">#{h(t(i18n_key))}</span>
+            <div class="dj-coverage-bar">#{SvgChartBuilder.progress_bar(pct, color: color)}</div>
+            <span class="dj-coverage-pct">#{format("%.1f", score)}</span>
+          </div>
+        HTML
+      }
+      bars_html = bars.any? ? %(<div class="dj-coverage-bars">#{bars.join}</div>) : ""
+
+      outcome_cards = [
+        info_card(t("rv_acceptance_rate"), pct_text(rv[:acceptance_rate])),
+        info_card(t("rv_rejection_rate"), pct_text(rv[:rejection_rate])),
+        info_card(t("rv_desk_reject_rate"), pct_text(rv[:desk_reject_rate])),
+        info_card(t("rv_revision_rate"), pct_text(rv[:revision_rate])),
+      ].compact
+      outcome_html = outcome_cards.any? ? %(<div class="dj-info-card-grid">#{outcome_cards.join}</div>) : ""
+
+      tag_pills = []
+      (rv[:positive_tags] || []).each do |tag|
+        tag_pills << %(<span class="dj-pill dj-pill--positive">#{h(tag)}</span>)
+      end
+      (rv[:negative_tags] || []).each do |tag|
+        tag_pills << %(<span class="dj-pill dj-pill--negative">#{h(tag)}</span>)
+      end
+      tags_html = tag_pills.any? ? %(<div class="dj-review-tags">#{tag_pills.join}</div>) : ""
+
+      return nil if header.blank? && callouts_html.blank? && bars_html.blank? && outcome_html.blank?
+
+      <<~HTML
+        <section class="dj-panel dj-review-exp" id="dj-nav-reviews" data-dj-nav="#{h(t("nav_reviews"))}">
+          <h3>#{h(t("rv_title"))}</h3>
+          #{header}
+          #{callouts_html}
+          #{bars_html}
+          #{outcome_html}
+          #{tags_html}
+        </section>
+      HTML
+    end
+
+    REVIEW_DIMENSIONS = [
+      [:quality, "rv_quality", "#7ac36a"],
+      [:speed, "rv_speed", "#3885c8"],
+      [:communication, "rv_communication", "#3885c8"],
+      [:difficulty, "rv_difficulty", "#e77642"],
+      [:cost, "rv_cost", "#e77642"],
+    ].freeze
+
+    REVIEW_CONFIDENCE_KEYS = {
+      "high" => "rv_confidence_high",
+      "medium" => "rv_confidence_medium",
+      "low" => "rv_confidence_low",
+    }.freeze
+
+    def review_callout(value, label, unit)
+      return nil if value.nil?
+      number = value.to_f
+      formatted = (number % 1).zero? ? number.round.to_s : format("%.1f", number)
+      <<~HTML
+        <div class="dj-pr-callout">
+          <div class="dj-pr-callout__top">
+            <span class="dj-pr-number">#{h(formatted)}</span>
+            <span class="dj-pr-unit">#{h(unit)}</span>
+          </div>
+          <span class="dj-pr-label">#{h(label)}</span>
+        </div>
+      HTML
+    end
+
+    def pct_text(ratio)
+      return nil if ratio.nil?
+      "#{(ratio.to_f * 100).round(1)}%"
+    end
+
+    # CWTS field-normalised indicators (SNIP / IPP) and the JUFO Nordic
+    # publication-channel levels — both new in upstream contract v4.
+    def render_normalized_metrics
+      cwts = @d.dig(:cwts, :data)&.first
+      jufo = @d[:jufo]
+      return nil if cwts.blank? && jufo.blank?
+
+      groups = []
+
+      if cwts.present?
+        cards = [
+          info_card(t("cwts_snip"), cwts[:snip] ? format("%.3f", cwts[:snip]) : nil),
+          info_card(t("cwts_ipp"), cwts[:ipp] ? format("%.3f", cwts[:ipp]) : nil),
+          info_card(t("cwts_self_cit"), cwts[:self_cit_pct] ? "#{(cwts[:self_cit_pct].to_f * 100).round(1)}%" : nil),
+          info_card(t("cwts_docs"), fmt(cwts[:docs])),
+          info_card(t("year"), cwts[:year]&.to_s.presence),
+        ].compact
+        if cards.any?
+          groups << <<~HTML
+            <div class="dj-info-group">
+              <div class="dj-info-group__title">#{h(t("cwts_heading"))}</div>
+              <div class="dj-info-card-grid">#{cards.join}</div>
+            </div>
+          HTML
+        end
+      end
+
+      if jufo.present?
+        cards = [
+          info_card(t("jufo_level_fi"), h(jufo[:level_fi])),
+          info_card(t("jufo_level_no"), h(jufo[:level_no])),
+          info_card(t("jufo_level_dk"), h(jufo[:level_dk])),
+          info_card(t("jufo_channel_type"), h(jufo[:channel_type])),
+          info_card(t("jufo_oa_type"), h(jufo[:oa_type])),
+          info_card(t("jufo_self_archiving"), h(jufo[:self_archiving])),
+        ].compact
+        if cards.any?
+          groups << <<~HTML
+            <div class="dj-info-group">
+              <div class="dj-info-group__title">#{h(t("jufo_heading"))}</div>
+              <div class="dj-info-card-grid">#{cards.join}</div>
+            </div>
+          HTML
+        end
+      end
+
+      return nil if groups.empty?
+
+      <<~HTML
+        <section class="dj-panel dj-normalized-metrics" id="dj-nav-normalized" data-dj-nav="#{h(t("nav_normalized"))}">
+          <h3>#{h(t("normalized_metrics_title"))}</h3>
+          #{groups.join}
+        </section>
+      HTML
+    end
+
+    # Submission guidelines / LaTeX template metadata. The two download URLs sit
+    # behind the upstream API key, so they are served through the plugin's own
+    # proxy route rather than linked directly (a direct link 401s).
+    def render_submission_panel
+      sub = @d[:submission]
+      return nil if sub.blank?
+
+      flags = []
+      add_flag = ->(label, val) {
+        return if val.nil?
+        icon = val ? status_check_svg : status_cross_svg
+        css = val ? "dj-status-item--yes" : "dj-status-item--no"
+        flags << %(<div class="dj-status-item #{css}">#{icon}<span>#{h(label)}</span></div>)
+      }
+      add_flag.call(t("sub_has_guideline"), sub[:has_guideline])
+      add_flag.call(t("sub_has_latex"), sub[:has_latex])
+      add_flag.call(t("sub_ai_disclosure"), sub[:ai_disclosure_required])
+      flags_html = flags.any? ? %(<div class="dj-status-grid">#{flags.join}</div>) : ""
+
+      cards = [
+        info_card(t("sub_latex_class"), h(sub[:latex_class])),
+        info_card(t("sub_peer_review_model"), h(sub[:peer_review_model])),
+        info_card(t("sub_reference_style"), h(sub[:reference_style])),
+        info_card(t("sub_reference_intext"), h(sub[:reference_intext])),
+        info_card(t("sub_word_limit"), fmt(sub[:word_limit])),
+        info_card(t("sub_page_limit"), fmt(sub[:page_limit])),
+        info_card(t("sub_abstract_limit"), fmt(sub[:abstract_word_limit])),
+        info_card(t("sub_keywords_range"), keywords_range_text(sub)),
+      ].compact
+      cards_html = cards.any? ? %(<div class="dj-info-card-grid">#{cards.join}</div>) : ""
+
+      pill_rows = [
+        pill_row(t("sub_article_types"), sub[:article_types]),
+        pill_row(t("sub_file_formats"), sub[:file_formats]),
+        pill_row(t("sub_figure_formats"), sub[:figure_formats]),
+        pill_row(t("sub_oa_licenses"), sub[:oa_licenses]),
+      ].compact.join("\n")
+
+      links_html = submission_links(sub)
+
+      return nil if flags_html.blank? && cards_html.blank? && pill_rows.blank?
+
+      <<~HTML
+        <section class="dj-panel dj-submission-panel" id="dj-nav-submission" data-dj-nav="#{h(t("nav_submission"))}">
+          <h3>#{h(t("sub_title"))}</h3>
+          #{flags_html}
+          #{cards_html}
+          #{pill_rows}
+          #{links_html}
+        </section>
+      HTML
+    end
+
+    def keywords_range_text(sub)
+      min = sub[:keywords_min]
+      max = sub[:keywords_max]
+      return nil if min.nil? && max.nil?
+      return "#{min}–#{max}" if min && max
+      (min || max).to_s
+    end
+
+    def pill_row(label, items)
+      items = Array(items).compact.reject { |i| i.to_s.strip.empty? }
+      return nil if items.empty?
+      pills = items.first(12).map { |item| %(<span class="dj-pill dj-pill--index">#{h(item)}</span>) }.join
+      %(<div class="dj-idx-row"><span class="dj-idx-label">#{h(label)}</span><div class="dj-idx-pills">#{pills}</div></div>)
+    end
+
+    def submission_links(sub)
+      return "" unless SiteSetting.discourse_journals_submission_proxy_enabled
+
+      api_id = identity[:api_id]
+      return "" if api_id.blank?
+
+      links = []
+      if sub[:has_guideline]
+        links << submission_link("#{Discourse.base_path}/journals/#{api_id}/submission/guideline", t("sub_download_guideline"))
+      end
+      if sub[:has_latex]
+        links << submission_link("#{Discourse.base_path}/journals/#{api_id}/submission/latex", t("sub_download_latex"))
+      end
+      return "" if links.empty?
+
+      %(<div class="dj-submission-links">#{links.join}</div>)
+    end
+
+    def submission_link(href, label)
+      %(<a class="dj-link-pill" href="#{h(href)}" rel="nofollow">#{EXTERNAL_LINK_SVG}<span>#{h(label)}</span></a>)
+    end
+
+    def render_legacy_peer_review
       sr = @d[:scirev]
       return nil unless sr
 
@@ -802,6 +1066,16 @@ module DiscourseJournals
       add_pill_row.call(t("idx_deposit_policy"), deposit_services)
       add_pill_row.call(t("idx_languages"), languages)
       add_pill_row.call(t("idx_editors"), editors)
+
+      external_ids = (identity[:external_ids] || []).filter_map { |e|
+        next if e[:property].blank?
+        "#{e[:property]}: #{e[:identifier]}"
+      }
+      add_pill_row.call(t("idx_external_ids"), external_ids.first(10))
+
+      aliases = identity[:aliases] || []
+      add_pill_row.call(t("idx_aliases"), aliases)
+
       add_value_row.call(t("idx_coden"), wd_meta[:coden])
       add_value_row.call(t("idx_inception"), wd_meta[:inception])
       add_value_row.call(t("idx_frequency"), wd_meta[:frequency])
@@ -857,6 +1131,14 @@ module DiscourseJournals
           data: jcr_data, value_key: :impact_factor)
       end
 
+      cwts_data = (@d.dig(:cwts, :data) || []).select { |c| c[:snip] }.reverse
+      if cwts_data.size >= 2
+        cwts_years = cwts_data.map { |d| d[:year] }.compact
+        charts << viz_card(t("chart_snip"), "#9b6dd6",
+          SvgChartBuilder.from_time_series(cwts_data, value_key: :snip, color: "#9b6dd6", years: cwts_years),
+          data: cwts_data, value_key: :snip)
+      end
+
       if cr_dois.size >= 2 && charts.length < MAX_VISUAL_CHARTS
         charts << viz_card(t("chart_dois_by_year"), "#7ac36a",
           SvgChartBuilder.from_time_series(cr_dois, value_key: :count, color: "#7ac36a", years: cr_years),
@@ -905,6 +1187,7 @@ module DiscourseJournals
       oa_works_count: "col_oa_works",
       count: "col_count",
       impact_factor: "col_impact_factor",
+      snip: "col_snip",
     }.freeze
 
     def build_table(data, value_key: nil, value_keys: nil)

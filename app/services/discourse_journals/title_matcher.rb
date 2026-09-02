@@ -1,25 +1,16 @@
 # frozen_string_literal: true
 
-require "net/http"
-require "json"
 require "cgi"
 
 module DiscourseJournals
   class TitleMatcher
     class PausedError < StandardError; end
-    class RateLimitedError < StandardError
-      attr_reader :retry_after
-      def initialize(retry_after = 5)
-        @retry_after = retry_after
-        super("429 Too Many Requests")
-      end
-    end
 
-    # The upstream API caps page size at 100 and computes its offset from the
-    # REQUESTED pageSize, so requesting more than 100 returns 100 rows but skips
-    # the rest of that offset window (data loss). Request exactly the cap so the
-    # offset step matches the rows returned and pagination stays contiguous.
-    API_PAGE_SIZE = 100
+    # Contract v4 raised the `/journals` page-size cap from 100 to 2000, and the
+    # `afterId` cursor walk has no deep-offset ceiling — so one page now carries
+    # 20x what it used to. Paired with `fields=`, the whole-catalogue pass is a
+    # couple of hundred requests instead of a couple of thousand.
+    API_PAGE_SIZE = ApiClient::LIST_PAGE_SIZE
     PROGRESS_BATCH_INTERVAL = 5
 
     attr_reader :forum_index, :api_index, :results,
@@ -36,6 +27,7 @@ module DiscourseJournals
       @forum_api_id_index = {}
       @api_id_index = {}
       @api_seen_issns = Set.new
+      @dropped_duplicate_issns = 0
       @total_forum_topics = 0
       @total_api_records = 0
       @results = {
@@ -60,6 +52,7 @@ module DiscourseJournals
     end
 
     def run!
+      ApiClient.ensure_configured!
       PerformanceLogger.measure("analysis.build_forum_index", source_type: "title_matcher") { build_forum_index }
       PerformanceLogger.measure("analysis.build_api_index", source_type: "title_matcher") { build_api_index }
       PerformanceLogger.measure("analysis.cross_match", source_type: "title_matcher") { cross_match }
@@ -162,7 +155,7 @@ module DiscourseJournals
     def build_api_index
       publish_progress(:api, 0, 0, "正在获取 API 数据...")
 
-      http = create_persistent_connection
+      client = ApiClient.new(rate_limiter: @rate_limiter).start!
       fetched = 0
       cursor = nil
       batch = 0
@@ -176,7 +169,7 @@ module DiscourseJournals
           # plus hasMore; pass nextCursor back as afterId for the next page until
           # hasMore is false. This is inherently sequential but has no deep-offset
           # cap, so it reaches every journal (page/pageSize topped out at ~100k).
-          result = fetch_api_page_persistent(http, cursor)
+          result = client.fetch_journal_page(cursor: cursor, page_size: API_PAGE_SIZE)
           rows = result[:rows]
           break if rows.empty?
 
@@ -195,11 +188,7 @@ module DiscourseJournals
           cursor = next_cursor
         end
       ensure
-        begin
-          http.finish
-        rescue StandardError
-          nil
-        end
+        client.finish!
       end
 
       elapsed = (Process.clock_gettime(Process::CLOCK_MONOTONIC) - start_time).round(1)
@@ -207,86 +196,9 @@ module DiscourseJournals
         :api,
         fetched,
         fetched,
-        "API 索引构建完成：#{fetched} 条记录，#{@api_index.size} 个唯一标题，#{@api_issn_index.size} 个 ISSN-L (耗时 #{elapsed}s)",
+        "API 索引构建完成：#{fetched} 条记录，#{@api_index.size} 个唯一标题，" \
+          "#{@api_issn_index.size} 个 ISSN-L#{"，跳过 #{@dropped_duplicate_issns} 条重复 ISSN-L" if @dropped_duplicate_issns > 0} (耗时 #{elapsed}s)",
       )
-    end
-
-    def create_persistent_connection
-      uri = URI(SiteSetting.discourse_journals_api_base_url)
-      http = Net::HTTP.new(uri.host, uri.port)
-      http.use_ssl = uri.scheme == "https"
-      http.open_timeout = 30
-      http.read_timeout = 60
-      http.keep_alive_timeout = 120
-      http.start
-      http
-    end
-
-    def reconnect!(http)
-      http.finish
-    rescue StandardError
-      nil
-    ensure
-      http.start
-    end
-
-    def fetch_api_page_persistent(http, cursor)
-      path = "/api/open/journals?pageSize=#{API_PAGE_SIZE}"
-      path += "&afterId=#{cursor}" if cursor
-      retries = 0
-      max_retries = 5
-
-      begin
-        @rate_limiter.throttle!
-        request = Net::HTTP::Get.new(path)
-        response = http.request(request)
-
-        if response.code.to_i == 429
-          raise RateLimitedError.new((response["Retry-After"] || retries * 5 + 5).to_i.clamp(2, 60))
-        end
-
-        unless response.is_a?(Net::HTTPSuccess)
-          raise "API 请求失败: #{response.code} #{response.message}"
-        end
-
-        data = JSON.parse(response.body)
-        unless data["success"]
-          raise "API 返回错误: #{data["error"] || "Unknown"}"
-        end
-
-        payload = data["data"] || {}
-        {
-          rows: payload["rows"] || [],
-          next_cursor: payload["nextCursor"],
-          has_more: payload["hasMore"] ? true : false,
-        }
-      rescue RateLimitedError => e
-        retries += 1
-        if retries <= max_retries
-          Rails.logger.warn(
-            "[DiscourseJournals::TitleMatcher] cursor #{cursor.inspect} rate-limited (429), retry #{retries}/#{max_retries}, waiting #{e.retry_after}s",
-          )
-          sleep e.retry_after
-          retry
-        end
-        raise "API 游标 #{cursor.inspect} 请求被限流 (重试 #{max_retries} 次后仍为 429)"
-      rescue Net::OpenTimeout, Net::ReadTimeout, OpenSSL::SSL::SSLError, Errno::ECONNRESET, EOFError, IOError => e
-        retries += 1
-        if retries <= max_retries
-          wait = retries * 3
-          Rails.logger.warn(
-            "[DiscourseJournals::TitleMatcher] cursor #{cursor.inspect} retry #{retries}/#{max_retries} after #{e.class}: #{e.message}, waiting #{wait}s",
-          )
-          begin
-            reconnect!(http)
-          rescue StandardError => re
-            Rails.logger.warn("[DiscourseJournals::TitleMatcher] Reconnect failed: #{re.message}")
-          end
-          sleep wait
-          retry
-        end
-        raise "API 游标 #{cursor.inspect} 请求失败 (重试 #{max_retries} 次后): #{e.message}"
-      end
     end
 
     def process_api_rows(rows)
@@ -299,7 +211,19 @@ module DiscourseJournals
         api_id = unified["id"]
         issn_l = unified["issn_l"]
 
+        # Defensive dedupe. Upstream's canonical ISSN projection (contract v4)
+        # globally isolates any ISSN that straddles incompatible entities, so a
+        # collision here means the guarantee broke — count and log it instead of
+        # dropping rows silently, because a dropped row means its forum topic
+        # falls into forum_only and gets flagged outdated.
         if issn_l.present? && @api_seen_issns.include?(issn_l)
+          @dropped_duplicate_issns += 1
+          if @dropped_duplicate_issns <= 20
+            Rails.logger.warn(
+              "[DiscourseJournals::TitleMatcher] Duplicate ISSN-L #{issn_l} from API " \
+                "(id=#{api_id.inspect}, #{canonical_name.inspect}) — record skipped",
+            )
+          end
           next
         end
 

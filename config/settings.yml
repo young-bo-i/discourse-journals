@@ -9,6 +9,17 @@ plugins:
   discourse_journals_api_base_url:
     default: "https://journal.scholay.com"
     client: true
+  discourse_journals_api_key:
+    default: ""
+    secret: true
+  discourse_journals_api_rate_limit:
+    default: 5
+    type: integer
+    min: 1
+    max: 50
+  discourse_journals_submission_proxy_enabled:
+    default: true
+    client: true
   discourse_journals_banner_enabled:
     default: false
     client: true

@@ -8,6 +8,8 @@ module DiscourseJournals
       @sources = @data[:sources] || {}
       @cover = @data[:cover] || {}
       @issn_details = @data[:issn_details] || []
+      @submission_summary = @data[:submission_summary] || {}
+      @comments_summary = @data[:comments_summary] || {}
     end
 
     def normalize
@@ -23,16 +25,21 @@ module DiscourseJournals
         open_access: build_open_access,
         subjects_topics: build_subjects,
         crossref_quality: build_crossref,
-        scirev: build_scirev,
+        reviews: build_reviews,
         ccf: build_ccf,
+        cwts: build_cwts,
+        jufo: build_jufo,
+        submission: build_submission,
         wikidata_meta: build_wikidata_meta,
         preservation: build_preservation,
+        provenance: build_provenance,
       }
     end
 
     private
 
-    attr_reader :data, :unified, :sources, :cover, :issn_details
+    attr_reader :data, :unified, :sources, :cover, :issn_details,
+                :submission_summary, :comments_summary
 
     def oa_main
       @_oa_main ||= sources.dig(:openalex, :main) || {}
@@ -58,17 +65,30 @@ module DiscourseJournals
       @_fqb_main ||= sources.dig(:fqb, :main) || {}
     end
 
+    def cwts_main
+      @_cwts_main ||= sources.dig(:cwts, :main) || {}
+    end
+
     def build_identity
       abbreviation = wd_main[:iso4_abbreviation] ||
         wd_main[:short_name] ||
         sources.dig(:openalex, :alternate_titles)&.first&.dig(:title)
 
       {
+        # The upstream row id. JournalUpserter persists it as
+        # discourse_journals_api_id, which is TitleMatcher's second matching key —
+        # it used to read a :unified key that normalize() never produced, so the
+        # field was never written and the api_id match phase never fired.
+        api_id: unified[:id],
         title: unified[:canonical_name],
         abbreviation: abbreviation,
         issn_l: unified[:issn_l],
+        print_issn: unified[:print_issn],
+        electronic_issn: unified[:electronic_issn],
         issn_details: issn_details,
         alternate_titles: extract_alternate_titles,
+        aliases: extract_aliases,
+        external_ids: extract_external_ids,
         openalex_id: unified[:openalex_id],
         openalex_type: unified[:openalex_type] || oa_main[:type],
         wikidata_qid: unified[:wikidata_qid],
@@ -87,6 +107,7 @@ module DiscourseJournals
         first_publication_year: oa_main[:first_publication_year],
         last_publication_year: oa_main[:last_publication_year],
         is_core: oa_main[:is_core],
+        is_preprint_repository: to_bool(oa_main[:is_preprint_repository]),
       }
     end
 
@@ -103,6 +124,10 @@ module DiscourseJournals
         h_index: unified[:openalex_h_index] || oa_main[:summary_stats_h_index],
         i10_index: unified[:openalex_i10_index] || oa_main[:summary_stats_i10_index],
         two_year_mean_citedness: unified[:openalex_2yr_mean_citedness] || oa_main[:summary_stats_2yr_mean_citedness],
+        snip: unified[:cwts_snip] || cwts_main[:snip],
+        ipp: unified[:cwts_ipp] || cwts_main[:ipp],
+        self_citation_pct: unified[:cwts_self_cit_pct] || cwts_main[:self_cit_pct],
+        cwts_year: unified[:cwts_year] || cwts_main[:year],
         apc_usd: oa_main[:apc_usd],
         counts_by_year: sorted_counts.first(15).map { |c|
           {
@@ -272,6 +297,7 @@ module DiscourseJournals
         publication_time_weeks: doaj_main[:publication_time_weeks],
         apc_usd: oa_main[:apc_usd],
         apc_prices: sources.dig(:openalex, :apc_prices) || [],
+        apc_usd_by_year: build_apc_history,
         doaj_apc_max: sources.dig(:doaj, :apc_max) || [],
         licenses: sources.dig(:doaj, :licenses) || [],
         cas_review: fqb_main[:review],
@@ -336,20 +362,145 @@ module DiscourseJournals
       }
     end
 
-    def build_scirev
-      sr = sources.dig(:scirev, :main) || {}
-      return nil if sr.empty?
+    # Real submission experiences reported by authors. Replaces the retired
+    # `scirev` source: same intent, far more detail (per-dimension 0-5 scores,
+    # outcome rates, handling times, sentiment tags).
+    #
+    # Only the aggregate is normalised. The individual comments (`recent`) are
+    # deliberately left out of the stored JSON: 20 comment bodies per topic would
+    # multiply discourse_journals_data's size across ~280k rows, and they belong
+    # in the separate comment-sync pipeline (docs/comments-sync-plan.md).
+    def build_reviews
+      agg = sources[:comments] || {}
+      summary = comments_summary
+
+      count = agg[:comment_count] || summary[:count]
+      return nil if count.nil? || count.to_i.zero?
 
       {
-        first_review_months: sr[:first_review_round_months],
-        total_handling_months: sr[:total_handling_months],
-        immediate_rejection_days: sr[:immediate_rejection_days],
-        avg_review_rounds: sr[:avg_review_rounds],
-        avg_review_reports: sr[:avg_review_reports],
-        report_difficulty: sr[:report_difficulty],
-        report_quality: sr[:report_quality],
-        overall_rating: sr[:overall_rating],
-        review_count: sr[:review_count],
+        count: count.to_i,
+        source_count: agg[:source_count],
+        latest_at: agg[:latest_comment_at] || summary[:latest_at],
+        rating: parse_decimal(agg[:journal_rating_0_5] || summary[:rating]),
+        raw_rating: parse_decimal(agg[:raw_rating_0_5]),
+        rating_confidence: agg[:rating_confidence] || summary[:rating_confidence],
+        difficulty: parse_decimal(agg[:difficulty_index_0_5] || summary[:difficulty_index]),
+        quality: parse_decimal(agg[:quality_index_0_5]),
+        speed: parse_decimal(agg[:speed_index_0_5] || summary[:speed_index]),
+        communication: parse_decimal(agg[:communication_index_0_5]),
+        cost: parse_decimal(agg[:cost_index_0_5]),
+        acceptance_rate: parse_decimal(agg[:acceptance_reported_rate]),
+        rejection_rate: parse_decimal(agg[:rejection_reported_rate]),
+        desk_reject_rate: parse_decimal(agg[:desk_reject_rate]),
+        revision_rate: parse_decimal(agg[:revision_rate]),
+        avg_first_review_days: parse_decimal(agg[:avg_first_review_days]),
+        median_first_review_days: parse_decimal(agg[:median_first_review_days]),
+        avg_total_handling_days: parse_decimal(agg[:avg_total_handling_days]),
+        median_total_handling_days: parse_decimal(agg[:median_total_handling_days]),
+        avg_review_rounds: parse_decimal(agg[:avg_review_rounds]),
+        positive_tags: (agg[:top_positive_tags] || []).compact.first(5),
+        negative_tags: (agg[:top_negative_tags] || []).compact.first(5),
+        status_counts: agg[:status_counts] || {},
+      }
+    end
+
+    # CWTS SNIP (field-normalised impact) and IPP, latest year plus history.
+    def build_cwts
+      main = cwts_main
+      all_years = sources.dig(:cwts, :all_years) || []
+      return nil if main.empty? && all_years.empty?
+
+      years = all_years.any? ? all_years : [main]
+      {
+        # Capped: the SNIP trend chart and its 8-row table never read past this,
+        # and every extra year is stored on ~280k topics.
+        data: years
+          .select { |y| y[:year] }
+          .sort_by { |y| -y[:year].to_i }
+          .first(15)
+          .map { |y|
+            {
+              year: y[:year],
+              snip: parse_decimal(y[:snip]),
+              ipp: parse_decimal(y[:ipp]),
+              self_cit_pct: parse_decimal(y[:self_cit_pct]),
+              docs: y[:p],
+            }
+          },
+      }
+    end
+
+    # JUFO — the Finnish/Norwegian/Danish publication-channel rankings.
+    def build_jufo
+      main = sources.dig(:jufo, :main) || {}
+      levels = sources.dig(:jufo, :levels) || []
+      return nil if main.empty? && levels.empty?
+
+      {
+        level_fi: unified[:jufo_level_fi] || main[:level_fi],
+        level_no: unified[:jufo_level_no] || main[:level_no],
+        level_dk: unified[:jufo_level_dk] || main[:level_dk],
+        channel_type: main[:channel_type],
+        oa_type: main[:oa_type],
+        self_archiving: main[:self_archiving],
+        active: main[:active],
+        year_start: main[:year_start],
+        year_end: main[:year_end],
+        levels: levels
+          .select { |l| l[:year] }
+          .sort_by { |l| -l[:year].to_i }
+          .first(15)
+          .map { |l| { year: l[:year], level: l[:level] } },
+      }
+    end
+
+    # Submission guidelines / LaTeX template: existence, download paths and the
+    # structured requirements upstream extracted from the guide.
+    def build_submission
+      summary = submission_summary
+      main = sources.dig(:submission, :main) || {}
+      latex = sources.dig(:submission, :latex) || {}
+      fields = sources.dig(:submission, :fields_json) || {}
+
+      has_guideline = to_bool(summary[:has_guideline]) || to_bool(main[:has_guideline])
+      has_latex = to_bool(summary[:has_latex]) || to_bool(main[:has_latex])
+      return nil unless has_guideline || has_latex
+
+      {
+        has_guideline: has_guideline,
+        has_latex: has_latex,
+        latex_class: summary[:latex_class] || latex[:class],
+        latex_zip: latex[:master_zip],
+        word_limit: main[:word_limit] || fields[:word_limit],
+        page_limit: main[:page_limit] || fields[:page_limit],
+        peer_review_model: main[:peer_review_model] || fields.dig(:peer_review, :model),
+        reference_style: main[:reference_style_list] || fields.dig(:reference_style, :list),
+        reference_intext: fields.dig(:reference_style, :intext),
+        abstract_word_limit: fields.dig(:abstract, :word_limit),
+        keywords_min: fields.dig(:keywords, :min),
+        keywords_max: fields.dig(:keywords, :max),
+        article_types: Array(fields[:article_types]).compact.first(12),
+        file_formats: Array(fields.dig(:submission, :file_formats)).compact,
+        figure_formats: Array(fields.dig(:figures, :formats)).compact,
+        submission_system_url: fields.dig(:submission, :system_url),
+        ai_disclosure_required: to_bool(fields.dig(:ethics, :ai_disclosure_required)),
+        oa_licenses: Array(fields.dig(:open_access, :licenses)).compact,
+        capture_quality: main[:capture_quality] || fields[:capture_quality],
+      }
+    end
+
+    # Which upstream sources actually backed this record, and whether the row we
+    # rendered from was complete. `partial` matters downstream: a missing source
+    # on a partial row means "the query failed", not "this journal has no data".
+    def build_provenance
+      source_list = unified[:sources].to_s.split(",").map(&:strip).reject(&:blank?)
+
+      {
+        source_count: unified[:source_count],
+        sources: source_list,
+        built_at: unified[:built_at],
+        partial: data[:partial] ? true : false,
+        degraded_sources: data[:degraded_sources] || [],
       }
     end
 
@@ -416,6 +567,34 @@ module DiscourseJournals
       wd_titles.each { |t| titles << t[:title] if t[:title] }
 
       titles.compact.uniq.first(5)
+    end
+
+    # Wikidata multilingual aliases, deduped and capped — useful for search recall
+    # on Chinese/other-script journal names.
+    def extract_aliases
+      (sources.dig(:wikidata, :aliases) || [])
+        .filter_map { |a| a[:alias].presence }
+        .uniq
+        .first(8)
+    end
+
+    # Stable identifiers on external platforms (Scopus, NLM, VIAF, JUFO, …).
+    def extract_external_ids
+      (sources.dig(:wikidata, :external_ids) || [])
+        .filter_map { |e|
+          next if e[:property].blank? || e[:identifier].blank?
+          { property: e[:property], identifier: e[:identifier] }
+        }
+        .uniq
+        .first(12)
+    end
+
+    def build_apc_history
+      (sources.dig(:openalex, :apc_usd_by_year) || [])
+        .select { |a| a[:year] && a[:price] }
+        .sort_by { |a| -a[:year].to_i }
+        .first(10)
+        .map { |a| { year: a[:year], price: a[:price].to_i } }
     end
 
     def extract_wikidata_homepage

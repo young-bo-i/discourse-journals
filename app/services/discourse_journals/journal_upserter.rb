@@ -36,7 +36,7 @@ module DiscourseJournals
       raise ArgumentError, "Empty content generated" if html.blank?
 
       {
-        api_id: normalized.dig(:unified, :id),
+        api_id: normalized.dig(:identity, :api_id),
         title: title,
         html: html,
         raw_text: raw_text,
