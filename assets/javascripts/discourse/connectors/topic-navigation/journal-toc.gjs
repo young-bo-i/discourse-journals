@@ -8,7 +8,6 @@ import willDestroy from "@ember/render-modifiers/modifiers/will-destroy";
 import concatClass from "discourse/helpers/concat-class";
 import { eq } from "discourse/truth-helpers";
 import { i18n } from "discourse-i18n";
-import JournalPromo from "../../components/journal-promo";
 
 export default class JournalToc extends Component {
   static shouldRender(outletArgs, helper) {
@@ -121,8 +120,6 @@ export default class JournalToc extends Component {
   }
 
   <template>
-    <JournalPromo />
-
     <div
       class="dj-journal-nav"
       {{didInsert this.setup}}

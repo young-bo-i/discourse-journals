@@ -755,12 +755,6 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
   get promoSlideTabs() {
     return [
       { key: "total", label: i18n("discourse_journals.admin.stats.total") },
-      {
-        key: "peer_review",
-        label: i18n("discourse_journals.promo.titles.peer_review"),
-      },
-      { key: "prism", label: i18n("discourse_journals.promo.titles.prism") },
-      { key: "claw", label: i18n("discourse_journals.promo.titles.claw") },
       { key: "banner", label: i18n("discourse_journals.promo.titles.banner") },
     ];
   }

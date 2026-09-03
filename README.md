@@ -1,6 +1,6 @@
 # 📚 Discourse Journals Plugin
 
-学术期刊统一档案系统 —— 把上游期刊数据库（`journal.scholay.com` 的开放 API）镜像为 Discourse 某个分类下的话题：**一本期刊 = 一个话题**，首帖是服务端渲染的结构化期刊档案页，并叠加 SEO 增强与站内推广位。
+学术期刊统一档案系统 —— 把上游期刊数据库（`journal.scholay.com` 的开放 API）镜像为 Discourse 某个分类下的话题：**一本期刊 = 一个话题**，首帖是服务端渲染的结构化期刊档案页，并叠加 SEO 增强与顶部推广横幅。
 
 > ⚠️ 本插件为 scholay 站点定制，面向单一中文站运行；后台进度/错误文案目前为硬编码中文。
 
@@ -98,7 +98,7 @@
 - `POST /admin/journals/mapping/analyze|pause|restart` · `GET /admin/journals/mapping/status|details`
 - `POST /admin/journals/mapping/apply|apply_pause|apply_resume` · `GET /admin/journals/mapping/apply_status`
 - `GET /admin/journals/promo_stats` · `DELETE /admin/journals/delete_all`
-- `POST /journals/promo/track`（**公开、匿名**，白名单 + 每 IP 120 次/分限流，用于推广位曝光/点击埋点，按「天 × slide」聚合无 PII）
+- `POST /journals/promo/track`（**公开、匿名**，白名单 + 每 IP 120 次/分限流，用于顶部横幅曝光/点击埋点，按「天 × slide」聚合无 PII；当前唯一合法 slide 是 `banner`）
 - `GET /journals/:api_id/submission/:kind`（`kind` ∈ `guideline|latex`，**公开、匿名**，每 IP 30 次/分限流，
   ≤25 MB）。上游这两个下载地址在 `/api/open` 下、需要 `X-API-Key`，浏览器 `<a download>` 直连必然 401，
   因此由服务端带密钥取回后转发 —— 这也是上游文档给出的推荐做法。可用
@@ -116,7 +116,8 @@ MessageBus 频道：`/journals/mapping`、`/journals/mapping-apply`、`/journals
   **标准化指标与分级**（`dj-normalized-metrics`：CWTS SNIP/IPP + JUFO 三国等级）、
   **投稿须知与模板**（`dj-submission-panel`：存在性 + 格式要求 + 代理下载链接）；图表区多一条 SNIP 趋势线。
   存量话题在重新同步前仍带旧的 `scirev` 块，`render_legacy_peer_review` 负责兜底渲染。
-- 三个 connector：帖子流上方期刊搜索框、右侧导航区的章节 TOC + 推广轮播、导航底部「相关期刊」卡片（服务端 `JournalSuggestedProvider` 按 tags×3 + publisher×2 + country×1 打分，缓存 30 分钟）。
+- 三个 connector：帖子流上方期刊搜索框、右侧导航区的章节 TOC、导航底部「相关期刊」卡片（服务端 `JournalSuggestedProvider` 按 tags×3 + publisher×2 + country×1 打分，缓存 30 分钟）。
+  站内推广只剩全站头部下方的 `below-site-header/scholay-banner`（`discourse_journals_banner_enabled` 控制）；右侧导航区那个轮播广告已移除。
 - SEO：title 后缀、meta description/keywords、schema.org `Periodical` JSON-LD（有投稿体验数据时附
   `aggregateRating`）；期刊页服务端注入 CSS 隐藏 sidebar。
 

@@ -5,12 +5,7 @@ en:
       nav_title: "Navigation"
       suggested_title: "Related Journals"
       promo:
-        visit: "Visit %{name}"
-        go_to: "Show %{name}"
         titles:
-          peer_review: "Smart Peer Review"
-          prism: "Smart Writing"
-          claw: "Smart Assistant Claw"
           banner: "Header banner"
       search:
         placeholder: "Search journals (name, ISSN, publisher...)"

@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 module DiscourseJournals
-  # Public endpoint hit by the promo carousel to record impressions/clicks.
+  # Public endpoint hit by the site header banner to record impressions/clicks.
   # Anonymous visitors must be able to call it, so CSRF/XHR guards are relaxed;
   # abuse is capped by a per-IP rate limit and a strict slide/event allowlist,
   # and only anonymous aggregate counters are ever written.

@@ -1,15 +1,17 @@
 # frozen_string_literal: true
 
 module DiscourseJournals
-  # Daily aggregate of promo-carousel impressions and clicks, one row per
-  # (day, slide). Tracking uses an atomic upsert so concurrent hits never lose
-  # increments and no per-event rows are stored (privacy + volume friendly).
+  # Daily aggregate of promo impressions and clicks, one row per (day, slide).
+  # Tracking uses an atomic upsert so concurrent hits never lose increments and
+  # no per-event rows are stored (privacy + volume friendly).
   class PromoStat < ActiveRecord::Base
     self.table_name = "discourse_journals_promo_stats"
 
-    # Slide keys mirror the frontend carousel (journal-promo.gjs) plus the
-    # site-wide header banner (below-site-header/scholay-banner.gjs).
-    SLIDES = %w[peer_review prism claw banner].freeze
+    # Only the site-wide header banner (below-site-header/scholay-banner.gjs)
+    # is tracked. The topic-navigation carousel that also fed this table
+    # (peer_review / prism / claw) was removed; its historical rows are left in
+    # place but are ignored by both track! and report.
+    SLIDES = %w[banner].freeze
     EVENTS = %w[impression click].freeze
 
     DEFAULT_RANGE_DAYS = 30
@@ -58,8 +60,10 @@ module DiscourseJournals
         i = index_for[row.day.to_s]
         next if i.nil?
 
-        impressions[row.slide][i] += row.impressions if impressions.key?(row.slide)
-        clicks[row.slide][i] += row.clicks if clicks.key?(row.slide)
+        next unless impressions.key?(row.slide)
+
+        impressions[row.slide][i] += row.impressions
+        clicks[row.slide][i] += row.clicks
         impressions["total"][i] += row.impressions
         clicks["total"][i] += row.clicks
       end

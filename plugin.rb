@@ -499,7 +499,7 @@ after_initialize do
     get "/admin/journals/personas/status" => "discourse_journals/admin_personas#status",
         :constraints => AdminConstraint.new
 
-    # Public: promo carousel impression/click tracking (anonymous allowed)
+    # Public: site header banner impression/click tracking (anonymous allowed)
     post "/journals/promo/track" => "discourse_journals/promo#track"
 
     # Public: server-side proxy for upstream submission guideline / LaTeX
