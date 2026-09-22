@@ -2,6 +2,7 @@ import Component from "@glimmer/component";
 import { tracked } from "@glimmer/tracking";
 import { action } from "@ember/object";
 import { service } from "@ember/service";
+import { cancel, later } from "@ember/runloop";
 import { on } from "@ember/modifier";
 import { fn } from "@ember/helper";
 import { not } from "discourse/truth-helpers";
@@ -14,6 +15,9 @@ import discourseDebounce from "discourse/lib/debounce";
 import { searchForTerm } from "discourse/lib/search";
 import DiscourseURL from "discourse/lib/url";
 import { i18n } from "discourse-i18n";
+
+// Discourse can drop short terms while retaining the category filter, leaving a broad query.
+const MIN_JOURNAL_SEARCH_TERM_LENGTH = 4;
 
 export default class JournalSearchBox extends Component {
   static shouldRender(outletArgs, helper) {
@@ -36,39 +40,62 @@ export default class JournalSearchBox extends Component {
     return String(topic.category_id) === String(categoryId);
   }
 
+  @service a11y;
   @service siteSettings;
 
   @tracked searchQuery = "";
   @tracked results = [];
   @tracked loading = false;
   @tracked showResults = false;
+  @tracked showMinLengthHint = false;
+
+  #searchGeneration = 0;
+  #debouncedSearch;
+  #activeSearch;
+  #blurTimer;
+
+  willDestroy() {
+    this.#cancelSearch();
+    cancel(this.#blurTimer);
+    super.willDestroy(...arguments);
+  }
 
   get categoryId() {
     return this.siteSettings.discourse_journals_category_id;
   }
 
+  get minimumSearchTermLength() {
+    return Math.max(
+      MIN_JOURNAL_SEARCH_TERM_LENGTH,
+      Number(this.siteSettings.min_search_term_length) || 0
+    );
+  }
+
   @action
   onInput(event) {
+    this.#cancelSearch();
     this.searchQuery = event.target.value;
-    if (this.searchQuery.trim().length >= 2) {
-      discourseDebounce(this, this.performSearch, 300);
-    } else {
-      this.results = [];
-      this.showResults = false;
+    this.results = [];
+    this.loading = false;
+    this.showResults = false;
+    this.showMinLengthHint = false;
+
+    if (this.#canSearch(this.searchQuery.trim())) {
+      this.#debouncedSearch = discourseDebounce(this, this.performSearch, 600);
     }
   }
 
   @action
   onFocus() {
-    // 只有当搜索框有内容且有结果时才显示
-    if (this.searchQuery.trim().length >= 2 && this.results.length > 0) {
+    cancel(this.#blurTimer);
+    if (this.results.length > 0 || this.showMinLengthHint) {
       this.showResults = true;
     }
   }
 
   @action
   onBlur() {
-    setTimeout(() => {
+    this.#blurTimer = later(this, () => {
       this.showResults = false;
     }, 200);
   }
@@ -81,43 +108,45 @@ export default class JournalSearchBox extends Component {
     }
 
     if (event.key === "Enter" && this.searchQuery.trim()) {
-      this.goToFullSearch();
+      this.goToFullSearch(event);
     }
     if (event.key === "Escape") {
       this.showResults = false;
     }
   }
 
-  _searchGeneration = 0;
-
   @action
   async performSearch() {
+    this.#debouncedSearch = null;
     const query = this.searchQuery.trim();
-    if (!query) {
+    if (!this.#canSearch(query)) {
       return;
     }
 
-    const generation = ++this._searchGeneration;
+    const generation = this.#searchGeneration;
     this.loading = true;
     this.showResults = true;
 
     try {
-      const results = await searchForTerm(`${query} category:${this.categoryId}`, {
+      const search = searchForTerm(`${query} category:${this.categoryId}`, {
         typeFilter: "topic",
       });
+      this.#activeSearch = search;
+      const results = await search;
 
-      if (this._searchGeneration !== generation) {
+      if (this.#searchGeneration !== generation) {
         return;
       }
 
       this.results = (results?.posts || []).slice(0, 8);
     } catch (e) {
-      if (this._searchGeneration !== generation) {
+      if (this.#searchGeneration !== generation) {
         return;
       }
       this.results = [];
     } finally {
-      if (this._searchGeneration === generation) {
+      if (this.#searchGeneration === generation) {
+        this.#activeSearch = null;
         this.loading = false;
       }
     }
@@ -126,9 +155,10 @@ export default class JournalSearchBox extends Component {
   @action
   goToTopic(post, event) {
     event.preventDefault();
+    this.#cancelSearch();
     this.showResults = false;
     this.searchQuery = "";
-    this.results = [];  // 清空历史结果
+    this.results = [];
     const topic = post.topic;
     DiscourseURL.routeTo(`/t/${topic.slug}/${topic.id}`);
   }
@@ -138,11 +168,47 @@ export default class JournalSearchBox extends Component {
     if (event) {
       event.preventDefault();
     }
-    const query = `${this.searchQuery} category:${this.categoryId}`;
+    this.#cancelSearch();
+    const term = this.searchQuery.trim();
+    if (!this.#canSearch(term)) {
+      this.showMinLengthHint = Boolean(term);
+      this.showResults = Boolean(term);
+      if (term) {
+        this.a11y.announce(
+          i18n("discourse_journals.search.min_length", {
+            min: this.minimumSearchTermLength,
+          }),
+          "polite"
+        );
+      }
+      return;
+    }
+
+    const query = `${term} category:${this.categoryId}`;
     this.showResults = false;
     this.searchQuery = "";
-    this.results = [];  // 清空历史结果
+    this.results = [];
     DiscourseURL.routeTo(`/search?q=${encodeURIComponent(query)}`);
+  }
+
+  #canSearch(query) {
+    // Search operators do not count as journal terms.
+    return query.split(/\s+/).some(
+      (part) =>
+        !part.includes(":") &&
+        !/^[#@]/u.test(part) &&
+        part
+          .match(/[\p{L}\p{N}]+/gu)
+          ?.some((term) => term.length >= this.minimumSearchTermLength)
+    );
+  }
+
+  #cancelSearch() {
+    this.#searchGeneration++;
+    cancel(this.#debouncedSearch);
+    this.#debouncedSearch = null;
+    this.#activeSearch?.abort();
+    this.#activeSearch = null;
   }
 
   <template>
@@ -168,7 +234,11 @@ export default class JournalSearchBox extends Component {
 
         {{#if this.showResults}}
           <div class="journal-search-results">
-            {{#if this.results.length}}
+            {{#if this.showMinLengthHint}}
+              <div class="journal-search-no-results">
+                {{i18n "discourse_journals.search.min_length" min=this.minimumSearchTermLength}}
+              </div>
+            {{else if this.results.length}}
               <ul class="journal-search-list">
                 {{#each this.results as |post|}}
                   <li class="journal-search-item">

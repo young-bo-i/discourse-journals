@@ -10,6 +10,7 @@ en:
       search:
         placeholder: "Search journals (name, ISSN, publisher...)"
         no_results: "No journals found"
+        min_length: "Enter at least %{min} consecutive letters or digits."
         more: "More..."
       admin:
         heading: "Journals"

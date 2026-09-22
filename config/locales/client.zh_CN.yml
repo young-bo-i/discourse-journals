@@ -10,6 +10,7 @@ zh_CN:
       search:
         placeholder: "搜索期刊（输入名称、ISSN、出版商...）"
         no_results: "没有找到相关期刊"
+        min_length: "请至少连续输入 %{min} 个文字、字母或数字。"
         more: "更多..."
       admin:
         heading: "期刊库"
