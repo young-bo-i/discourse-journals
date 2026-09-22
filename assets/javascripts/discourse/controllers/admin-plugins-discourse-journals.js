@@ -2,9 +2,15 @@ import { tracked } from "@glimmer/tracking";
 import Controller from "@ember/controller";
 import { action } from "@ember/object";
 import { service } from "@ember/service";
+import { trustHTML } from "@ember/template";
 import { ajax } from "discourse/lib/ajax";
 import { popupAjaxError } from "discourse/lib/ajax-error";
 import { i18n } from "discourse-i18n";
+
+function progressWidthStyle(value) {
+  const width = Math.min(100, Math.max(0, Number(value) || 0));
+  return trustHTML(`width: ${width}%`);
+}
 
 export default class AdminPluginsDiscourseJournalsController extends Controller {
   @service dialog;
@@ -72,6 +78,22 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
 
   get personaUploadDisabled() {
     return !this.personaFile || this.personaImporting;
+  }
+
+  get personaProgressStyle() {
+    return progressWidthStyle(this.personaProgress);
+  }
+
+  get analysisProgressStyle() {
+    return progressWidthStyle(this.analysisProgress);
+  }
+
+  get applyProgressStyle() {
+    return progressWidthStyle(this.applyProgress);
+  }
+
+  get deleteProgressStyle() {
+    return progressWidthStyle(this.deleteProgress);
   }
 
   @action
@@ -450,7 +472,7 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
     return i18n(key);
   }
 
-  get mappingBarWidths() {
+  get mappingBarStyles() {
     const r = this.analysisResult;
     if (!r) {
       return {};
@@ -458,12 +480,22 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
     const forumTotal = r.total_forum_topics || 1;
     const apiTotal = r.total_api_records || 1;
     return {
-      exact_1to1: Math.round((r.exact_1to1 / forumTotal) * 100),
-      forum_1_to_api_n: Math.round((r.forum_1_to_api_n / forumTotal) * 100),
-      forum_n_to_api_1: Math.round((r.forum_n_to_api_1 / forumTotal) * 100),
-      forum_n_to_api_m: Math.round((r.forum_n_to_api_m / forumTotal) * 100),
-      forum_only: Math.round((r.forum_only / forumTotal) * 100),
-      api_only: Math.round((r.api_only / apiTotal) * 100),
+      exact_1to1: progressWidthStyle(
+        Math.round((r.exact_1to1 / forumTotal) * 100)
+      ),
+      forum_1_to_api_n: progressWidthStyle(
+        Math.round((r.forum_1_to_api_n / forumTotal) * 100)
+      ),
+      forum_n_to_api_1: progressWidthStyle(
+        Math.round((r.forum_n_to_api_1 / forumTotal) * 100)
+      ),
+      forum_n_to_api_m: progressWidthStyle(
+        Math.round((r.forum_n_to_api_m / forumTotal) * 100)
+      ),
+      forum_only: progressWidthStyle(
+        Math.round((r.forum_only / forumTotal) * 100)
+      ),
+      api_only: progressWidthStyle(Math.round((r.api_only / apiTotal) * 100)),
     };
   }
 
