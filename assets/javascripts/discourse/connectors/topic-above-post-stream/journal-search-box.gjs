@@ -6,13 +6,9 @@ import { cancel, later } from "@ember/runloop";
 import { on } from "@ember/modifier";
 import { fn } from "@ember/helper";
 import { not } from "discourse/truth-helpers";
-import { htmlSafe } from "@ember/template";
 import icon from "discourse/helpers/d-icon";
-import categoryLink from "discourse/helpers/category-link";
-import discourseTags from "discourse/helpers/discourse-tags";
-import ageWithTooltip from "discourse/helpers/age-with-tooltip";
+import { ajax } from "discourse/lib/ajax";
 import discourseDebounce from "discourse/lib/debounce";
-import { searchForTerm } from "discourse/lib/search";
 import DiscourseURL from "discourse/lib/url";
 import { i18n } from "discourse-i18n";
 
@@ -128,9 +124,9 @@ export default class JournalSearchBox extends Component {
     this.showResults = true;
 
     try {
-      const search = searchForTerm(`${query} category:${this.categoryId}`, {
-        typeFilter: "topic",
-      });
+      // A dedicated title/ISSN lookup: core full-text search over every journal
+      // post takes seconds and holds a web worker for the whole time.
+      const search = ajax("/journals/search", { data: { q: query } });
       this.#activeSearch = search;
       const results = await search;
 
@@ -138,7 +134,7 @@ export default class JournalSearchBox extends Component {
         return;
       }
 
-      this.results = (results?.posts || []).slice(0, 8);
+      this.results = results?.topics || [];
     } catch (e) {
       if (this.#searchGeneration !== generation) {
         return;
@@ -153,13 +149,12 @@ export default class JournalSearchBox extends Component {
   }
 
   @action
-  goToTopic(post, event) {
+  goToTopic(topic, event) {
     event.preventDefault();
     this.#cancelSearch();
     this.showResults = false;
     this.searchQuery = "";
     this.results = [];
-    const topic = post.topic;
     DiscourseURL.routeTo(`/t/${topic.slug}/${topic.id}`);
   }
 
@@ -240,29 +235,32 @@ export default class JournalSearchBox extends Component {
               </div>
             {{else if this.results.length}}
               <ul class="journal-search-list">
-                {{#each this.results as |post|}}
+                {{#each this.results as |topic|}}
                   <li class="journal-search-item">
                     <a
                       class="search-link"
-                      href="/t/{{post.topic.slug}}/{{post.topic.id}}"
-                      {{on "click" (fn this.goToTopic post)}}
+                      href="/t/{{topic.slug}}/{{topic.id}}"
+                      {{on "click" (fn this.goToTopic topic)}}
                     >
                       <span class="topic">
                         <span class="first-line">
-                          <span class="topic-title">{{post.topic.title}}</span>
+                          <span class="topic-title">{{topic.title}}</span>
                         </span>
-                        <span class="second-line">
-                          {{categoryLink post.topic.category link=false}}
-                          {{#if this.siteSettings.tagging_enabled}}
-                            {{discourseTags post.topic tagName="span"}}
-                          {{/if}}
-                        </span>
+                        {{! The lookup returns plain objects; core's tag
+                            helper only accepts topic models. }}
+                        {{#if this.siteSettings.tagging_enabled}}
+                          <span class="second-line">
+                            <span class="discourse-tags">
+                              {{#each topic.tags as |tag|}}
+                                <span class="discourse-tag simple">{{tag}}</span>
+                              {{/each}}
+                            </span>
+                          </span>
+                        {{/if}}
                       </span>
-                      {{#if post.blurb}}
+                      {{#if topic.excerpt}}
                         <span class="blurb">
-                          {{ageWithTooltip post.created_at}}
-                          <span class="blurb-separator"> - </span>
-                          <span class="blurb-text">{{htmlSafe post.blurb}}</span>
+                          <span class="blurb-text">{{topic.excerpt}}</span>
                         </span>
                       {{/if}}
                     </a>

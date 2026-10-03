@@ -9,7 +9,6 @@ import {
 import { module, test } from "qunit";
 import { setupRenderingTest } from "discourse/tests/helpers/component-test";
 import pretender, { response } from "discourse/tests/helpers/create-pretender";
-import searchFixtures from "discourse/tests/fixtures/search-fixtures";
 import JournalSearchBox from "discourse/plugins/discourse-journals/discourse/connectors/topic-above-post-stream/journal-search-box";
 
 function input(value) {
@@ -19,19 +18,26 @@ function input(value) {
   element.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+function journals(title) {
+  return {
+    topics: [{ id: 1, title, slug: "journal", tags: ["scie"], excerpt: "" }],
+  };
+}
+
 module("Integration | Connector | JournalSearchBox", function (hooks) {
   setupRenderingTest(hooks);
 
   hooks.beforeEach(function () {
     this.siteSettings.discourse_journals_category_id = 19;
     this.siteSettings.min_search_term_length = 3;
+    this.siteSettings.tagging_enabled = true;
   });
 
   test("short terms do not search or open a broad category search", async function (assert) {
     let requests = 0;
-    pretender.get("/search/query", () => {
+    pretender.get("/journals/search", () => {
       requests++;
-      return response({ grouped_search_result: {} });
+      return response({ topics: [] });
     });
 
     await render(<template><JournalSearchBox /></template>);
@@ -55,30 +61,27 @@ module("Integration | Connector | JournalSearchBox", function (hooks) {
       .hasValue("en category:19", "the invalid term remains available to edit");
   });
 
-  test("valid terms use Discourse search in the journal category", async function (assert) {
+  test("valid terms use the journal title lookup and list its results", async function (assert) {
     const requests = [];
-    pretender.get("/search/query", (request) => {
+    pretender.get("/journals/search", (request) => {
       requests.push(request);
-      return response({ grouped_search_result: {} });
+      return response(journals("Nature Neuroscience"));
     });
 
     await render(<template><JournalSearchBox /></template>);
     await fillIn(".journal-search-input", "Nature");
 
     assert.strictEqual(requests.length, 1, "one search request is sent");
-    assert.strictEqual(
-      requests[0].queryParams.term,
-      "Nature category:19",
-      "the query stays scoped to journals"
-    );
-    assert.strictEqual(requests[0].queryParams.type_filter, "topic");
+    assert.strictEqual(requests[0].queryParams.q, "Nature");
+    assert.dom(".journal-search-item").includesText("Nature Neuroscience");
+    assert.dom(".journal-search-item .discourse-tag").hasText("scie");
   });
 
   test("shortening input cancels a pending search", async function (assert) {
     let requests = 0;
-    pretender.get("/search/query", () => {
+    pretender.get("/journals/search", () => {
       requests++;
-      return response({ grouped_search_result: {} });
+      return response({ topics: [] });
     });
 
     await render(<template><JournalSearchBox /></template>);
@@ -93,20 +96,15 @@ module("Integration | Connector | JournalSearchBox", function (hooks) {
   test("changing input aborts an in-flight search and keeps only new results", async function (assert) {
     const requests = [];
     let resolveFirst;
-    pretender.get("/search/query", (request) => {
+    pretender.get("/journals/search", (request) => {
       requests.push(request);
-      const results = JSON.parse(
-        JSON.stringify(searchFixtures["search/query"])
-      );
-      results.topics[0].title =
-        requests.length === 1 ? "Old result" : "New result";
 
       if (requests.length === 1) {
         return new Promise((resolve) => {
-          resolveFirst = () => resolve(response(results));
+          resolveFirst = () => resolve(response(journals("Old result")));
         });
       }
-      return response(results);
+      return response(journals("New result"));
     });
 
     await render(<template><JournalSearchBox /></template>);
@@ -123,9 +121,9 @@ module("Integration | Connector | JournalSearchBox", function (hooks) {
 
   test("destroying the box cancels a pending search", async function (assert) {
     let requests = 0;
-    pretender.get("/search/query", () => {
+    pretender.get("/journals/search", () => {
       requests++;
-      return response({ grouped_search_result: {} });
+      return response({ topics: [] });
     });
 
     await render(<template><JournalSearchBox /></template>);

@@ -41,6 +41,7 @@ after_initialize do
   require_relative "app/services/discourse_journals/mapping_applier"
   require_relative "app/services/discourse_journals/journal_tag_manager"
   require_relative "app/services/discourse_journals/journal_suggested_provider"
+  require_relative "app/services/discourse_journals/journal_title_search"
   require_relative "app/services/discourse_journals/topic_cover_applier"
   require_relative "app/services/discourse_journals/cover_syncer"
   require_relative "app/jobs/regular/discourse_journals/analyze_mapping"
@@ -201,6 +202,23 @@ after_initialize do
         )
       end
       topic.instance_variable_get(:@dj_upstream_cover_url)
+    end
+
+    # Random suggestions only draw from open topics. While journal topics are kept
+    # closed the journal category's pool is always empty, so core never caches it
+    # and re-runs a full ORDER BY RANDOM() scan of topics on every journal page.
+    module RandomTopicSelectorPatch
+      def next(count, category = nil)
+        return [] if ::DiscourseJournals.closed_journal_category?(category)
+        super
+      end
+    end
+
+    def self.closed_journal_category?(category)
+      return false if category.nil? || !SiteSetting.discourse_journals_enabled
+      return false if !SiteSetting.discourse_journals_close_topics
+
+      category.id == SiteSetting.discourse_journals_category_id.to_i
     end
 
     # Dropping image_upload alongside keeps og:image:width/height/type from
@@ -499,6 +517,7 @@ after_initialize do
     end
     ::Sitemap.prepend(sitemap_patch)
     ::TopicView.prepend(::DiscourseJournals::TopicViewCoverPatch)
+    ::RandomTopicSelector.singleton_class.prepend(::DiscourseJournals::RandomTopicSelectorPatch)
   end
 
   Discourse::Application.routes.append do
@@ -539,6 +558,9 @@ after_initialize do
 
     # Public: site header banner impression/click tracking (anonymous allowed)
     post "/journals/promo/track" => "discourse_journals/promo#track"
+
+    # Public: fast journal title / ISSN lookup behind the journal page search box.
+    get "/journals/search" => "discourse_journals/search#index"
 
     # Public: server-side proxy for upstream submission guideline / LaTeX
     # template downloads, which sit behind the API key a browser cannot send.

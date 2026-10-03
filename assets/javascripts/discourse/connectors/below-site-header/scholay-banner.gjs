@@ -3,7 +3,6 @@ import { action } from "@ember/object";
 import { on } from "@ember/modifier";
 import didInsert from "@ember/render-modifiers/modifiers/did-insert";
 import { service } from "@ember/service";
-import { ajax } from "discourse/lib/ajax";
 
 const BASE = "/plugins/discourse-journals/images/banner";
 const TRACK_URL = "/journals/promo/track";
@@ -34,10 +33,18 @@ export default class ScholayBanner extends Component {
   }
 
   _track(event) {
-    // Analytics is best-effort: never surface errors to the visitor.
-    ajax(TRACK_URL, { type: "POST", data: { event, slide: "banner" } }).catch(
-      () => {}
-    );
+    // The endpoint skips CSRF, but Discourse's ajax() would still fetch a CSRF
+    // token first — two requests per impression. A beacon is one, and it
+    // survives the navigation a banner click starts. Best-effort: never throw.
+    const body = new URLSearchParams({ event, slide: "banner" });
+    try {
+      if (navigator.sendBeacon?.(TRACK_URL, body)) {
+        return;
+      }
+    } catch {
+      // fall through to fetch
+    }
+    fetch(TRACK_URL, { method: "POST", body, keepalive: true }).catch(() => {});
   }
 
   @action

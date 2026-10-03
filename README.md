@@ -103,7 +103,11 @@
 - `POST /admin/journals/mapping/apply|apply_pause|apply_resume` · `GET /admin/journals/mapping/apply_status`
 - `POST /admin/journals/covers/sync|pause|resume` · `GET /admin/journals/covers/status`（封面同步，见下节）
 - `GET /admin/journals/promo_stats` · `DELETE /admin/journals/delete_all`
-- `POST /journals/promo/track`（**公开、匿名**，白名单 + 每 IP 120 次/分限流，用于顶部横幅曝光/点击埋点，按「天 × slide」聚合无 PII；当前唯一合法 slide 是 `banner`）
+- `POST /journals/promo/track`（**公开、匿名**，白名单 + 每 IP 120 次/分限流，用于顶部横幅曝光/点击埋点，按「天 × slide」聚合无 PII；当前唯一合法 slide 是 `banner`）。
+  前端用 `navigator.sendBeacon` 发送：该端点不校验 CSRF，而 Discourse 的 `ajax()` 会先取一次 `/session/csrf`，曾让每次曝光变成两个请求。
+- `GET /journals/search?q=`（**公开、匿名**，每 IP 60 次/分限流）：期刊页搜索框的下拉结果。按 ISSN-L 精确匹配 + 标题按词
+  子串匹配（`idx_dj_topics_title_trgm` trigram 索引，毫秒级），最多 8 条。不走 core 全文搜索——在几十万期刊帖子上它要数秒、
+  宽泛词要二三十秒，期间占住一个 web 进程。回车 / 「更多结果」仍跳 core 完整搜索页。
 - `GET /journals/:api_id/submission/:kind`（`kind` ∈ `guideline|latex`，**公开、匿名**，每 IP 30 次/分限流，
   ≤25 MB）。上游这两个下载地址在 `/api/open` 下、需要 `X-API-Key`，浏览器 `<a download>` 直连必然 401，
   因此由服务端带密钥取回后转发 —— 这也是上游文档给出的推荐做法。可用
@@ -147,6 +151,9 @@ MessageBus 频道：`/journals/mapping`、`/journals/mapping-apply`、`/journals
   **投稿须知与模板**（`dj-submission-panel`：存在性 + 格式要求 + 代理下载链接）；图表区多一条 SNIP 趋势线。
   存量话题在重新同步前仍带旧的 `scirev` 块，`render_legacy_peer_review` 负责兜底渲染。
 - 三个 connector：帖子流上方期刊搜索框、右侧导航区的章节 TOC、导航底部「相关期刊」卡片（服务端 `JournalSuggestedProvider` 按 tags×3 + publisher×2 + country×1 打分，缓存 30 分钟）。
+- 期刊话题默认全部关闭（`discourse_journals_close_topics`），而 core 的随机推荐只取未关闭话题，期刊分类的随机池因此恒为空、
+  core 永远缓存不上，每次打开期刊页都会对 `topics` 全表做一次 `ORDER BY RANDOM()`（线上 36 万期刊时约 60ms、3 个进程）。
+  `RandomTopicSelectorPatch` 在话题关闭时对期刊分类直接返回空，全站随机推荐照常补位。
   站内推广只剩全站头部下方的 `below-site-header/scholay-banner`（`discourse_journals_banner_enabled` 控制）；右侧导航区那个轮播广告已移除。
 - SEO：title 后缀、meta description/keywords、schema.org `Periodical` JSON-LD（有投稿体验数据时附
   `aggregateRating`）；期刊页服务端注入 CSS 隐藏 sidebar。
