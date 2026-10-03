@@ -18,9 +18,6 @@ en:
     discourse_journals_suggested_count: "Number of custom suggested journal topics to show"
     discourse_journals_performance_logging: "Enable performance logs for journal sync and SEO hooks"
     discourse_journals_major_publishers: "Comma-separated list of major publishers to tag. Only journals matching these publishers will receive a publisher tag."
-    discourse_journals_persona_email_domain: "Email domain used for persona-pool accounts. Use a non-resolvable .invalid domain so no real mail is ever sent."
-    discourse_journals_persona_join_years: "Persona accounts are given a random join date spread over the past N years (never before the oldest real user)."
-    discourse_journals_persona_member_badge_percent: "Grant the Member badge to this percentage of persona accounts (0 = none)."
   discourse_journals:
     title: "Journals"
     errors:

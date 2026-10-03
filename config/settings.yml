@@ -58,18 +58,6 @@ plugins:
     client: true
   discourse_journals_performance_logging:
     default: false
-  discourse_journals_persona_email_domain:
-    default: "scholay-personas.invalid"
-  discourse_journals_persona_join_years:
-    default: 4
-    type: integer
-    min: 1
-    max: 15
-  discourse_journals_persona_member_badge_percent:
-    default: 0
-    type: integer
-    min: 0
-    max: 100
   discourse_journals_major_publishers:
     default: "Elsevier,Springer Nature,Wiley,Taylor & Francis,SAGE,Oxford University Press,Cambridge University Press,IEEE,ACM,MDPI,Frontiers,PLOS,BMJ,Wolters Kluwer,American Chemical Society,Royal Society of Chemistry,De Gruyter,Emerald,IOP Publishing,Nature Publishing Group"
     type: text_area

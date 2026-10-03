@@ -22,11 +22,7 @@ add_admin_route "discourse_journals.title", "discourse-journals"
 after_initialize do
   require_relative "app/models/discourse_journals/mapping_analysis"
   require_relative "app/models/discourse_journals/promo_stat"
-  require_relative "app/models/discourse_journals/persona_import"
   require_relative "app/models/discourse_journals/cover_sync"
-  require_relative "app/services/discourse_journals/persona_pool"
-  require_relative "app/services/discourse_journals/persona_builder"
-  require_relative "app/services/discourse_journals/persona_file_parser"
   require_relative "app/services/discourse_journals/api_rate_limiter"
   require_relative "app/services/discourse_journals/api_client"
   require_relative "app/services/discourse_journals/cover_url"
@@ -50,13 +46,7 @@ after_initialize do
   require_relative "app/jobs/regular/discourse_journals/analyze_mapping"
   require_relative "app/jobs/regular/discourse_journals/apply_mapping"
   require_relative "app/jobs/regular/discourse_journals/delete_all_journals"
-  require_relative "app/jobs/regular/discourse_journals/import_personas"
   require_relative "app/jobs/regular/discourse_journals/sync_covers"
-
-  # Persona-pool user custom fields (server-only; never exposed via serializers).
-  User.register_custom_field_type("discourse_journals_persona", :string)
-  User.register_custom_field_type("discourse_journals_field", :string)
-  User.register_custom_field_type("discourse_journals_tone", :string)
 
   Topic.register_custom_field_type("discourse_journals_issn_l", :string)
   Topic.register_custom_field_type("discourse_journals_publisher", :string)
@@ -546,11 +536,6 @@ after_initialize do
 
     delete "/admin/journals/delete_all" => "discourse_journals/admin_mapping#delete_all",
            :constraints => AdminConstraint.new
-
-    post "/admin/journals/personas/import" => "discourse_journals/admin_personas#import",
-         :constraints => AdminConstraint.new
-    get "/admin/journals/personas/status" => "discourse_journals/admin_personas#status",
-        :constraints => AdminConstraint.new
 
     # Public: site header banner impression/click tracking (anonymous allowed)
     post "/journals/promo/track" => "discourse_journals/promo#track"

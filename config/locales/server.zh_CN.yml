@@ -18,9 +18,6 @@ zh_CN:
     discourse_journals_suggested_count: "自定义推荐期刊话题的数量"
     discourse_journals_performance_logging: "启用期刊同步和 SEO Hook 的性能日志"
     discourse_journals_major_publishers: "逗号分隔的主要出版商列表。仅匹配这些出版商的期刊会打上出版商标签。"
-    discourse_journals_persona_email_domain: "账号池用户的邮箱域名。请用不可解析的 .invalid 域名，确保永不真实发信。"
-    discourse_journals_persona_join_years: "账号池用户的注册时间随机打散在过去 N 年内（不会早于最早的真实用户）。"
-    discourse_journals_persona_member_badge_percent: "给这个百分比的账号池用户授予 Member 徽章（0 = 不授予）。"
   discourse_journals:
     title: "期刊库"
     errors:
