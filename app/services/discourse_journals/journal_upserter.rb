@@ -125,6 +125,7 @@ module DiscourseJournals
       store_custom_fields!(topic, prepared)
       JournalTagManager.apply_tags!(topic, prepared[:normalized])
       ensure_closed!(topic)
+      IndexNow.queue(topic)
 
       topic
     end
@@ -164,6 +165,7 @@ module DiscourseJournals
         PerformanceLogger.measure("sync.search_reindex", topic_id: topic.id) do
           SearchIndexer.queue_post_reindex(topic.id)
         end
+        IndexNow.queue(topic)
       end
 
       # Revival: the journal is back in the API (we matched it), so ALWAYS drop any

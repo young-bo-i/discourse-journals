@@ -53,10 +53,22 @@ module DiscourseJournals
         }
     end
 
+    def summary
+      @summary ||=
+        JournalSummary.new(
+          title: topic.title,
+          issn: custom_fields["discourse_journals_issn_l"],
+          publisher: custom_fields["discourse_journals_publisher"],
+          country: custom_fields["discourse_journals_country"],
+          data: parsed_data,
+        ).to_s
+    end
+
     def resolve_template(template)
       return "" if template.blank?
 
-      result = template.gsub(/\{\{(\w+)\}\}/) { |_| replacements[$1] || "" }
+      result =
+        template.gsub(/\{\{(\w+)\}\}/) { |_| $1 == "summary" ? summary : replacements[$1] || "" }
       result.gsub(/,\s*,/, ",").gsub(/\s*-\s*-/, " -").strip.gsub(/^[,\s-]+|[,\s-]+$/, "").strip
     end
   end

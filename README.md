@@ -43,8 +43,9 @@
 | `discourse_journals_api_rate_limit` | 5 | 调用上游的每秒请求数上限（分析、同步各一个限流器） |
 | `discourse_journals_cover_sync_rate_limit` | 20 | 封面同步的每秒请求数上限（每本刊一次轻量 HEAD，可比上一项快；上限 100） |
 | `discourse_journals_submission_proxy_enabled` | true | 由论坛代理下载投稿须知 / LaTeX 模板（上游这两个地址要密钥，浏览器发不出请求头） |
-| `discourse_journals_title_suffix` | 期刊详情 \| … | SEO 标题后缀（仅 HTML title） |
-| `discourse_journals_meta_description` / `_meta_keywords` | 模板 | meta 模板，占位符 `{{title}}/{{issn}}/{{publisher}}/{{category}}/{{tags}}/{{site_name}}` |
+| `discourse_journals_title_suffix` | 期刊详情 \| … | SEO 标题关键词，插在期刊名之后、分类与站名之前（仅 HTML title），如 `Nature - 影响因子·分区·ISSN - 学术期刊 - 恩特学术` |
+| `discourse_journals_meta_description` / `_meta_keywords` | 模板 | meta 模板，占位符 `{{title}}/{{issn}}/{{publisher}}/{{category}}/{{tags}}/{{site_name}}`；description 另有 `{{summary}}`（`JournalSummary` 按影响因子/分区、ISSN/出版商、开放获取、发文/被引、研究方向自动成句，最长 160 字） |
+| `discourse_journals_indexnow_enabled` | false | 同步新建或内容变化的期刊入 Redis 队列，`SubmitIndexNow` 每 30 分钟批量推给 IndexNow（Bing/Yandex 等）；验证文件 `/<key>.txt`，key 由站点密钥派生 |
 | `discourse_journals_close_topics` | true | upsert 后关闭话题 |
 | `discourse_journals_suggested_mode` / `_criteria` / `_count` | custom_first / `tags\|publisher` / 5 | 「相关期刊」推荐 |
 | `discourse_journals_performance_logging` | false | 结构化性能日志（`PerformanceLogger`） |
@@ -155,8 +156,11 @@ MessageBus 频道：`/journals/mapping`、`/journals/mapping-apply`、`/journals
   core 永远缓存不上，每次打开期刊页都会对 `topics` 全表做一次 `ORDER BY RANDOM()`（线上 36 万期刊时约 60ms、3 个进程）。
   `RandomTopicSelectorPatch` 在话题关闭时对期刊分类直接返回空，全站随机推荐照常补位。
   站内推广只剩全站头部下方的 `below-site-header/scholay-banner`（`discourse_journals_banner_enabled` 控制）；右侧导航区那个轮播广告已移除。
-- SEO：title 后缀、meta description/keywords、schema.org `Periodical` JSON-LD（有投稿体验数据时附
+- SEO：title 关键词、meta description/keywords、schema.org `Periodical` JSON-LD（有投稿体验数据时附
   `aggregateRating`）；期刊页服务端注入 CSS 隐藏 sidebar。
+  爬虫看不到前端的「相关期刊」卡片，所以 crawler 视图在帖子后服务端输出 12 个相关期刊链接（`RelatedJournalLinks`，复用推荐打分，缓存 1 天），
+  否则期刊页之间没有互链，只能靠 sitemap 被发现。robots.txt 对所有爬虫组禁止 core 的浏览统计信标 `/srv/pv`、`/pageview`
+  （渲染期刊页的爬虫会触发它们，曾占 Googlebot 约三成抓取）。
 
 ---
 
@@ -167,7 +171,8 @@ app/
   models/discourse_journals/       mapping_analysis.rb（三阶段状态机）· promo_stat.rb ·
                                    cover_sync.rb（封面同步状态）
   controllers/discourse_journals/  admin_mapping_controller.rb · admin_covers_controller.rb ·
-                                   promo_controller.rb · submission_controller.rb（投稿须知/模板下载代理）
+                                   promo_controller.rb · submission_controller.rb（投稿须知/模板下载代理） ·
+                                   index_now_controller.rb（IndexNow 验证文件）
   services/discourse_journals/     api_client（唯一出网口，负责鉴权/重试/限流）· title_matcher ·
                                    api_data_transformer · field_normalizer ·
                                    journal_upserter · journal_tag_manager · mapping_applier ·
@@ -175,8 +180,10 @@ app/
                                    journal_seo_context · journal_suggested_provider ·
                                    outdated_marker · bulk_topic_deleter ·
                                    api_rate_limiter · performance_logger · topic_title_key_backfill ·
-                                   cover_url · cover_syncer · topic_cover_applier · local_cover_purger
+                                   cover_url · cover_syncer · topic_cover_applier · local_cover_purger ·
+                                   journal_summary · related_journal_links · index_now
   jobs/regular/discourse_journals/ analyze_mapping · apply_mapping · delete_all_journals · sync_covers
+  jobs/scheduled/discourse_journals/ submit_index_now
 assets/javascripts/discourse/      admin controller/template · connectors · components · initializers
 assets/stylesheets/common/         discourse-journals.scss（档案页）· discourse-journals-admin.scss（后台）
 config/                            settings.yml · locales/{client,server}.{en,zh_CN}.yml

@@ -32,7 +32,9 @@ after_initialize do
   require_relative "app/services/discourse_journals/field_normalizer"
   require_relative "app/services/discourse_journals/master_record_renderer"
   require_relative "app/services/discourse_journals/journal_upserter"
+  require_relative "app/services/discourse_journals/journal_summary"
   require_relative "app/services/discourse_journals/journal_seo_context"
+  require_relative "app/services/discourse_journals/index_now"
   require_relative "app/services/discourse_journals/performance_logger"
   require_relative "app/services/discourse_journals/title_matcher"
   require_relative "app/services/discourse_journals/api_data_transformer"
@@ -41,6 +43,7 @@ after_initialize do
   require_relative "app/services/discourse_journals/mapping_applier"
   require_relative "app/services/discourse_journals/journal_tag_manager"
   require_relative "app/services/discourse_journals/journal_suggested_provider"
+  require_relative "app/services/discourse_journals/related_journal_links"
   require_relative "app/services/discourse_journals/journal_title_search"
   require_relative "app/services/discourse_journals/topic_cover_applier"
   require_relative "app/services/discourse_journals/cover_syncer"
@@ -48,6 +51,7 @@ after_initialize do
   require_relative "app/jobs/regular/discourse_journals/apply_mapping"
   require_relative "app/jobs/regular/discourse_journals/delete_all_journals"
   require_relative "app/jobs/regular/discourse_journals/sync_covers"
+  require_relative "app/jobs/scheduled/discourse_journals/submit_index_now"
 
   Topic.register_custom_field_type("discourse_journals_issn_l", :string)
   Topic.register_custom_field_type("discourse_journals_publisher", :string)
@@ -221,6 +225,15 @@ after_initialize do
       category.id == SiteSetting.discourse_journals_category_id.to_i
     end
 
+    # Keeps the keywords next to the journal name, ahead of the category and
+    # site name, so search results don't truncate them away.
+    def self.journal_page_title(content, journal_title, suffix)
+      prefix = "#{journal_title} - "
+      return "#{content} - #{suffix}" if journal_title.blank? || !content.start_with?(prefix)
+
+      "#{prefix}#{suffix} - #{content.delete_prefix(prefix)}"
+    end
+
     # Dropping image_upload alongside keeps og:image:width/height/type from
     # describing a stale local cover next to the upstream URL.
     module TopicViewCoverPatch
@@ -280,13 +293,13 @@ after_initialize do
         topic_id = request_path.match(%r{/t/[^/]+/(\d+)}i)&.captures&.first
         next content unless topic_id
 
-        topic_cat =
+        topic_cat, topic_title =
           DiscourseJournals::PerformanceLogger.measure("seo.title.category_lookup", topic_id: topic_id) do
-            Topic.where(id: topic_id).pick(:category_id)
+            Topic.where(id: topic_id).pick(:category_id, :title)
           end
         next content unless topic_cat == category_id
 
-        "#{content} - #{suffix}"
+        ::DiscourseJournals.journal_page_title(content, topic_title, suffix)
       elsif type == :description
         template = SiteSetting.discourse_journals_meta_description
         next content if template.blank?
@@ -398,6 +411,26 @@ after_initialize do
   end
 
   register_html_builder("server:before-head-close", &sidebar_hide_html)
+
+  register_html_builder("server:topic-show-after-posts-crawler") do |controller|
+    topic = controller.instance_variable_get(:@topic_view)&.topic
+    ::DiscourseJournals::RelatedJournalLinks.html(topic)
+  rescue StandardError => e
+    Rails.logger.warn("[DiscourseJournals] Related journal links failed: #{e.message}")
+    ""
+  end
+
+  # Crawlers that render journal pages also fire core's page-view beacons,
+  # spending their per-site request budget on URLs that are never indexed.
+  on(:robots_info) do |robots_info|
+    beacon_paths = [Discourse.beacon_pv_tracking_path, "#{Discourse.base_path}/pageview"]
+    deny_all = "#{Discourse.base_path}/"
+
+    robots_info[:agents].each do |agent|
+      next if agent[:disallow].include?(deny_all)
+      agent[:disallow] = agent[:disallow] | beacon_paths
+    end
+  end
 
   DiscoursePluginRegistry.register_list_suggested_for_provider(
     DiscourseJournals::JournalSuggestedProvider.method(:call),
@@ -566,5 +599,9 @@ after_initialize do
     # template downloads, which sit behind the API key a browser cannot send.
     get "/journals/:api_id/submission/:kind" => "discourse_journals/submission#show",
         :constraints => { api_id: /\d+/, kind: /guideline|latex/ }
+
+    # Public: IndexNow ownership file, which the protocol requires at the site root.
+    get "/:key" => "discourse_journals/index_now#key_file",
+        :constraints => { key: /[a-f0-9]{32}/, format: "txt" }
   end
 end

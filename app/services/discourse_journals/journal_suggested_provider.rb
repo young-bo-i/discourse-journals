@@ -151,6 +151,6 @@ module DiscourseJournals
       SQL
     end
 
-    private_class_method :find_related_topic_ids, :scoring_tag_ids, :add_custom_field_score_source
+    private_class_method :scoring_tag_ids, :add_custom_field_score_source
   end
 end

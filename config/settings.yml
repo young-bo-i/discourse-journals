@@ -39,6 +39,8 @@ plugins:
     default: "{{title}} - {{publisher}} - ISSN: {{issn}}"
   discourse_journals_meta_keywords:
     default: "{{title}}, {{issn}}, {{publisher}}, {{tags}}"
+  discourse_journals_indexnow_enabled:
+    default: false
   discourse_journals_close_topics:
     default: true
   discourse_journals_suggested_mode:
