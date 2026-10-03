@@ -54,6 +54,27 @@ describe DiscourseJournals::FieldNormalizer do
 
       expect(described_class.new(data).normalize.dig(:identity, :api_id)).to eq(3078)
     end
+
+    it "takes the cover from preview_url and keeps the retired original-url key empty" do
+      data = {
+        unified: {
+          id: 1,
+          canonical_name: "Journal of Neuroscience Research",
+        },
+        cover: {
+          preview_url: "/api/covers/preview/1.webp?v=a855e4f0a5126ab1",
+          cover_url: "/api/covers/preview/1.webp?v=a855e4f0a5126ab1",
+          download_url: "/api/covers/download/1.webp?v=a855e4f0a5126ab1",
+        },
+      }
+
+      identity = described_class.new(data).normalize[:identity]
+
+      expect(identity).to include(
+        cover_url: "/api/covers/preview/1.webp?v=a855e4f0a5126ab1",
+        cover_original_url: nil,
+      )
+    end
   end
 
   describe "#normalize reviews (upstream comments aggregate)" do

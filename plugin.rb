@@ -23,11 +23,14 @@ after_initialize do
   require_relative "app/models/discourse_journals/mapping_analysis"
   require_relative "app/models/discourse_journals/promo_stat"
   require_relative "app/models/discourse_journals/persona_import"
+  require_relative "app/models/discourse_journals/cover_sync"
   require_relative "app/services/discourse_journals/persona_pool"
   require_relative "app/services/discourse_journals/persona_builder"
   require_relative "app/services/discourse_journals/persona_file_parser"
   require_relative "app/services/discourse_journals/api_rate_limiter"
   require_relative "app/services/discourse_journals/api_client"
+  require_relative "app/services/discourse_journals/cover_url"
+  require_relative "app/services/discourse_journals/local_cover_purger"
   require_relative "app/services/discourse_journals/outdated_marker"
   require_relative "app/services/discourse_journals/bulk_topic_deleter"
   require_relative "app/services/discourse_journals/field_normalizer"
@@ -42,10 +45,13 @@ after_initialize do
   require_relative "app/services/discourse_journals/mapping_applier"
   require_relative "app/services/discourse_journals/journal_tag_manager"
   require_relative "app/services/discourse_journals/journal_suggested_provider"
+  require_relative "app/services/discourse_journals/topic_cover_applier"
+  require_relative "app/services/discourse_journals/cover_syncer"
   require_relative "app/jobs/regular/discourse_journals/analyze_mapping"
   require_relative "app/jobs/regular/discourse_journals/apply_mapping"
   require_relative "app/jobs/regular/discourse_journals/delete_all_journals"
   require_relative "app/jobs/regular/discourse_journals/import_personas"
+  require_relative "app/jobs/regular/discourse_journals/sync_covers"
 
   # Persona-pool user custom fields (server-only; never exposed via serializers).
   User.register_custom_field_type("discourse_journals_persona", :string)
@@ -186,6 +192,40 @@ after_initialize do
       context
     end
 
+    # Upstream covers are hot-linked, not uploaded, so core's upload-based
+    # og:image would otherwise fall back to the site default for these topics.
+    def self.upstream_cover_url(topic)
+      return if topic.nil? || !SiteSetting.discourse_journals_enabled
+
+      category_id = SiteSetting.discourse_journals_category_id.to_i
+      return if category_id.zero? || topic.category_id != category_id
+
+      if !topic.instance_variable_defined?(:@dj_upstream_cover_url)
+        topic.instance_variable_set(
+          :@dj_upstream_cover_url,
+          CoverUrl.displayable(
+            TopicCustomField.where(topic_id: topic.id, name: "discourse_journals_cover_url").pick(
+              :value,
+            ),
+          ),
+        )
+      end
+      topic.instance_variable_get(:@dj_upstream_cover_url)
+    end
+
+    # Dropping image_upload alongside keeps og:image:width/height/type from
+    # describing a stale local cover next to the upstream URL.
+    module TopicViewCoverPatch
+      def image_url
+        (@post_number == 1 && ::DiscourseJournals.upstream_cover_url(@topic)) || super
+      end
+
+      def image_upload
+        return if @post_number == 1 && ::DiscourseJournals.upstream_cover_url(@topic)
+        super
+      end
+    end
+
     def self.find_journal_topic(request_path)
       return nil unless SiteSetting.discourse_journals_enabled
       return nil unless request_path&.start_with?("/t/")
@@ -208,7 +248,10 @@ after_initialize do
     include_condition: -> {
       object.custom_fields["discourse_journals_cover_url"].present? || object.image_upload_id.present?
     },
-  ) { object.image_url.presence || object.custom_fields["discourse_journals_cover_url"] }
+  ) do
+    DiscourseJournals::CoverUrl.displayable(object.custom_fields["discourse_journals_cover_url"]) ||
+      object.image_url
+  end
 
   register_modifier(:meta_data_content) do |content, type, context|
     next content unless SiteSetting.discourse_journals_enabled
@@ -465,6 +508,7 @@ after_initialize do
       end
     end
     ::Sitemap.prepend(sitemap_patch)
+    ::TopicView.prepend(::DiscourseJournals::TopicViewCoverPatch)
   end
 
   Discourse::Application.routes.append do
@@ -489,6 +533,15 @@ after_initialize do
          :constraints => AdminConstraint.new
 
     get "/admin/journals/promo_stats" => "discourse_journals/admin_mapping#promo_stats",
+        :constraints => AdminConstraint.new
+
+    post "/admin/journals/covers/sync" => "discourse_journals/admin_covers#sync",
+         :constraints => AdminConstraint.new
+    post "/admin/journals/covers/pause" => "discourse_journals/admin_covers#pause",
+         :constraints => AdminConstraint.new
+    post "/admin/journals/covers/resume" => "discourse_journals/admin_covers#resume",
+         :constraints => AdminConstraint.new
+    get "/admin/journals/covers/status" => "discourse_journals/admin_covers#status",
         :constraints => AdminConstraint.new
 
     delete "/admin/journals/delete_all" => "discourse_journals/admin_mapping#delete_all",

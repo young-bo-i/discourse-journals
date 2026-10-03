@@ -40,6 +40,16 @@ module DiscourseJournals
       end
     end
 
+    # 503 from the cover endpoints means upstream's whole cover store is down.
+    # It says nothing about any one journal, so callers must stop rather than
+    # treat it as "no cover" and clear covers.
+    class CoverStorageUnavailableError < Error
+    end
+
+    # `api_id` is the id the answer belongs to; for :redirected it is the id the
+    # journal was merged into.
+    CoverProbe = Struct.new(:status, :api_id, :content_hash, keyword_init: true)
+
     MAX_RETRIES = 5
     RETRYABLE = [
       Net::OpenTimeout,
@@ -149,6 +159,53 @@ module DiscourseJournals
       }
     end
 
+    # HEAD on the anonymous cover preview. Upstream cannot list or filter
+    # journals by cover, so this is the cheapest way to ask about one journal.
+    def probe_cover(api_id, etag: nil)
+      api_id = api_id.to_i
+      path = "/api/covers/preview/#{api_id}.webp"
+      request = Net::HTTP::Head.new(path)
+      request["If-None-Match"] = %("#{etag}") if etag.present?
+      response = perform(request, path)
+
+      case response.code.to_i
+      when 200
+        content_hash = response["ETag"].to_s.delete_prefix("W/").delete('"')
+        unless CoverUrl::CONTENT_HASH.match?(content_hash)
+          raise Error,
+                I18n.t("discourse_journals.cover_sync.errors.unexpected_etag", api_id: api_id)
+        end
+        CoverProbe.new(status: :present, api_id: api_id, content_hash: content_hash)
+      when 304
+        CoverProbe.new(status: :unchanged, api_id: api_id, content_hash: etag)
+      when 301, 302, 307, 308
+        target = response["Location"].to_s[%r{/(\d+)\.webp}, 1]
+        if target.nil?
+          raise Error,
+                I18n.t(
+                  "discourse_journals.cover_sync.errors.unexpected_status",
+                  status: response.code,
+                  api_id: api_id,
+                )
+        end
+        CoverProbe.new(status: :redirected, api_id: target.to_i)
+      when 404
+        CoverProbe.new(status: :absent, api_id: api_id)
+      when 410
+        CoverProbe.new(status: :gone, api_id: api_id)
+      when 503
+        raise CoverStorageUnavailableError,
+              I18n.t("discourse_journals.cover_sync.errors.storage_unavailable")
+      else
+        raise Error,
+              I18n.t(
+                "discourse_journals.cover_sync.errors.unexpected_status",
+                status: response.code,
+                api_id: api_id,
+              )
+      end
+    end
+
     private
 
     def get_data(path, query = {})
@@ -163,37 +220,49 @@ module DiscourseJournals
 
     def get_json(path, query = {})
       full_path = query.present? ? "#{path}?#{URI.encode_www_form(query)}" : path
+      request = Net::HTTP::Get.new(full_path)
+      request["Accept"] = "application/json"
+
+      response = perform(request, path)
+      code = response.code.to_i
+
+      if code == 410
+        parsed = safe_parse(response.body)
+        raise EndpointGoneError.new(
+                "API 端点已下线: #{path}#{" — 请改用 #{parsed["successor"]}" if parsed["successor"].present?}",
+                parsed["successor"],
+              )
+      end
+
+      unless response.is_a?(Net::HTTPSuccess)
+        raise Error, "API 请求失败: #{code} #{response.message} (#{path})"
+      end
+
+      JSON.parse(response.body)
+    rescue JSON::ParserError => e
+      raise Error, "API 响应不是合法 JSON (#{path}): #{e.message}"
+    end
+
+    # Sends one request with the key attached, retrying 429s and dropped
+    # connections. Every other status is left for the caller to interpret.
+    def perform(request, path)
+      request["X-API-Key"] = self.class.api_key
       retries = 0
 
       begin
         @rate_limiter.throttle!
         start! if @http.nil?
 
-        request = Net::HTTP::Get.new(full_path)
-        request["X-API-Key"] = self.class.api_key
-        request["Accept"] = "application/json"
-
         response = @http.request(request)
-        code = response.code.to_i
 
-        case code
+        case response.code.to_i
         when 401
           raise AuthError, auth_error_message(response)
-        when 410
-          parsed = safe_parse(response.body)
-          raise EndpointGoneError.new(
-                  "API 端点已下线: #{path}#{" — 请改用 #{parsed["successor"]}" if parsed["successor"].present?}",
-                  parsed["successor"],
-                )
         when 429
           raise RateLimitedError.new((response["Retry-After"] || (retries * 5 + 5)).to_i.clamp(2, 60))
         end
 
-        unless response.is_a?(Net::HTTPSuccess)
-          raise Error, "API 请求失败: #{code} #{response.message} (#{path})"
-        end
-
-        JSON.parse(response.body)
+        response
       rescue RateLimitedError => e
         retries += 1
         raise Error, "API 请求被限流 (#{path} 重试 #{MAX_RETRIES} 次后仍为 429)" if retries > MAX_RETRIES
@@ -222,14 +291,13 @@ module DiscourseJournals
         end
         sleep wait
         retry
-      rescue JSON::ParserError => e
-        raise Error, "API 响应不是合法 JSON (#{path}): #{e.message}"
       end
     end
 
     def auth_error_message(response)
       parsed = safe_parse(response.body)
-      if parsed["error"] == "invalid_api_key"
+      # A HEAD 401 has no body to say why; a key was sent, so it is the invalid one.
+      if parsed["error"] == "invalid_api_key" || (parsed.empty? && self.class.configured?)
         I18n.t("discourse_journals.errors.invalid_api_key")
       else
         I18n.t("discourse_journals.errors.missing_api_key")

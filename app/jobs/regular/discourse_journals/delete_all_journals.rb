@@ -25,6 +25,7 @@ module Jobs
         mapping_count = ::DiscourseJournals::MappingAnalysis.count
         ::DiscourseJournals::MappingAnalysis.delete_all
         Rails.logger.info("[DiscourseJournals::DeleteAll] Deleted #{mapping_count} mapping analyses")
+        ::DiscourseJournals::CoverSync.delete_all
 
         custom_field_count =
           TopicCustomField.where("name LIKE ?", "discourse_journals_%").delete_all

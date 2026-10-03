@@ -774,3 +774,42 @@
     margin-top: 12px;
   }
 }
+
+.journals-cover-sync {
+  &__actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
+  &__desc {
+    margin: 0 0 16px;
+    color: var(--primary-medium);
+    font-size: 0.9em;
+  }
+
+  &__progress {
+    padding: 16px;
+    background: var(--primary-very-low);
+    border-radius: 8px;
+
+    // The shared track uses the same shade as this panel and would vanish.
+    .progress-track {
+      background: var(--primary-low);
+    }
+
+    .progress-status {
+      margin-bottom: 0;
+    }
+  }
+
+  &__stats {
+    margin-top: 12px;
+  }
+
+  .message-box.message-warning {
+    background: var(--highlight-low);
+    border: 1px solid var(--highlight-medium);
+    color: var(--primary);
+  }
+}

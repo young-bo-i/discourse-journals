@@ -110,6 +110,10 @@ module DiscourseJournals
         return render_json_error("当前没有可以应用的分析结果（需要分析已完成且从未应用过）")
       end
 
+      if CoverSync.running?
+        return render_json_error(I18n.t("discourse_journals.cover_sync.errors.cover_sync_running"))
+      end
+
       Jobs.enqueue(
         Jobs::DiscourseJournals::ApplyMapping,
         analysis_id: analysis.id,
@@ -191,6 +195,10 @@ module DiscourseJournals
         return render_json_error("当前没有可以恢复的应用任务（需要处于暂停或失败状态）")
       end
 
+      if CoverSync.running?
+        return render_json_error(I18n.t("discourse_journals.cover_sync.errors.cover_sync_running"))
+      end
+
       Jobs.enqueue(
         Jobs::DiscourseJournals::ApplyMapping,
         analysis_id: analysis.id,
@@ -212,6 +220,10 @@ module DiscourseJournals
     def delete_all
       if MappingAnalysis.current_light&.sync_processing?
         return render_json_error("映射应用正在执行中，请先暂停应用任务再删除")
+      end
+
+      if CoverSync.running?
+        return render_json_error(I18n.t("discourse_journals.cover_sync.errors.cover_sync_running"))
       end
 
       Jobs.enqueue(Jobs::DiscourseJournals::DeleteAllJournals, user_id: current_user.id)

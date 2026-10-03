@@ -72,18 +72,9 @@ export default class JournalSuggested extends Component {
   }
 
   _resolveCover(topic) {
-    if (topic.image_url) {
-      return topic.image_url;
-    }
-    const raw = topic.discourse_journals_cover_url;
-    if (!raw) {
-      return null;
-    }
-    if (raw.startsWith("http")) {
-      return raw;
-    }
-    const base = this.siteSettings.discourse_journals_api_base_url || "";
-    return `${base}${raw}`;
+    // The server picks the upstream cover over the local one and returns a
+    // ready-to-use URL, which may point at a local upload, so never prefix it.
+    return topic.discourse_journals_cover_url || topic.image_url || null;
   }
 
   _filterTags(tags) {

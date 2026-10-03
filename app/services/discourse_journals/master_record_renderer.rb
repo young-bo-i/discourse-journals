@@ -147,7 +147,7 @@ module DiscourseJournals
       id = identity
       pub = publication
       title = h(id[:title]).presence || t("unknown_journal")
-      cover_url = id[:cover_url].present? ? "#{SiteSetting.discourse_journals_api_base_url}#{id[:cover_url]}" : nil
+      cover_url = CoverUrl.absolute(id[:cover_url])
       abbrev = h(id[:abbreviation])
       publisher = h(pub[:publisher_name])
       publisher_id = h(pub[:publisher_id])

@@ -5,6 +5,7 @@ en:
     discourse_journals_api_base_url: "Base URL (scheme + host) of the upstream journal API. Used for fetching journal data and for building absolute cover image URLs."
     discourse_journals_api_key: "API key for the upstream journal API (looks like jk_…), generated on the journal platform's API keys page. Every /api/open endpoint requires it; analysis and sync fail immediately when it is blank."
     discourse_journals_api_rate_limit: "Maximum request rate against the upstream API, in requests per second. Analysis and sync each share one limiter."
+    discourse_journals_cover_sync_rate_limit: "Maximum request rate of cover sync, in requests per second. Cover sync sends one lightweight HEAD request per journal, so it can run faster than {{setting:discourse_journals_api_rate_limit}}."
     discourse_journals_submission_proxy_enabled: "Proxy submission guideline / LaTeX template downloads through the forum. The upstream URLs require the API key, which a browser cannot send; turning this off hides the download links."
     discourse_journals_banner_enabled: "Show the Scholay promo banner below the site header on all pages."
     discourse_journals_banner_url: "URL opened (in a new tab) when the banner is clicked. Leave blank for a non-clickable banner."
@@ -27,6 +28,18 @@ en:
       missing_api_key: "Set the upstream API key first (discourse_journals_api_key in site settings)"
       invalid_api_key: "The upstream API key is invalid or revoked — update discourse_journals_api_key in site settings"
       apply_interrupted: "The sync process was interrupted (restarted after exceeding its memory limit); it can be resumed from the last checkpoint"
+    cover_sync:
+      errors:
+        already_running: "A cover sync is already running."
+        apply_running: "Mapping apply is running. Pause it before syncing covers."
+        cover_sync_running: "A cover sync is running. Pause it first."
+        not_running: "No cover sync is running."
+        cannot_resume: "There is no paused or failed cover sync to resume."
+        interrupted: "The cover sync was interrupted. Resume it to continue from the last checkpoint."
+        storage_unavailable: "Upstream cover storage is unavailable (503). The sync stopped without changing any covers; resume it later."
+        probes_failing: "Every cover request in the last batch failed, so the sync stopped. Check the upstream service, then resume."
+        unexpected_status: "Unexpected response %{status} for the cover of journal %{api_id}."
+        unexpected_etag: "The cover of journal %{api_id} came back without a valid version tag."
     render:
       unknown_journal: "Unknown Journal"
       outdated_notice: "This journal record is outdated. Please search again for the latest information."

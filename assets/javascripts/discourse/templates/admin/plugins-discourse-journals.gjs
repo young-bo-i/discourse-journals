@@ -3,6 +3,7 @@ import { on } from "@ember/modifier";
 import { eq, gt, or } from "discourse/truth-helpers";
 import DButton from "discourse/ui-kit/d-button";
 import { i18n } from "discourse-i18n";
+import JournalsCoverSync from "discourse/plugins/discourse-journals/discourse/components/journals-cover-sync";
 import JournalsPromoChart from "discourse/plugins/discourse-journals/discourse/components/journals-promo-chart";
 
 export default <template>
@@ -732,6 +733,8 @@ export default <template>
           </div>
         </section>
       {{/if}}
+
+      <JournalsCoverSync @applying={{@controller.applying}} />
 
       <section class="journals-section stats-section">
         <div class="section-header">

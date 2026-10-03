@@ -17,6 +17,11 @@ plugins:
     type: integer
     min: 1
     max: 50
+  discourse_journals_cover_sync_rate_limit:
+    default: 20
+    type: integer
+    min: 1
+    max: 100
   discourse_journals_submission_proxy_enabled:
     default: true
     client: true

@@ -5,6 +5,7 @@ zh_CN:
     discourse_journals_api_base_url: "上游期刊 API 的基础地址（协议 + 域名）。用于抓取期刊数据以及拼接封面图片的绝对地址。"
     discourse_journals_api_key: "上游期刊 API 的访问密钥（形如 jk_…），在期刊平台管理控制台「API 密钥」页生成。/api/open 下的全部接口都需要它，留空则分析与同步会立即失败。"
     discourse_journals_api_rate_limit: "调用上游 API 的速率上限（每秒请求数）。分析与同步各自共享一个限流器。"
+    discourse_journals_cover_sync_rate_limit: "封面同步的速率上限（每秒请求数）。封面同步对每本期刊只发一次轻量的 HEAD 请求，因此可以比 {{setting:discourse_journals_api_rate_limit}} 更快。"
     discourse_journals_submission_proxy_enabled: "由论坛代理下载上游的投稿须知 / LaTeX 模板。上游这两个地址需要 API 密钥，浏览器无法直接携带，关闭后档案页不再显示下载链接。"
     discourse_journals_banner_enabled: "在全站头部下方显示 Scholay 推广横幅。"
     discourse_journals_banner_url: "点击横幅时打开的链接（新标签页打开）。留空则横幅不可点击。"
@@ -27,6 +28,18 @@ zh_CN:
       missing_api_key: "请先在站点设置中填写上游 API 密钥 (discourse_journals_api_key)"
       invalid_api_key: "上游 API 密钥无效或已被撤销，请在站点设置中更新 discourse_journals_api_key"
       apply_interrupted: "同步进程被中断（内存超限重启），可从断点继续"
+    cover_sync:
+      errors:
+        already_running: "已有封面同步任务正在进行中。"
+        apply_running: "映射应用正在执行中，请先暂停应用任务再同步封面。"
+        cover_sync_running: "封面同步正在进行中，请先暂停封面同步。"
+        not_running: "当前没有正在运行的封面同步。"
+        cannot_resume: "当前没有可以继续的封面同步（需要处于暂停或失败状态）。"
+        interrupted: "封面同步被中断，可从断点继续。"
+        storage_unavailable: "上游封面存储暂时不可用（503）。同步已停止，没有改动任何封面，请稍后继续。"
+        probes_failing: "上一批封面请求全部失败，同步已停止。请检查上游服务后继续。"
+        unexpected_status: "期刊 %{api_id} 的封面返回了意外的状态 %{status}。"
+        unexpected_etag: "期刊 %{api_id} 的封面缺少有效的版本标识。"
     render:
       unknown_journal: "未知期刊"
       outdated_notice: "此期刊信息已过时，建议重新搜索最新内容。"

@@ -111,4 +111,63 @@ describe DiscourseJournals::ApiClient do
       )
     end
   end
+
+  describe "#probe_cover" do
+    def stub_cover(id, status:, headers: {}, request_headers: {})
+      stub_request(:head, "https://journal.example.com/api/covers/preview/#{id}.webp")
+        .with(headers: { "X-API-Key" => "jk_test_key" }.merge(request_headers))
+        .to_return(status: status, headers: headers)
+    end
+
+    it "reports a cover with the content hash carried by its ETag" do
+      stub_cover(1, status: 200, headers: { "ETag" => '"a855e4f0a5126ab1"' })
+
+      expect(described_class.new.probe_cover(1).to_h).to eq(
+        status: :present,
+        api_id: 1,
+        content_hash: "a855e4f0a5126ab1",
+      )
+    end
+
+    it "sends the stored version so an unchanged cover answers 304" do
+      stub_cover(1, status: 304, request_headers: { "If-None-Match" => '"a855e4f0a5126ab1"' })
+
+      expect(described_class.new.probe_cover(1, etag: "a855e4f0a5126ab1").status).to eq(:unchanged)
+    end
+
+    it "returns the id a merged journal now lives under" do
+      stub_cover(207, status: 301, headers: { "Location" => "/api/covers/preview/258.webp" })
+
+      expect(described_class.new.probe_cover(207).to_h).to eq(
+        status: :redirected,
+        api_id: 258,
+        content_hash: nil,
+      )
+    end
+
+    it "maps 404 to absent and 410 to gone" do
+      stub_cover(2, status: 404)
+      stub_cover(3, status: 410)
+      client = described_class.new
+
+      expect([client.probe_cover(2).status, client.probe_cover(3).status]).to eq(%i[absent gone])
+    end
+
+    it "raises a dedicated error when the upstream cover store is down" do
+      stub_cover(1, status: 503)
+
+      expect { described_class.new.probe_cover(1) }.to raise_error(
+        described_class::CoverStorageUnavailableError,
+      )
+    end
+
+    it "blames the configured key for a 401, which carries no body on HEAD" do
+      stub_cover(1, status: 401)
+
+      expect { described_class.new.probe_cover(1) }.to raise_error(
+        described_class::AuthError,
+        I18n.t("discourse_journals.errors.invalid_api_key"),
+      )
+    end
+  end
 end

@@ -180,6 +180,51 @@ describe DiscourseJournals::JournalUpserter do
     end
   end
 
+  describe "upstream covers" do
+    let(:cover_path) { "/api/covers/preview/2.webp?v=74314c293b4df29b" }
+
+    def journal_data(cover:, degraded_sources: [])
+      {
+        unified: {
+          id: 2,
+          canonical_name: existing_topic.title,
+        },
+        cover: cover,
+        degraded_sources: degraded_sources,
+        sources: {},
+      }
+    end
+
+    it "keeps the stored cover when upstream's cover lookup degraded" do
+      existing_topic.upsert_custom_fields(
+        discourse_journals_cover_url: "https://journal.scholay.com#{cover_path}",
+      )
+      upserter = described_class.new
+
+      prepared = upserter.normalize_and_render(journal_data(cover: nil, degraded_sources: ["cover"]))
+      upserter.upsert_prepared!(prepared, existing_topic_id: existing_topic.id)
+
+      existing_topic.reload
+      stored = JSON.parse(existing_topic.custom_fields["discourse_journals_data"])
+      expect(stored.dig("identity", "cover_url")).to eq(cover_path)
+      expect(existing_topic.custom_fields["discourse_journals_cover_url"]).to eq(
+        "https://journal.scholay.com#{cover_path}",
+      )
+    end
+
+    it "deletes the local cover once upstream supplies one" do
+      upload = Fabricate(:upload)
+      existing_topic.update_columns(image_upload_id: upload.id)
+      upserter = described_class.new
+
+      prepared = upserter.normalize_and_render(journal_data(cover: { preview_url: cover_path }))
+      upserter.upsert_prepared!(prepared, existing_topic_id: existing_topic.id)
+
+      expect(existing_topic.reload.image_upload_id).to be_nil
+      expect(Upload.exists?(upload.id)).to eq(false)
+    end
+  end
+
   describe "updated_at / sitemap lastmod gating" do
     def prepared_for(topic, json)
       {

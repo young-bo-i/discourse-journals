@@ -41,6 +41,7 @@
 | `discourse_journals_api_base_url` | `https://journal.scholay.com` | 上游 API 基础地址（协议+域名），也用于拼接封面绝对 URL；`client: true` 前端可读 |
 | `discourse_journals_api_key` | "" | **必填**，上游 API 密钥（`jk_…`）。`secret: true`，后台不回显 |
 | `discourse_journals_api_rate_limit` | 5 | 调用上游的每秒请求数上限（分析、同步各一个限流器） |
+| `discourse_journals_cover_sync_rate_limit` | 20 | 封面同步的每秒请求数上限（每本刊一次轻量 HEAD，可比上一项快；上限 100） |
 | `discourse_journals_submission_proxy_enabled` | true | 由论坛代理下载投稿须知 / LaTeX 模板（上游这两个地址要密钥，浏览器发不出请求头） |
 | `discourse_journals_title_suffix` | 期刊详情 \| … | SEO 标题后缀（仅 HTML title） |
 | `discourse_journals_meta_description` / `_meta_keywords` | 模板 | meta 模板，占位符 `{{title}}/{{issn}}/{{publisher}}/{{category}}/{{tags}}/{{site_name}}` |
@@ -53,7 +54,10 @@
 
 ## 话题 custom fields
 
-真理源 `discourse_journals_data`（归一化 JSON）。匹配键：`discourse_journals_issn_l`、`discourse_journals_api_id`、`discourse_journals_normalized_title_key`（前两者有 `topic_custom_fields` 部分索引）。其余：`discourse_journals_publisher`、`discourse_journals_country`、`discourse_journals_cover_url`、`discourse_journals_outdated`（软删标记，值为 ISO8601 时间）。
+真理源 `discourse_journals_data`（归一化 JSON）。匹配键：`discourse_journals_issn_l`、`discourse_journals_api_id`、`discourse_journals_normalized_title_key`（前两者有 `topic_custom_fields` 部分索引）。其余：`discourse_journals_publisher`、`discourse_journals_country`、`discourse_journals_cover_url`（上游封面的**绝对**地址 `…/api/covers/preview/{id}.webp?v={content_hash}`，相关期刊卡片与 og:image 读它；JSON 里的 `identity.cover_url` 存同一地址的相对路径，档案页 hero 读它）、`discourse_journals_outdated`（软删标记，值为 ISO8601 时间）。
+
+> 旧封面子系统（2026-07 删除代码）留下的 `discourse_journals_cover_url_hash` 指纹与 `topics.image_upload_id`
+> 本地封面图，由「封面同步」在处理到对应话题时自动清理，见下文。
 
 > 匹配键的规范列表在 `JournalUpserter::CUSTOM_FIELD_NAMES`（唯一读写方）。
 >
@@ -97,6 +101,7 @@
 
 - `POST /admin/journals/mapping/analyze|pause|restart` · `GET /admin/journals/mapping/status|details`
 - `POST /admin/journals/mapping/apply|apply_pause|apply_resume` · `GET /admin/journals/mapping/apply_status`
+- `POST /admin/journals/covers/sync|pause|resume` · `GET /admin/journals/covers/status`（封面同步，见下节）
 - `GET /admin/journals/promo_stats` · `DELETE /admin/journals/delete_all`
 - `POST /journals/promo/track`（**公开、匿名**，白名单 + 每 IP 120 次/分限流，用于顶部横幅曝光/点击埋点，按「天 × slide」聚合无 PII；当前唯一合法 slide 是 `banner`）
 - `GET /journals/:api_id/submission/:kind`（`kind` ∈ `guideline|latex`，**公开、匿名**，每 IP 30 次/分限流，
@@ -104,13 +109,38 @@
   因此由服务端带密钥取回后转发 —— 这也是上游文档给出的推荐做法。可用
   `discourse_journals_submission_proxy_enabled` 关掉（关掉后档案页不再渲染下载链接）。
 
-Jobs：`AnalyzeMapping`、`ApplyMapping`（`retry: 0`）、`DeleteAllJournals`。
-MessageBus 频道：`/journals/mapping`、`/journals/mapping-apply`、`/journals/delete`。
+Jobs：`AnalyzeMapping`、`ApplyMapping`（`retry: 0`）、`DeleteAllJournals`、`SyncCovers`（`retry: 0`）。
+MessageBus 频道：`/journals/mapping`、`/journals/mapping-apply`、`/journals/delete`、`/journals/cover-sync`。
+
+---
+
+## 封面同步（独立于「分析 → 应用」）
+
+后台「封面同步」区块（`JournalsCoverSync` 组件）单独触发，不走分析/应用流水线，状态存独立表
+`discourse_journals_cover_syncs`（**不能**挂在 `mapping_analyses` 上——analyze/restart 会清空那张表，旧封面子系统正是因此烂尾）。
+
+- **为什么逐本 HEAD**：上游没有任何「按有无封面筛选」的手段（`fields=cover`、`hasSources=cover` 报 400，`hasCover` 被静默忽略），
+  只能对匿名端点 `HEAD /api/covers/preview/{api_id}.webp` 逐本探测：200 带 `ETag`（= `content_hash` = `preview_url` 的 `v`）、
+  304（带了 `If-None-Match` 且未变）、404 没封面、301 已合并（跟随到新 id）、410 已删除、**503 封面存储整体不可用（立即中止，绝不当作「没封面」）**。
+  preview 地址由 HEAD 结果拼出，与 `full=1` 行里官方的 `cover.preview_url` 逐字相同（已实测）。
+- **候选集**：有 `api_id`，且有 ISSN（issn_l 或 JSON 里任何 ISSN）或已存封面。上游封面按 ISSN 关联，完全没有 ISSN 的刊永远不会有封面。
+- **每个话题的处理**（`CoverSyncer` → `TopicCoverApplier` / `LocalCoverPurger`）：
+  - 上游有封面 → 写 JSON `identity.cover_url` + cf + 重渲染首帖，并**删除本地旧封面**（`image_upload_id`、首帖引用、upload 本身；被多个话题共用的 upload 等最后一个引用解除再删）；
+  - 上游没有 → 清掉已存的上游/旧格式地址，回落默认；**本地默认封面保留**；
+  - 探测出错 → 该话题不动；整批全部失败 → 中止（可继续）。
+  - 每批顺带清掉旧封面系统的垃圾：指向已不存在 upload 的 `image_upload_id`（core 的孤儿清理只看 `upload_references`，不看它）与旧指纹 cf。
+- 封面真变化才动 `updated_at`；不 bump、不重建搜索索引。JSON 形状不变（`cover_original_url` 键保留为 nil），避免全量 MD5 变化。
+- 按话题 id keyset 分批（500/批），每批落 checkpoint + 心跳，支持暂停 / 失败 / 进程被杀（15 分钟无心跳）后断点续传。
+- 与「应用映射」「删除全部」互斥（controller 双向检查 + job 内再查）。全量同步写入的封面走同一套规则：读 `preview_url`；
+  上游封面查询降级（`degraded_sources` 含 `cover`）时沿用已存封面；写入上游封面后同样删除本地旧封面。
+- 规模：本站约 18 万本候选，按 ~20 req/s 一轮约 2–3 小时；可调 `discourse_journals_cover_sync_rate_limit`。
 
 ---
 
 ## 前端展示（期刊话题页）
 
+- 封面优先级：**上游封面 > 本地默认封面 > 首字母占位**。档案页 hero 只用上游封面（加载失败时纯 CSS 露出首字母兜底图）；
+  相关期刊卡片与 og:image / twitter:image / JSON-LD image 优先上游封面，其次本地默认封面（og:image 由 `TopicViewCoverPatch` 处理）。
 - `MasterRecordRenderer` 输出的档案页：hero（封面图，加载失败时纯 CSS 露出首字母兜底图）、JCR/SJR/中科院/新锐分区可视化、指标图表（服务端内联 SVG，图/表用 CSS checkbox 切换，cooked 内零 JS）。
 - 契约 v4 之后新增三块：**投稿体验**（`dj-review-exp`：星级 + 5 维评分条 + 录用/拒稿率 + 正负向标签）、
   **标准化指标与分级**（`dj-normalized-metrics`：CWTS SNIP/IPP + JUFO 三国等级）、
@@ -127,17 +157,19 @@ MessageBus 频道：`/journals/mapping`、`/journals/mapping-apply`、`/journals
 
 ```
 app/
-  models/discourse_journals/       mapping_analysis.rb（三阶段状态机）· promo_stat.rb
-  controllers/discourse_journals/  admin_mapping_controller.rb · promo_controller.rb ·
-                                   submission_controller.rb（投稿须知/模板下载代理）
+  models/discourse_journals/       mapping_analysis.rb（三阶段状态机）· promo_stat.rb ·
+                                   cover_sync.rb（封面同步状态）
+  controllers/discourse_journals/  admin_mapping_controller.rb · admin_covers_controller.rb ·
+                                   promo_controller.rb · submission_controller.rb（投稿须知/模板下载代理）
   services/discourse_journals/     api_client（唯一出网口，负责鉴权/重试/限流）· title_matcher ·
                                    api_data_transformer · field_normalizer ·
                                    journal_upserter · journal_tag_manager · mapping_applier ·
                                    master_record_renderer · svg_chart_builder ·
                                    journal_seo_context · journal_suggested_provider ·
                                    outdated_marker · bulk_topic_deleter ·
-                                   api_rate_limiter · performance_logger · topic_title_key_backfill
-  jobs/regular/discourse_journals/ analyze_mapping · apply_mapping · delete_all_journals
+                                   api_rate_limiter · performance_logger · topic_title_key_backfill ·
+                                   cover_url · cover_syncer · topic_cover_applier · local_cover_purger
+  jobs/regular/discourse_journals/ analyze_mapping · apply_mapping · delete_all_journals · sync_covers
 assets/javascripts/discourse/      admin controller/template · connectors · components · initializers
 assets/stylesheets/common/         discourse-journals.scss（档案页）· discourse-journals-admin.scss（后台）
 config/                            settings.yml · locales/{client,server}.{en,zh_CN}.yml
@@ -156,6 +188,8 @@ lib/tasks/                         discourse_journals:backfill_normalized_title_
     **`/api/open/journals/byIds` 已下线（410 `endpoint_gone`）**，这是它的官方后继写法。
   - `resolveIds=follow` 的响应带 `redirects`（`{旧id: 新id|null}`）：合并的 id 会被 `MappingApplier#absorb_redirects!`
     重新指向原话题（避免重复建帖），被删除的 id 则走 `OutdatedMarker` 打过时标记。
+  - 封面：`full=1` 行的 `cover.preview_url`（相对路径，匿名可直接 `<img src>`）；`cover.cover_url` 是废弃别名，旧的按刊名寻址
+    `/api/covers/image/{刊名}` 已下线（现返回 401）。封面同步用 `HEAD /api/covers/preview/{id}.webp`，详见「封面同步」一节。
 - 大量写库刻意绕过 AR 回调（`PostCreator(skip_validations, skip_jobs)`、`update_columns`、`insert_all`/`delete_all`）换吞吐；tag 计数与分类计数分别由 `reconcile_counts!` / `update_category_stats` 手工补一致性。
 - 管理员手工给期刊话题加的 tag 会在下次同步被清掉（tag 是全量替换语义）。
 - `rake discourse_journals:backfill_normalized_title_keys` 为存量话题回填标题匹配键；改动 `TitleMatcher.normalized_title_key` 算法后必须重跑，否则匹配会 miss。

@@ -92,8 +92,10 @@ module DiscourseJournals
         openalex_id: unified[:openalex_id],
         openalex_type: unified[:openalex_type] || oa_main[:type],
         wikidata_qid: unified[:wikidata_qid],
-        cover_url: cover[:cover_url],
-        cover_original_url: cover[:original_url],
+        cover_url: CoverUrl.from_api(cover),
+        # Upstream no longer sends an original URL. The key stays so the stored
+        # JSON shape, and with it every topic's content MD5, does not change.
+        cover_original_url: nil,
         homepage_url: oa_main[:homepage_url] || extract_wikidata_homepage,
       }
     end

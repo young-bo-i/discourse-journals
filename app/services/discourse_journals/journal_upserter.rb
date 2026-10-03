@@ -18,36 +18,8 @@ module DiscourseJournals
     end
 
     def normalize_and_render(journal_data)
-      normalizer = FieldNormalizer.new(journal_data)
-      normalized = normalizer.normalize
-
-      title = normalized.dig(:identity, :title)
-      raise ArgumentError, "Missing title in normalized data" if title.blank?
-      normalized_title_key = TitleMatcher.normalized_title_key(title)
-      normalized_json = normalized.to_json
-
-      html = nil
-      raw_text = nil
-      I18n.with_locale(SiteSetting.default_locale) do
-        renderer = MasterRecordRenderer.new(normalized)
-        html = renderer.render
-        raw_text = renderer.render_plain_text
-      end
-      raise ArgumentError, "Empty content generated" if html.blank?
-
-      {
-        api_id: normalized.dig(:identity, :api_id),
-        title: title,
-        html: html,
-        raw_text: raw_text,
-        normalized: normalized,
-        normalized_json: normalized_json,
-        normalized_title_key: normalized_title_key,
-        issn_l: normalized.dig(:identity, :issn_l),
-        publisher: normalized.dig(:publication, :publisher_name),
-        cover_url: normalized.dig(:identity, :cover_url),
-        country: normalized.dig(:publication, :country_name) || normalized.dig(:publication, :country_code),
-      }
+      normalized = FieldNormalizer.new(journal_data).normalize
+      render_prepared(normalized).merge(cover_degraded: cover_degraded?(journal_data))
     end
 
     def upsert!(journal_data, existing_topic_id: nil)
@@ -78,6 +50,57 @@ module DiscourseJournals
 
     attr_reader :system_user
 
+    def render_prepared(normalized)
+      title = normalized.dig(:identity, :title)
+      raise ArgumentError, "Missing title in normalized data" if title.blank?
+      normalized_title_key = TitleMatcher.normalized_title_key(title)
+      normalized_json = normalized.to_json
+
+      html = nil
+      raw_text = nil
+      I18n.with_locale(SiteSetting.default_locale) do
+        renderer = MasterRecordRenderer.new(normalized)
+        html = renderer.render
+        raw_text = renderer.render_plain_text
+      end
+      raise ArgumentError, "Empty content generated" if html.blank?
+
+      {
+        api_id: normalized.dig(:identity, :api_id),
+        title: title,
+        html: html,
+        raw_text: raw_text,
+        normalized: normalized,
+        normalized_json: normalized_json,
+        normalized_title_key: normalized_title_key,
+        issn_l: normalized.dig(:identity, :issn_l),
+        publisher: normalized.dig(:publication, :publisher_name),
+        cover_url: normalized.dig(:identity, :cover_url),
+        country: normalized.dig(:publication, :country_name) || normalized.dig(:publication, :country_code),
+      }
+    end
+
+    def cover_degraded?(journal_data)
+      return false if !journal_data.is_a?(Hash)
+
+      sources = journal_data[:degraded_sources] || journal_data["degraded_sources"]
+      Array(sources).map(&:to_s).include?("cover")
+    end
+
+    # A degraded cover lookup returns cover: null, which says nothing about this
+    # journal, so keep the cover the topic already has.
+    def with_kept_cover(topic, prepared)
+      stored_path =
+        CoverUrl.relative(
+          TopicCustomField.where(topic_id: topic.id, name: "discourse_journals_cover_url").pick(:value),
+        )
+      return prepared if stored_path.blank?
+
+      normalized = prepared[:normalized].deep_dup
+      normalized[:identity] = (normalized[:identity] || {}).merge(cover_url: stored_path)
+      render_prepared(normalized).merge(cover_degraded: true)
+    end
+
     def create_topic!(prepared)
       category = journal_category
 
@@ -107,6 +130,10 @@ module DiscourseJournals
     end
 
     def update_topic!(topic, prepared)
+      if prepared[:cover_degraded] && prepared[:cover_url].blank?
+        prepared = with_kept_cover(topic, prepared)
+      end
+
       # Only treat this as a real update when the journal data (or title) actually
       # changed. cooked/raw are still rewritten unconditionally so renderer/template
       # changes propagate on re-sync, but updated_at (and therefore the sitemap
@@ -150,6 +177,7 @@ module DiscourseJournals
       end
 
       store_custom_fields!(topic, prepared)
+      LocalCoverPurger.purge!(topic) if prepared[:cover_url].present?
       JournalTagManager.apply_tags!(topic, prepared[:normalized])
       ensure_closed!(topic)
 
@@ -173,8 +201,8 @@ module DiscourseJournals
         desired = {}
         desired["discourse_journals_issn_l"] = prepared[:issn_l].to_s if prepared[:issn_l].present?
         desired["discourse_journals_publisher"] = prepared[:publisher].to_s if prepared[:publisher].present?
-        normalized_cover_url = normalize_cover_url(prepared[:cover_url])
-        desired["discourse_journals_cover_url"] = normalized_cover_url if normalized_cover_url.present?
+        cover_url = CoverUrl.absolute(prepared[:cover_url])
+        desired["discourse_journals_cover_url"] = cover_url if cover_url.present?
         desired["discourse_journals_country"] = prepared[:country].to_s if prepared[:country].present?
         desired["discourse_journals_data"] = prepared[:normalized_json] if prepared[:normalized_json].present?
         desired["discourse_journals_normalized_title_key"] = prepared[:normalized_title_key] if prepared[:normalized_title_key].present?
@@ -222,13 +250,6 @@ module DiscourseJournals
       return unless SiteSetting.discourse_journals_close_topics
       return if topic.closed?
       topic.update_column(:closed, true)
-    end
-
-    def normalize_cover_url(cover_url)
-      url = cover_url.to_s.strip
-      return nil if url.blank?
-
-      url.start_with?("http") ? url : "#{SiteSetting.discourse_journals_api_base_url}#{url}"
     end
 
     def find_existing_topic(prepared)
