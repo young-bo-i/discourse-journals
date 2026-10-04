@@ -12,6 +12,17 @@ module DiscourseJournals
       discourse_journals_api_id
     ].freeze
 
+    # A topic tracking a different upstream record is another journal that
+    # shares the title; matching it would overwrite that journal's page.
+    TRACKS_OTHER_RECORD_SQL = <<~SQL
+      NOT EXISTS (
+        SELECT 1 FROM topic_custom_fields tracked
+        WHERE tracked.topic_id = topics.id
+          AND tracked.name = 'discourse_journals_api_id'
+          AND tracked.value <> :api_id
+      )
+    SQL
+
     def initialize(system_user: Discourse.system_user, category: nil)
       @system_user = system_user
       @category_cache = category
@@ -260,7 +271,12 @@ module DiscourseJournals
       PerformanceLogger.measure("sync.lookup_existing_topic", source_type: "journal_upserter") do
         find_existing_topic_by_issn(prepared[:issn_l], category) ||
           find_existing_topic_by_api_id(prepared[:api_id], category) ||
-          find_existing_topic_by_title(prepared[:title], prepared[:normalized_title_key], category)
+          find_existing_topic_by_title(
+            prepared[:title],
+            prepared[:normalized_title_key],
+            category,
+            api_id: prepared[:api_id],
+          )
       end
     end
 
@@ -306,19 +322,22 @@ module DiscourseJournals
       Topic.find_by(id: topic_id) if topic_id
     end
 
-    def find_existing_topic_by_title(title, normalized_title_key, category)
+    def find_existing_topic_by_title(title, normalized_title_key, category, api_id: nil)
       raw_title = title.to_s.strip
       return if raw_title.blank?
 
-      scope = Topic.where(category_id: category.id, deleted_at: nil)
+      scope = without_other_records(Topic.where(category_id: category.id, deleted_at: nil), api_id)
 
       if normalized_title_key.present?
         normalized_match_ids =
           PerformanceLogger.measure("sync.lookup_by_title_key", source_type: "normalized_title_key") do
-            TopicCustomField
-              .joins("INNER JOIN topics ON topics.id = topic_custom_fields.topic_id")
-              .where(name: "discourse_journals_normalized_title_key", value: normalized_title_key)
-              .where(topics: { category_id: category.id, deleted_at: nil })
+            without_other_records(
+              TopicCustomField
+                .joins("INNER JOIN topics ON topics.id = topic_custom_fields.topic_id")
+                .where(name: "discourse_journals_normalized_title_key", value: normalized_title_key)
+                .where(topics: { category_id: category.id, deleted_at: nil }),
+              api_id,
+            )
               .order("topics.id ASC")
               .limit(2)
               .pluck(:topic_id)
@@ -364,6 +383,12 @@ module DiscourseJournals
             "in category #{category.id}",
         )
       end
+    end
+
+    def without_other_records(relation, api_id)
+      return relation if api_id.blank?
+
+      relation.where(TRACKS_OTHER_RECORD_SQL, api_id: api_id.to_s)
     end
 
   end

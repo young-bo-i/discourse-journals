@@ -99,6 +99,39 @@ describe DiscourseJournals::JournalUpserter do
       expect(result).to eq(:updated)
       expect(tracked.reload.first_post.raw).to eq("new content")
     end
+
+    it "creates a separate topic for a different journal that shares an existing journal's title" do
+      title_key = DiscourseJournals::TitleMatcher.normalized_title_key("Gallia")
+      japan = Fabricate(:topic, category: category, title: "Gallia journal from Japan")
+      Fabricate(:post, topic: japan, user: Discourse.system_user, raw: "japan content")
+      japan.upsert_custom_fields(
+        discourse_journals_api_id: "100",
+        discourse_journals_issn_l: "0387-4486",
+        discourse_journals_normalized_title_key: title_key,
+      )
+      prepared = {
+        api_id: 17_756,
+        title: "Gallia",
+        html: "<p>france content</p>",
+        raw_text: "france content",
+        normalized: {
+          identity: {
+            title: "Gallia",
+          },
+        },
+        normalized_json: { identity: { title: "Gallia" } }.to_json,
+        normalized_title_key: title_key,
+        issn_l: "0016-4119",
+      }
+
+      result = nil
+      expect { result = described_class.new.upsert_prepared!(prepared) }.to change {
+        Topic.where(category: category).count
+      }.by(1)
+      expect(result).to eq(:created)
+      expect(japan.reload.first_post.raw).to eq("japan content")
+      expect(japan.custom_fields["discourse_journals_issn_l"]).to eq("0387-4486")
+    end
   end
 
   describe "#find_existing_topic_by_title" do
