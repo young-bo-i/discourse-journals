@@ -3,7 +3,7 @@
 module DiscourseJournals
   class MappingAnalysis < ActiveRecord::Base
     self.table_name = "discourse_journals_mapping_analyses"
-    STALE_APPLY_THRESHOLD = 15.minutes
+    STALE_APPLY_THRESHOLD = 5.minutes
 
     validates :user_id, presence: true
     validates :status, presence: true
@@ -17,7 +17,15 @@ module DiscourseJournals
       sync_paused: 4,
     }
 
-    CATEGORIES = %w[exact_1to1 forum_1_to_api_n forum_n_to_api_1 forum_n_to_api_m forum_only api_only].freeze
+    CATEGORIES = %w[
+      exact_1to1
+      forum_1_to_api_n
+      forum_n_to_api_1
+      forum_n_to_api_m
+      forum_only
+      api_only
+      duplicates
+    ].freeze
 
     scope :latest, -> { order(created_at: :desc) }
     scope :lightweight, -> { select(column_names - ["details_data"]) }
@@ -51,16 +59,21 @@ module DiscourseJournals
       completed? && (sync_paused? || sync_failed? || stale_sync_processing?)
     end
 
+    # The apply job holds ApplyLock while it checks this, so a row still marked
+    # processing can only have been left behind by a run that died.
+    def resumable_by_lock_holder?
+      completed? && (sync_paused? || sync_failed? || sync_processing?)
+    end
+
     def stale_sync_processing?
-      return false unless sync_processing?
+      return false if !sync_processing? || ApplyLock.held?
       last = apply_heartbeat_at
       last.present? && last < STALE_APPLY_THRESHOLD.ago
     end
 
-    # The applier refreshes a heartbeat epoch inside apply_checkpoint on every
-    # batch, so a healthy long-running apply is never mistaken for a crashed one.
-    # Falls back to apply_started_at before the first checkpoint (and for legacy
-    # rows written before heartbeating existed).
+    # The apply lock refreshes a heartbeat epoch inside apply_checkpoint every
+    # minute, so a slow batch is never mistaken for a crashed run. Falls back to
+    # apply_started_at before the first heartbeat (and for legacy rows).
     def apply_heartbeat_at
       hb = apply_checkpoint.is_a?(Hash) ? apply_checkpoint["heartbeat"] : nil
       hb ? Time.zone.at(hb.to_i) : apply_started_at
@@ -76,6 +89,7 @@ module DiscourseJournals
         forum_n_to_api_m: forum_n_to_api_m_count,
         forum_only: forum_only_count,
         api_only: api_only_count,
+        duplicates: duplicate_topics_count,
       }
     end
 
@@ -83,6 +97,7 @@ module DiscourseJournals
       stats = apply_stats || {}
       {
         status: apply_status,
+        merged: stats["merged"] || 0,
         deleted: stats["deleted"] || 0,
         updated: stats["updated"] || 0,
         created: stats["created"] || 0,

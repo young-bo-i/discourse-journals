@@ -6,6 +6,21 @@ module Jobs
       sidekiq_options retry: 0
 
       def execute(args)
+        analysis_id = args[:analysis_id]
+        ran =
+          ::DiscourseJournals::ApplyLock.synchronize(
+            on_renew: -> { refresh_heartbeat(analysis_id) },
+          ) { apply(args) }
+        return if ran
+
+        Rails.logger.warn(
+          "[DiscourseJournals::ApplyMapping] Job skipped: another apply is still running (analysis #{analysis_id})",
+        )
+      end
+
+      private
+
+      def apply(args)
         user_id = args[:user_id]
         analysis_id = args[:analysis_id]
         resume = args[:resume] == true
@@ -20,7 +35,7 @@ module Jobs
         end
 
         if resume
-          unless analysis.can_resume_apply?
+          unless analysis.resumable_by_lock_holder?
             Rails.logger.warn("[DiscourseJournals::ApplyMapping] Job skipped: analysis #{analysis_id} cannot resume (apply_status=#{analysis.apply_status})")
             return
           end
@@ -46,10 +61,8 @@ module Jobs
           apply_status: :sync_processing,
           apply_started_at: resume ? analysis.apply_started_at || Time.current : Time.current,
           apply_error_message: nil,
-          # Claim the row with a fresh heartbeat. Without this the row stays
-          # stale through build_action_plan and the first batch, so the admin UI
-          # would offer Resume again and a second applier could start — there is
-          # no lock anywhere in this plugin.
+          # A fresh heartbeat makes the admin UI show the run as live from the
+          # start instead of as interrupted.
           apply_checkpoint: resume_checkpoint.merge("heartbeat" => Time.current.to_i),
         )
         analysis.update_columns(apply_stats: resume_stats) if resume
@@ -115,7 +128,16 @@ module Jobs
         end
       end
 
-      private
+      # Touches only the heartbeat key, so it never races the applier's own
+      # checkpoint writes on the same column.
+      def refresh_heartbeat(analysis_id)
+        ::DiscourseJournals::MappingAnalysis.where(id: analysis_id).update_all(
+          [
+            "apply_checkpoint = jsonb_set(COALESCE(apply_checkpoint, '{}'::jsonb), '{heartbeat}', to_jsonb(?::bigint))",
+            Time.current.to_i,
+          ],
+        )
+      end
 
       # Tag/category-tag counts are maintained by reconcile_counts! on the success
       # path. On pause/abort the delta writes (and BulkTopicDeleter) have already

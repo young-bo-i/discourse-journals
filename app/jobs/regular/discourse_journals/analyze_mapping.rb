@@ -48,6 +48,7 @@ module Jobs
           forum_n_to_api_m: results[:forum_n_to_api_m].size,
           forum_only: results[:forum_only].size,
           api_only: results[:api_only].size,
+          duplicates: results[:duplicates].sum { |entry| entry[:forum].size - 1 },
         }
 
         analysis.update!(
@@ -60,6 +61,7 @@ module Jobs
           forum_n_to_api_m_count: counts[:forum_n_to_api_m],
           forum_only_count: counts[:forum_only],
           api_only_count: counts[:api_only],
+          duplicate_topics_count: counts[:duplicates],
           completed_at: Time.current,
         )
 
@@ -80,7 +82,8 @@ module Jobs
           "N:1=#{counts[:forum_n_to_api_1]}, " \
           "N:M=#{counts[:forum_n_to_api_m]}, " \
           "forum_only=#{counts[:forum_only]}, " \
-          "api_only=#{counts[:api_only]}"
+          "api_only=#{counts[:api_only]}, " \
+          "duplicates=#{counts[:duplicates]}"
         )
       rescue ::DiscourseJournals::TitleMatcher::PausedError => e
         Rails.logger.info("[DiscourseJournals::Mapping] Paused by user: analysis #{analysis_id}")
@@ -188,7 +191,13 @@ module Jobs
           (e[:api] || []).each { |a| creates << a[:api_id] }
         end
 
-        { "updates" => updates, "creates" => creates, "deletes" => deletes }
+        merges = {}
+        results[:duplicates].each do |entry|
+          keep_id, *copy_ids = entry[:forum].map { |forum| forum[:topic_id] }
+          copy_ids.each { |copy_id| merges[copy_id] = keep_id }
+        end
+
+        { "updates" => updates, "creates" => creates, "deletes" => deletes, "merges" => merges }
       end
 
       def build_details(results)

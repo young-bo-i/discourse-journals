@@ -13,12 +13,14 @@ describe DiscourseJournals::JournalUpserter do
 
   fab!(:category)
   fab!(:existing_topic) do
-    create_topic(
-      category: category,
-      user: Discourse.system_user,
-      title: "Journal: Testing & Review",
-      raw: "old content",
-    )
+    topic =
+      create_topic(
+        category: category,
+        user: Discourse.system_user,
+        title: "Journal: Testing & Review",
+      )
+    Fabricate(:post, topic: topic, user: Discourse.system_user, raw: "old content")
+    topic
   end
 
   describe "#upsert_prepared!" do
@@ -42,9 +44,9 @@ describe DiscourseJournals::JournalUpserter do
         country: "CN",
       }
 
-      expect(
-        DiscourseJournals::TitleMatcher.normalize(existing_topic.title)
-      ).to eq(DiscourseJournals::TitleMatcher.normalize(prepared[:title]))
+      expect(DiscourseJournals::TitleMatcher.normalized_title_key(existing_topic.title)).to eq(
+        prepared[:normalized_title_key],
+      )
 
       expect do
         result = described_class.new.upsert_prepared!(prepared)
@@ -59,6 +61,43 @@ describe DiscourseJournals::JournalUpserter do
       expect(existing_topic.custom_fields["discourse_journals_normalized_title_key"]).to eq(
         DiscourseJournals::TitleMatcher.normalized_title_key("Journal Testing Review"),
       )
+    end
+
+    it "updates the topic already tracking the upstream record when several topics share its title" do
+      SiteSetting.duplicate_topic_titles = "allowed"
+      title_key = DiscourseJournals::TitleMatcher.normalized_title_key("Shared Journal Name")
+      tracked = Fabricate(:topic, category: category, title: "Shared Journal Name")
+      Fabricate(:post, topic: tracked, user: Discourse.system_user, raw: "tracked content")
+      other = Fabricate(:topic, category: category, title: "Shared Journal Name")
+      tracked.upsert_custom_fields(
+        discourse_journals_api_id: "42",
+        discourse_journals_normalized_title_key: title_key,
+      )
+      other.upsert_custom_fields(
+        discourse_journals_api_id: "99",
+        discourse_journals_normalized_title_key: title_key,
+      )
+      prepared = {
+        api_id: 42,
+        title: "Shared Journal Name",
+        html: "<p>new content</p>",
+        raw_text: "new content",
+        normalized: {
+          identity: {
+            title: "Shared Journal Name",
+          },
+        },
+        normalized_json: { identity: { title: "Shared Journal Name" } }.to_json,
+        normalized_title_key: title_key,
+        issn_l: nil,
+      }
+
+      result = nil
+      expect { result = described_class.new.upsert_prepared!(prepared) }.not_to change {
+        Topic.count
+      }
+      expect(result).to eq(:updated)
+      expect(tracked.reload.first_post.raw).to eq("new content")
     end
   end
 

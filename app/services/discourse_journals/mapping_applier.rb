@@ -10,6 +10,7 @@ module DiscourseJournals
     API_CONCURRENCY = 4
     UPSERT_CONCURRENCY = 4
     DELETE_BATCH_SIZE = BulkTopicDeleter::BATCH_SIZE
+    MERGE_BATCH_SIZE = 200
 
     attr_reader :stats
 
@@ -22,11 +23,12 @@ module DiscourseJournals
       @update_map = {}
       @create_ids = []
       @topics_to_delete = []
+      @merges = {}
       # Always start from a full set of counters and layer any resumed stats on
       # top. A resumed hash may be empty (paused before the first checkpoint) or
       # missing keys, so a bare `resume_stats ||` default would leave nil counters
       # that blow up on the first `increment_stat` (nil + 1).
-      @stats = { deleted: 0, updated: 0, created: 0, skipped: 0, errors: 0 }
+      @stats = { merged: 0, deleted: 0, updated: 0, created: 0, skipped: 0, errors: 0 }
         .merge((resume_stats || {}).transform_keys(&:to_sym))
       @system_user = Discourse.system_user
       @mutex = Mutex.new
@@ -48,13 +50,17 @@ module DiscourseJournals
       Rails.logger.info(
         "[DiscourseJournals::MappingApplier] run! phase=#{resume_phase.inspect}, " \
         "checkpoint=#{@checkpoint.inspect}, stats=#{@stats.inspect}, " \
-        "api_actions=#{total_actions}, deletes=#{@topics_to_delete.size}",
+        "api_actions=#{total_actions}, deletes=#{@topics_to_delete.size}, merges=#{@merges.size}",
       )
 
       if resume_phase == "api_sync"
         Rails.logger.info("[DiscourseJournals::MappingApplier] SKIPPING deletes, resuming api_sync at offset #{@checkpoint["api_offset"]}")
         execute_api_sync(skip_offset: @checkpoint["api_offset"].to_i)
       else
+        if resume_phase != "deletes"
+          merge_offset = resume_phase == "merges" ? @checkpoint["merge_offset"].to_i : 0
+          execute_merges(skip_offset: merge_offset)
+        end
         delete_offset = resume_phase == "deletes" ? @checkpoint["delete_offset"].to_i : 0
         Rails.logger.info("[DiscourseJournals::MappingApplier] Starting deletes at offset #{delete_offset}")
         execute_deletes(skip_offset: delete_offset)
@@ -115,6 +121,7 @@ module DiscourseJournals
           (plan["updates"] || {}).each { |k, v| @update_map[k.to_i] = v.to_i }
           @create_ids = (plan["creates"] || []).map(&:to_i)
           @topics_to_delete = (plan["deletes"] || []).map(&:to_i)
+          @merges = (plan["merges"] || {}).to_h { |copy_id, keep_id| [copy_id.to_i, keep_id.to_i] }
           plan = nil
         else
           process_exact_matches(details["exact_1to1"] || [])
@@ -123,6 +130,7 @@ module DiscourseJournals
           process_forum_n_to_api_m(details["forum_n_to_api_m"] || [])
           process_forum_only(details["forum_only"] || [])
           process_api_only(details["api_only"] || [])
+          process_duplicates(details["duplicates"] || [])
         end
 
         details = nil
@@ -210,6 +218,13 @@ module DiscourseJournals
       end
     end
 
+    def process_duplicates(entries)
+      entries.each do |entry|
+        keep_id, *copy_ids = (entry["forum"] || []).map { |forum| forum["topic_id"].to_i }
+        copy_ids.each { |copy_id| @merges[copy_id] = keep_id }
+      end
+    end
+
     def all_api_ids
       @update_map.keys + @create_ids
     end
@@ -255,6 +270,33 @@ module DiscourseJournals
 
       ids.each_slice(DELETE_BATCH_SIZE) do |batch_ids|
         increment_stat(:deleted, OutdatedMarker.mark_batch(batch_ids))
+      end
+    end
+
+    # ──── Phase 0: merge copies of the same upstream record into the oldest topic ────
+    def execute_merges(skip_offset: 0)
+      pairs = @merges.to_a
+      total = pairs.size
+      return if total.zero?
+
+      remaining = pairs[skip_offset..] || []
+      return if remaining.empty?
+
+      publish_progress(1, "开始合并重复话题 (共 #{total} 个)...")
+
+      remaining.each_slice(MERGE_BATCH_SIZE).with_index do |batch, batch_idx|
+        check_cancelled!
+
+        batch.each do |copy_id, keep_id|
+          increment_stat(:merged) if DuplicateTopicMerger.merge!(copy_id, keep_id)
+        end
+
+        processed = [skip_offset + (batch_idx + 1) * MERGE_BATCH_SIZE, total].min
+        save_checkpoint("merges", "merge_offset", processed)
+        publish_progress(
+          (1 + processed.to_f / total).round(1),
+          "合并重复话题中... #{processed}/#{total} (已合并 #{@stats[:merged]})",
+        )
       end
     end
 

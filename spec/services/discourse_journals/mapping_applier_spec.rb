@@ -37,6 +37,33 @@ describe DiscourseJournals::MappingApplier do
     expect(client).to have_received(:reconnect!)
   end
 
+  describe "duplicate topics" do
+    fab!(:category)
+
+    it "trashes copies of an upstream record and points their URLs at the kept topic" do
+      SiteSetting.discourse_journals_enabled = true
+      SiteSetting.discourse_journals_category_id = category.id
+      SiteSetting.discourse_journals_api_key = "jk_test"
+      keep = Fabricate(:topic, category: category)
+      copy = Fabricate(:topic, category: category)
+      analysis.update!(
+        details_data: {
+          "_action_plan" => {
+            "merges" => {
+              copy.id.to_s => keep.id,
+            },
+          },
+        },
+      )
+
+      stats = described_class.new(analysis: analysis).run!
+
+      expect(stats[:merged]).to eq(1)
+      expect(Topic.with_deleted.find(copy.id).deleted_at).to be_present
+      expect(Permalink.find_by_url(copy.relative_url).topic_id).to eq(keep.id)
+    end
+  end
+
   describe "upstream id changes" do
     it "re-points a merged api_id at the topic already tracking it" do
       applier = described_class.new(analysis: analysis)

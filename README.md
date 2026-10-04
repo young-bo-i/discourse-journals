@@ -12,8 +12,12 @@
    - 含义：XSS 防护完全依赖渲染器自身的 `h()`（HTML escape）纪律，core 的 sanitize 不再兜底——改渲染器时务必保持转义。
 
 2. **同步 = 后台三阶段流水线，状态存单表 `discourse_journals_mapping_analyses`（一行，三个独立 enum 状态机）。**
-   - **分析（Analyze）** `Jobs::DiscourseJournals::AnalyzeMapping` → `TitleMatcher`：游标分页拉取 API 全量 + 扫描论坛全量，按 **ISSN-L → api_id → 归一化标题** 三级交叉匹配，产出 6 个桶（`exact_1to1` / `forum_1_to_api_n` / `forum_n_to_api_1` / `forum_n_to_api_m` / `forum_only` / `api_only`）与一份完整 `_action_plan`（updates / creates / deletes）。
-   - **应用（Apply）** `Jobs::DiscourseJournals::ApplyMapping` → `MappingApplier`：先把「论坛有、API 没有」的话题**软删除**（标过时，不是硬删），再流水线拉详情（每请求 50 id × 4 并发 + 预取）、4 线程 transform、并行 upsert，写话题/custom fields/tags。每批落 `apply_checkpoint`（含心跳），支持暂停 / 失败 / 进程崩溃（15 分钟无心跳判定为可恢复）后**断点续传**。收尾 `reconcile_counts!` 重算 tag 计数。
+   - **分析（Analyze）** `Jobs::DiscourseJournals::AnalyzeMapping` → `TitleMatcher`：游标分页拉取 API 全量 + 扫描论坛全量，按 **ISSN-L → api_id → 归一化标题** 三级交叉匹配，产出 6 个桶（`exact_1to1` / `forum_1_to_api_n` / `forum_n_to_api_1` / `forum_n_to_api_m` / `forum_only` / `api_only`）与一份完整 `_action_plan`（updates / creates / deletes / merges）。
+     另有 `duplicates` 桶：存着同一个 `discourse_journals_api_id` 的多个话题是同一条上游记录的副本（2026-09-03 曾有 2～3 个应用任务并发运行，每条记录各建了 2～3 个话题）。分析时只保留最早的那个参与匹配，其余列进 merges，后台显示为「重复话题」。
+   - **应用（Apply）** `Jobs::DiscourseJournals::ApplyMapping` → `MappingApplier`：先把「论坛有、API 没有」的话题**软删除**（标过时，不是硬删），再流水线拉详情（每请求 50 id × 4 并发 + 预取）、4 线程 transform、并行 upsert，写话题/custom fields/tags。每批落 `apply_checkpoint`，支持暂停 / 失败 / 进程崩溃后**断点续传**。收尾 `reconcile_counts!` 重算 tag 计数。
+   - **同一时间只能有一个应用任务**（`ApplyLock`，Redis 租约 5 分钟）。任务运行期间后台线程每分钟续约并刷新心跳（只改 `apply_checkpoint.heartbeat`），所以慢批次不会再被误判为中断；第二个任务直接退出，后台的「应用」「继续」在锁被占用时拒绝。进程崩溃后租约自然过期，5 分钟无心跳即可「继续」。
+   - 应用的第 0 步合并 `merges`：副本话题被移入回收站（不是标过时，因为期刊仍在上游），并建 permalink，旧网址 301 到保留的话题（`DuplicateTopicMerger`；slug 已是百分号编码，建 permalink 时先解码，避免被二次编码）。
+   - 新建前按 ISSN-L → `api_id` → 归一化标题查已有话题；同名有歧义时也能靠 `api_id` 找到原话题，不会再多建一份。
    - 一次「分析 → 应用」是全量对账：首次全落在 `api_only` 桶（→ 新建），之后是增量更新 / 去重 / 软删。
 
 3. **SEO 是一等公民，很多「怪」设计都是为它。** 软删除保 URL 不 404（`OutdatedMarker`：打 `discourse_journals_outdated` 标记 + 渲染「已过时」横幅 + 关帖，期刊回到 API 后自动复活）；更新时「cooked 无条件重写、但 `updated_at`/搜索索引仅在内容 MD5 真变化时才动、永不 bump」防止 sitemap 抖动；`plugin.rb` 还 monkey-patch 了 core 的 `Sitemap`（顺带修了一个 core 的 `LIMIT/OFFSET` + 聚合分页 bug）。
@@ -178,7 +182,7 @@ app/
                                    journal_upserter · journal_tag_manager · mapping_applier ·
                                    master_record_renderer · svg_chart_builder ·
                                    journal_seo_context · journal_suggested_provider ·
-                                   outdated_marker · bulk_topic_deleter ·
+                                   outdated_marker · bulk_topic_deleter · duplicate_topic_merger · apply_lock ·
                                    api_rate_limiter · performance_logger · topic_title_key_backfill ·
                                    cover_url · cover_syncer · topic_cover_applier · local_cover_purger ·
                                    journal_summary · related_journal_links · index_now

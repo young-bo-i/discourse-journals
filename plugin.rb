@@ -28,6 +28,8 @@ after_initialize do
   require_relative "app/services/discourse_journals/cover_url"
   require_relative "app/services/discourse_journals/local_cover_purger"
   require_relative "app/services/discourse_journals/outdated_marker"
+  require_relative "app/services/discourse_journals/duplicate_topic_merger"
+  require_relative "app/services/discourse_journals/apply_lock"
   require_relative "app/services/discourse_journals/bulk_topic_deleter"
   require_relative "app/services/discourse_journals/field_normalizer"
   require_relative "app/services/discourse_journals/master_record_renderer"

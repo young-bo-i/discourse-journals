@@ -37,7 +37,9 @@ module DiscourseJournals
         forum_n_to_api_m: [],
         forum_only: [],
         api_only: [],
+        duplicates: [],
       }
+      @duplicate_topic_count = 0
     end
 
     def self.normalize(title)
@@ -71,7 +73,7 @@ module DiscourseJournals
     end
 
     def release_indexes!
-      @total_forum_topics = @forum_index.values.sum(&:size)
+      @total_forum_topics = @forum_index.values.sum(&:size) + @duplicate_topic_count
       @total_api_records = @api_index.values.sum(&:size)
 
       @forum_index = {}
@@ -111,8 +113,17 @@ module DiscourseJournals
           .group_by(&:first)
           .transform_values { |rows| rows.to_h { |_, name, value| [name, value] } }
 
+      merges = duplicate_merges(field_map)
+      merge_topic_ids = merges.keys.to_set | merges.values
+      titles = {}
+
       topics.find_each.with_index do |topic, idx|
         fields = field_map[topic.id] || {}
+        titles[topic.id] = topic.title if merge_topic_ids.include?(topic.id)
+        # Copies stay out of every index so they are never matched or flagged
+        # outdated; the applier merges them into the topic that is kept.
+        next if merges.key?(topic.id)
+
         normalized =
           fields["discourse_journals_normalized_title_key"].presence || self.class.normalized_title_key(topic.title)
         next if normalized.blank?
@@ -144,12 +155,45 @@ module DiscourseJournals
         end
       end
 
+      @duplicate_topic_count = merges.size
+      @results[:duplicates] = duplicate_groups(merges, titles, field_map)
+
       publish_progress(
         :forum,
         total,
         total,
-        "论坛索引构建完成：#{total} 个话题，#{@forum_index.size} 个唯一标题，#{@forum_issn_index.size} 个 ISSN-L",
+        "论坛索引构建完成：#{total} 个话题，#{@forum_index.size} 个唯一标题，#{@forum_issn_index.size} 个 ISSN-L，#{merges.size} 个重复话题",
       )
+    end
+
+    # Topics storing the same upstream api_id are copies of one journal, made
+    # when appliers once ran concurrently. Maps each copy to the oldest topic.
+    def duplicate_merges(field_map)
+      topic_ids_by_api_id = Hash.new { |hash, api_id| hash[api_id] = [] }
+      field_map.each do |topic_id, fields|
+        api_id = fields["discourse_journals_api_id"]
+        topic_ids_by_api_id[api_id] << topic_id if api_id.present?
+      end
+
+      topic_ids_by_api_id.each_value.with_object({}) do |topic_ids, merges|
+        next if topic_ids.size < 2
+
+        keep_id, *copy_ids = topic_ids.sort
+        copy_ids.each { |copy_id| merges[copy_id] = keep_id }
+      end
+    end
+
+    def duplicate_groups(merges, titles, field_map)
+      merges
+        .group_by { |_copy_id, keep_id| keep_id }
+        .map do |keep_id, pairs|
+          {
+            normalized_title: self.class.normalize(titles[keep_id]),
+            forum:
+              [keep_id, *pairs.map(&:first)].map { |topic_id| { topic_id: topic_id, title: titles[topic_id] } },
+            api: [{ api_id: field_map.dig(keep_id, "discourse_journals_api_id") }],
+          }
+        end
     end
 
     def build_api_index

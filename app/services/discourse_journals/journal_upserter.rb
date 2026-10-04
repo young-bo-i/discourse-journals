@@ -259,6 +259,7 @@ module DiscourseJournals
 
       PerformanceLogger.measure("sync.lookup_existing_topic", source_type: "journal_upserter") do
         find_existing_topic_by_issn(prepared[:issn_l], category) ||
+          find_existing_topic_by_api_id(prepared[:api_id], category) ||
           find_existing_topic_by_title(prepared[:title], prepared[:normalized_title_key], category)
       end
     end
@@ -281,6 +282,24 @@ module DiscourseJournals
             .joins("INNER JOIN topics ON topics.id = topic_custom_fields.topic_id")
             .where(name: "discourse_journals_issn_l", value: issn_l.to_s)
             .where(topics: { category_id: category.id, deleted_at: nil })
+            .pick(:topic_id)
+        end
+
+      Topic.find_by(id: topic_id) if topic_id
+    end
+
+    # A topic already tracking this exact upstream record is the right target
+    # even when several journals share its title.
+    def find_existing_topic_by_api_id(api_id, category)
+      return if api_id.blank?
+
+      topic_id =
+        PerformanceLogger.measure("sync.lookup_by_api_id", source_type: "api_id") do
+          TopicCustomField
+            .joins("INNER JOIN topics ON topics.id = topic_custom_fields.topic_id")
+            .where(name: "discourse_journals_api_id", value: api_id.to_s)
+            .where(topics: { category_id: category.id, deleted_at: nil })
+            .order("topics.id ASC")
             .pick(:topic_id)
         end
 

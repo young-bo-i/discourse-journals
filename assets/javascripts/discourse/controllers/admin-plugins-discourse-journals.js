@@ -378,6 +378,9 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
         Math.round((r.forum_only / forumTotal) * 100)
       ),
       api_only: progressWidthStyle(Math.round((r.api_only / apiTotal) * 100)),
+      duplicates: progressWidthStyle(
+        Math.round(((r.duplicates || 0) / forumTotal) * 100)
+      ),
     };
   }
 
@@ -387,6 +390,7 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
       "forum_1_to_api_n",
       "forum_n_to_api_1",
       "forum_n_to_api_m",
+      "duplicates",
     ].includes(this.analysisDetailsCategory);
   }
 

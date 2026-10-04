@@ -32,4 +32,27 @@ describe DiscourseJournals::AdminMappingController do
       )
     end
   end
+
+  describe "POST /admin/journals/mapping/apply_resume" do
+    it "refuses to start a second applier while a sync holds the apply lock" do
+      sign_in(admin)
+      DiscourseJournals::MappingAnalysis.create!(
+        user_id: admin.id,
+        status: :completed,
+        apply_status: :sync_processing,
+        apply_started_at: 1.hour.ago,
+      )
+
+      DiscourseJournals::ApplyLock.synchronize do
+        expect_not_enqueued_with(job: Jobs::DiscourseJournals::ApplyMapping) do
+          post "/admin/journals/mapping/apply_resume.json"
+        end
+      end
+
+      expect(response.status).to eq(422)
+      expect(response.parsed_body["errors"]).to eq(
+        [I18n.t("discourse_journals.errors.apply_running")],
+      )
+    end
+  end
 end

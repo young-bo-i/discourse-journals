@@ -106,6 +106,10 @@ module DiscourseJournals
     def apply
       analysis = MappingAnalysis.current
 
+      if ApplyLock.held?
+        return render_json_error(I18n.t("discourse_journals.errors.apply_running"))
+      end
+
       unless analysis&.can_apply?
         return render_json_error("当前没有可以应用的分析结果（需要分析已完成且从未应用过）")
       end
@@ -190,6 +194,10 @@ module DiscourseJournals
     # POST /admin/journals/mapping/apply_resume
     def apply_resume
       analysis = MappingAnalysis.current
+
+      if ApplyLock.held?
+        return render_json_error(I18n.t("discourse_journals.errors.apply_running"))
+      end
 
       unless analysis&.can_resume_apply?
         return render_json_error("当前没有可以恢复的应用任务（需要处于暂停或失败状态）")
@@ -281,6 +289,7 @@ module DiscourseJournals
         forum_n_to_api_m: analysis.forum_n_to_api_m_count,
         forum_only: analysis.forum_only_count,
         api_only: analysis.api_only_count,
+        duplicates: analysis.duplicate_topics_count,
         error_message: analysis.error_message,
         started_at: analysis.started_at,
         completed_at: analysis.completed_at,

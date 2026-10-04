@@ -48,6 +48,7 @@ zh_CN:
       missing_api_key: "请先在站点设置中填写上游 API 密钥 (discourse_journals_api_key)"
       invalid_api_key: "上游 API 密钥无效或已被撤销，请在站点设置中更新 discourse_journals_api_key"
       apply_interrupted: "同步进程被中断（内存超限重启），可从断点继续"
+      apply_running: "同步正在进行中，请等当前任务结束后再操作。"
     cover_sync:
       errors:
         already_running: "已有封面同步任务正在进行中。"

@@ -308,6 +308,31 @@ export default <template>
                     ></div>
                   </div>
                 </div>
+
+                {{#if @controller.analysisResult.duplicates}}
+                  <div
+                    class="mapping-cat-row clickable"
+                    role="button"
+                    {{on
+                      "click"
+                      (fn @controller.loadMappingDetails "duplicates")
+                    }}
+                  >
+                    <span class="cat-color cat-danger"></span>
+                    <span class="cat-label">{{i18n
+                        "discourse_journals.admin.mapping.duplicates"
+                      }}</span>
+                    <span
+                      class="cat-count"
+                    >{{@controller.analysisResult.duplicates}}</span>
+                    <div class="cat-bar-track">
+                      <div
+                        class="cat-bar-fill cat-bar-danger"
+                        style={{@controller.mappingBarStyles.duplicates}}
+                      ></div>
+                    </div>
+                  </div>
+                {{/if}}
               </div>
 
               {{#if @controller.analysisResult.completed_at}}
@@ -488,6 +513,16 @@ export default <template>
                 <p class="progress-status">{{@controller.applyMessage}}</p>
                 {{#if @controller.applyStats}}
                   <div class="stats-grid apply-stats-grid">
+                    {{#if @controller.applyStats.merged}}
+                      <div class="stat-item stat-info">
+                        <span
+                          class="stat-value"
+                        >{{@controller.applyStats.merged}}</span>
+                        <span class="stat-label">{{i18n
+                            "discourse_journals.admin.mapping.apply_stats_merged"
+                          }}</span>
+                      </div>
+                    {{/if}}
                     {{#if @controller.applyStats.deleted}}
                       <div class="stat-item stat-error">
                         <span
@@ -535,7 +570,11 @@ export default <template>
                     "discourse_journals.admin.mapping.apply_completed"
                   }}</strong>
                 {{#if @controller.applyStats}}
-                  <p>{{i18n
+                  <p>{{#if @controller.applyStats.merged}}{{i18n
+                        "discourse_journals.admin.mapping.apply_stats_merged"
+                      }}:
+                      {{@controller.applyStats.merged}},
+                    {{/if}}{{i18n
                       "discourse_journals.admin.mapping.apply_stats_deleted"
                     }}:
                     {{@controller.applyStats.deleted}},
@@ -562,6 +601,16 @@ export default <template>
                 <p>{{@controller.applyMessage}}</p>
                 {{#if @controller.applyStats}}
                   <div class="stats-grid apply-stats-grid stats-grid-inline">
+                    {{#if @controller.applyStats.merged}}
+                      <div class="stat-item stat-info">
+                        <span
+                          class="stat-value"
+                        >{{@controller.applyStats.merged}}</span>
+                        <span class="stat-label">{{i18n
+                            "discourse_journals.admin.mapping.apply_stats_merged"
+                          }}</span>
+                      </div>
+                    {{/if}}
                     {{#if @controller.applyStats.deleted}}
                       <div class="stat-item stat-error">
                         <span
@@ -601,6 +650,16 @@ export default <template>
                 <p>{{@controller.applyMessage}}</p>
                 {{#if @controller.applyStats}}
                   <div class="stats-grid apply-stats-grid stats-grid-inline">
+                    {{#if @controller.applyStats.merged}}
+                      <div class="stat-item stat-info">
+                        <span
+                          class="stat-value"
+                        >{{@controller.applyStats.merged}}</span>
+                        <span class="stat-label">{{i18n
+                            "discourse_journals.admin.mapping.apply_stats_merged"
+                          }}</span>
+                      </div>
+                    {{/if}}
                     {{#if @controller.applyStats.deleted}}
                       <div class="stat-item stat-error">
                         <span
