@@ -7,8 +7,6 @@ en:
     discourse_journals_api_rate_limit: "Maximum request rate against the upstream API, in requests per second. Analysis and sync each share one limiter."
     discourse_journals_cover_sync_rate_limit: "Maximum request rate of cover sync, in requests per second. Cover sync sends one lightweight HEAD request per journal, so it can run faster than {{setting:discourse_journals_api_rate_limit}}."
     discourse_journals_submission_proxy_enabled: "Proxy submission guideline / LaTeX template downloads through the forum. The upstream URLs require the API key, which a browser cannot send; turning this off hides the download links."
-    discourse_journals_banner_enabled: "Show the Scholay promo banner below the site header on all pages."
-    discourse_journals_banner_url: "URL opened (in a new tab) when the banner is clicked. Leave blank for a non-clickable banner."
     discourse_journals_title_suffix: "Title suffix for SEO (only in HTML title tag)"
     discourse_journals_meta_description: "Meta description template for journal topics. Placeholders: {{summary}} (a generated overview from impact factor, quartiles, ISSN, publisher, open access, papers and citations), {{title}}, {{issn}}, {{publisher}}, {{category}}, {{tags}}, {{site_name}}"
     discourse_journals_meta_keywords: "Meta keywords template for journal topics. Placeholders: {{title}}, {{issn}}, {{publisher}}, {{category}}, {{tags}}, {{site_name}}"

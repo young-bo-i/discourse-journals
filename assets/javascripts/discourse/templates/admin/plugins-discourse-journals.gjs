@@ -1,10 +1,9 @@
 import { fn } from "@ember/helper";
 import { on } from "@ember/modifier";
-import { eq, gt, or } from "discourse/truth-helpers";
+import { gt, or } from "discourse/truth-helpers";
 import DButton from "discourse/ui-kit/d-button";
 import { i18n } from "discourse-i18n";
 import JournalsCoverSync from "discourse/plugins/discourse-journals/discourse/components/journals-cover-sync";
-import JournalsPromoChart from "discourse/plugins/discourse-journals/discourse/components/journals-promo-chart";
 
 export default <template>
   <div class="admin-container journals-admin-page">
@@ -695,87 +694,6 @@ export default <template>
       {{/if}}
 
       <JournalsCoverSync @applying={{@controller.applying}} />
-
-      <section class="journals-section stats-section">
-        <div class="section-header">
-          <h3>{{i18n "discourse_journals.admin.stats.heading"}}</h3>
-          <div class="header-actions promo-range-controls">
-            {{#each @controller.promoRangeOptions as |opt|}}
-              <DButton
-                class={{if
-                  (eq @controller.promoRange opt.days)
-                  "btn-primary"
-                  "btn-default"
-                }}
-                @action={{fn @controller.setPromoRange opt.days}}
-                @translatedLabel={{opt.label}}
-              />
-            {{/each}}
-          </div>
-        </div>
-
-        <div class="section-content">
-          <p class="stats-desc">{{i18n
-              "discourse_journals.admin.stats.description"
-            }}</p>
-
-          {{#if @controller.loadingPromoStats}}
-            <div class="details-loading">{{i18n
-                "discourse_journals.admin.stats.loading"
-              }}</div>
-          {{else if @controller.hasPromoData}}
-            <div class="promo-summary-cards">
-              {{#each @controller.promoSummaryCards as |card|}}
-                <div class="promo-summary-card">
-                  <div class="promo-card-label">{{card.label}}</div>
-                  <div class="promo-card-metrics">
-                    <div class="promo-metric">
-                      <span
-                        class="promo-metric-value"
-                      >{{card.impressions}}</span>
-                      <span class="promo-metric-label">{{i18n
-                          "discourse_journals.admin.stats.impressions"
-                        }}</span>
-                    </div>
-                    <div class="promo-metric">
-                      <span class="promo-metric-value">{{card.clicks}}</span>
-                      <span class="promo-metric-label">{{i18n
-                          "discourse_journals.admin.stats.clicks"
-                        }}</span>
-                    </div>
-                    <div class="promo-metric">
-                      <span class="promo-metric-value">{{card.ctr}}%</span>
-                      <span class="promo-metric-label">{{i18n
-                          "discourse_journals.admin.stats.ctr"
-                        }}</span>
-                    </div>
-                  </div>
-                </div>
-              {{/each}}
-            </div>
-
-            <div class="promo-chart-tabs">
-              {{#each @controller.promoSlideTabs as |tab|}}
-                <button
-                  class="promo-chart-tab
-                    {{if
-                      (eq @controller.promoSlide tab.key)
-                      'promo-chart-tab--active'
-                    }}"
-                  type="button"
-                  {{on "click" (fn @controller.setPromoSlide tab.key)}}
-                >{{tab.label}}</button>
-              {{/each}}
-            </div>
-
-            <JournalsPromoChart @config={{@controller.promoChartConfig}} />
-          {{else}}
-            <div class="message-box">{{i18n
-                "discourse_journals.admin.stats.no_data"
-              }}</div>
-          {{/if}}
-        </div>
-      </section>
 
       <section class="journals-section danger-section">
         <div class="section-header">

@@ -4,9 +4,6 @@ en:
       title: "Journals"
       nav_title: "Navigation"
       suggested_title: "Related Journals"
-      promo:
-        titles:
-          banner: "Header banner"
       search:
         placeholder: "Search journals (name, ISSN, publisher...)"
         no_results: "No journals found"
@@ -95,19 +92,6 @@ en:
             legacy_cleaned: "Stale data removed"
             skipped: "Not checked"
             errors: "Errors"
-        stats:
-          heading: "Promo entry analytics"
-          description: "Daily impressions, clicks and click-through rate (CTR) for the promo carousel shown above the journal navigation."
-          range_7: "7 days"
-          range_30: "30 days"
-          range_90: "90 days"
-          impressions: "Impressions"
-          clicks: "Clicks"
-          ctr: "CTR"
-          total: "Total"
-          axis_count: "Count"
-          loading: "Loading..."
-          no_data: "No promo activity yet."
         danger:
           heading: "Danger Zone"
           delete_all: "Delete All"

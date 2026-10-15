@@ -21,7 +21,6 @@ add_admin_route "discourse_journals.title", "discourse-journals"
 
 after_initialize do
   require_relative "app/models/discourse_journals/mapping_analysis"
-  require_relative "app/models/discourse_journals/promo_stat"
   require_relative "app/models/discourse_journals/cover_sync"
   require_relative "app/services/discourse_journals/api_rate_limiter"
   require_relative "app/services/discourse_journals/api_client"
@@ -576,9 +575,6 @@ after_initialize do
     post "/admin/journals/mapping/apply_resume" => "discourse_journals/admin_mapping#apply_resume",
          :constraints => AdminConstraint.new
 
-    get "/admin/journals/promo_stats" => "discourse_journals/admin_mapping#promo_stats",
-        :constraints => AdminConstraint.new
-
     post "/admin/journals/covers/sync" => "discourse_journals/admin_covers#sync",
          :constraints => AdminConstraint.new
     post "/admin/journals/covers/pause" => "discourse_journals/admin_covers#pause",
@@ -590,9 +586,6 @@ after_initialize do
 
     delete "/admin/journals/delete_all" => "discourse_journals/admin_mapping#delete_all",
            :constraints => AdminConstraint.new
-
-    # Public: site header banner impression/click tracking (anonymous allowed)
-    post "/journals/promo/track" => "discourse_journals/promo#track"
 
     # Public: fast journal title / ISSN lookup behind the journal page search box.
     get "/journals/search" => "discourse_journals/search#index"

@@ -7,8 +7,6 @@ zh_CN:
     discourse_journals_api_rate_limit: "调用上游 API 的速率上限（每秒请求数）。分析与同步各自共享一个限流器。"
     discourse_journals_cover_sync_rate_limit: "封面同步的速率上限（每秒请求数）。封面同步对每本期刊只发一次轻量的 HEAD 请求，因此可以比 {{setting:discourse_journals_api_rate_limit}} 更快。"
     discourse_journals_submission_proxy_enabled: "由论坛代理下载上游的投稿须知 / LaTeX 模板。上游这两个地址需要 API 密钥，浏览器无法直接携带，关闭后档案页不再显示下载链接。"
-    discourse_journals_banner_enabled: "在全站头部下方显示 Scholay 推广横幅。"
-    discourse_journals_banner_url: "点击横幅时打开的链接（新标签页打开）。留空则横幅不可点击。"
     discourse_journals_title_suffix: "SEO 标题后缀"
     discourse_journals_meta_description: "期刊话题的 meta description 模板。可用占位符: {{summary}}（按影响因子、分区、ISSN、出版商、开放获取、发文与被引等数据自动生成的一段简介）, {{title}}, {{issn}}, {{publisher}}, {{category}}, {{tags}}, {{site_name}}"
     discourse_journals_meta_keywords: "期刊话题的 meta keywords 模板。可用占位符: {{title}}, {{issn}}, {{publisher}}, {{category}}, {{tags}}, {{site_name}}"

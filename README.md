@@ -1,6 +1,6 @@
 # 📚 Discourse Journals Plugin
 
-学术期刊统一档案系统 —— 把上游期刊数据库（`journal.scholay.com` 的开放 API）镜像为 Discourse 某个分类下的话题：**一本期刊 = 一个话题**，首帖是服务端渲染的结构化期刊档案页，并叠加 SEO 增强与顶部推广横幅。
+学术期刊统一档案系统 —— 把上游期刊数据库（`journal.scholay.com` 的开放 API）镜像为 Discourse 某个分类下的话题：**一本期刊 = 一个话题**，首帖是服务端渲染的结构化期刊档案页，并叠加 SEO 增强。
 
 > ⚠️ 本插件为 scholay 站点定制，面向单一中文站运行；后台进度/错误文案目前为硬编码中文。
 
@@ -107,8 +107,7 @@
 - `POST /admin/journals/mapping/analyze|pause|restart` · `GET /admin/journals/mapping/status|details`
 - `POST /admin/journals/mapping/apply|apply_pause|apply_resume` · `GET /admin/journals/mapping/apply_status`
 - `POST /admin/journals/covers/sync|pause|resume` · `GET /admin/journals/covers/status`（封面同步，见下节）
-- `GET /admin/journals/promo_stats` · `DELETE /admin/journals/delete_all`
-- `POST /journals/promo/track`（**公开、匿名**，白名单 + 每 IP 120 次/分限流，用于顶部横幅曝光/点击埋点，按「天 × slide」聚合无 PII；当前唯一合法 slide 是 `banner`）。
+- `DELETE /admin/journals/delete_all`
   前端用 `navigator.sendBeacon` 发送：该端点不校验 CSRF，而 Discourse 的 `ajax()` 会先取一次 `/session/csrf`，曾让每次曝光变成两个请求。
 - `GET /journals/search?q=`（**公开、匿名**，每 IP 60 次/分限流）：期刊页搜索框的下拉结果。按 ISSN-L 精确匹配 + 标题按词
   子串匹配（`idx_dj_topics_title_trgm` trigram 索引，毫秒级），最多 8 条。不走 core 全文搜索——在几十万期刊帖子上它要数秒、
@@ -159,7 +158,7 @@ MessageBus 频道：`/journals/mapping`、`/journals/mapping-apply`、`/journals
 - 期刊话题默认全部关闭（`discourse_journals_close_topics`），而 core 的随机推荐只取未关闭话题，期刊分类的随机池因此恒为空、
   core 永远缓存不上，每次打开期刊页都会对 `topics` 全表做一次 `ORDER BY RANDOM()`（线上 36 万期刊时约 60ms、3 个进程）。
   `RandomTopicSelectorPatch` 在话题关闭时对期刊分类直接返回空，全站随机推荐照常补位。
-  站内推广只剩全站头部下方的 `below-site-header/scholay-banner`（`discourse_journals_banner_enabled` 控制）；右侧导航区那个轮播广告已移除。
+  全站头部下方的 Scholay 推广横幅及其曝光/点击统计已移除，升级时迁移会删除 `discourse_journals_promo_stats` 表和两个横幅设置。
 - SEO：title 关键词、meta description/keywords、schema.org `Periodical` JSON-LD（有投稿体验数据时附
   `aggregateRating`）；期刊页服务端注入 CSS 隐藏 sidebar。
   爬虫看不到前端的「相关期刊」卡片，所以 crawler 视图在帖子后服务端输出 12 个相关期刊链接（`RelatedJournalLinks`，复用推荐打分，缓存 1 天），
@@ -172,10 +171,10 @@ MessageBus 频道：`/journals/mapping`、`/journals/mapping-apply`、`/journals
 
 ```
 app/
-  models/discourse_journals/       mapping_analysis.rb（三阶段状态机）· promo_stat.rb ·
+  models/discourse_journals/       mapping_analysis.rb（三阶段状态机）·
                                    cover_sync.rb（封面同步状态）
   controllers/discourse_journals/  admin_mapping_controller.rb · admin_covers_controller.rb ·
-                                   promo_controller.rb · submission_controller.rb（投稿须知/模板下载代理） ·
+                                   submission_controller.rb（投稿须知/模板下载代理） ·
                                    index_now_controller.rb（IndexNow 验证文件）
   services/discourse_journals/     api_client（唯一出网口，负责鉴权/重试/限流）· title_matcher ·
                                    api_data_transformer · field_normalizer ·
@@ -191,7 +190,7 @@ app/
 assets/javascripts/discourse/      admin controller/template · connectors · components · initializers
 assets/stylesheets/common/         discourse-journals.scss（档案页）· discourse-journals-admin.scss（后台）
 config/                            settings.yml · locales/{client,server}.{en,zh_CN}.yml
-db/migrate · db/post_migrate       mapping_analyses / promo_stats 表与部分索引
+db/migrate · db/post_migrate       mapping_analyses 等表与部分索引
 lib/tasks/                         discourse_journals:backfill_normalized_title_keys
 ```
 

@@ -4,9 +4,6 @@ zh_CN:
       title: "期刊库"
       nav_title: "章节导航"
       suggested_title: "相关期刊"
-      promo:
-        titles:
-          banner: "顶部横幅"
       search:
         placeholder: "搜索期刊（输入名称、ISSN、出版商...）"
         no_results: "没有找到相关期刊"
@@ -95,19 +92,6 @@ zh_CN:
             legacy_cleaned: "清理失效数据"
             skipped: "无需探测"
             errors: "错误"
-        stats:
-          heading: "跳转入口统计"
-          description: "章节导航上方跳转入口的每日曝光、点击与点击率（CTR）。"
-          range_7: "7 天"
-          range_30: "30 天"
-          range_90: "90 天"
-          impressions: "曝光"
-          clicks: "点击"
-          ctr: "点击率"
-          total: "总计"
-          axis_count: "数量"
-          loading: "加载中..."
-          no_data: "暂无跳转入口数据。"
         danger:
           heading: "危险操作"
           delete_all: "删除全部"
