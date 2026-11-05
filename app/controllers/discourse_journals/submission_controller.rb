@@ -9,7 +9,10 @@ module DiscourseJournals
   # server-side and hand the bytes to the browser, which is what this does.
   #
   # Only the two documented submission paths are reachable, the journal id must
-  # be an integer, and downloads are rate limited per IP.
+  # be an integer, and downloads are rate limited per IP. Crawlers are refused
+  # before the upstream fetch: they find these links on every journal page and
+  # made up ~99% of the traffic, each request holding a web worker for a full
+  # file download that nothing indexes.
   class SubmissionController < ::ApplicationController
     requires_plugin DiscourseJournals::PLUGIN_NAME
 
@@ -27,6 +30,11 @@ module DiscourseJournals
     def show
       raise Discourse::NotFound unless SiteSetting.discourse_journals_submission_proxy_enabled
       raise Discourse::NotFound unless ApiClient.configured?
+
+      response.headers["X-Robots-Tag"] = "noindex, nofollow"
+      if CrawlerDetection.crawler?(request.user_agent, request.env["HTTP_VIA"])
+        return head :forbidden
+      end
 
       kind_name = params[:kind].to_s
       kind = KINDS[kind_name]
@@ -62,12 +70,14 @@ module DiscourseJournals
       uri = URI("#{SiteSetting.discourse_journals_api_base_url}/api/open/journals/#{api_id}/submission/#{kind}")
       result = nil
 
+      # The whole fetch holds a web worker, so give up on a slow upstream early
+      # rather than let a handful of stuck downloads tie up every worker.
       Net::HTTP.start(
         uri.host,
         uri.port,
         use_ssl: uri.scheme == "https",
-        open_timeout: 10,
-        read_timeout: 30,
+        open_timeout: 5,
+        read_timeout: 15,
       ) do |http|
         request = Net::HTTP::Get.new(uri.request_uri)
         request["X-API-Key"] = ApiClient.api_key

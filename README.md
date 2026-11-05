@@ -116,6 +116,9 @@
   ≤25 MB）。上游这两个下载地址在 `/api/open` 下、需要 `X-API-Key`，浏览器 `<a download>` 直连必然 401，
   因此由服务端带密钥取回后转发 —— 这也是上游文档给出的推荐做法。可用
   `discourse_journals_submission_proxy_enabled` 关掉（关掉后档案页不再渲染下载链接）。
+  每个期刊页都带这两个链接，爬虫曾占到这个接口 99% 的流量，每次都要完整拉一遍上游文件：现在爬虫（core
+  `CrawlerDetection`）直接 403、不碰上游，响应一律带 `X-Robots-Tag: noindex`，robots.txt 也对所有爬虫组
+  `Disallow: /journals/*/submission/`。注意站点若在后台保存过自定义 robots.txt，插件加的规则不会生效。
 
 Jobs：`AnalyzeMapping`、`ApplyMapping`（`retry: 0`）、`DeleteAllJournals`、`SyncCovers`（`retry: 0`）。
 MessageBus 频道：`/journals/mapping`、`/journals/mapping-apply`、`/journals/delete`、`/journals/cover-sync`。

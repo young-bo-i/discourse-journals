@@ -421,15 +421,21 @@ after_initialize do
     ""
   end
 
-  # Crawlers that render journal pages also fire core's page-view beacons,
-  # spending their per-site request budget on URLs that are never indexed.
+  # Crawlers that render journal pages also fire core's page-view beacons and
+  # follow the submission download links, spending their per-site request
+  # budget on URLs that are never indexed (each download also costs a full
+  # upstream fetch).
   on(:robots_info) do |robots_info|
-    beacon_paths = [Discourse.beacon_pv_tracking_path, "#{Discourse.base_path}/pageview"]
+    unindexed_paths = [
+      Discourse.beacon_pv_tracking_path,
+      "#{Discourse.base_path}/pageview",
+      "#{Discourse.base_path}/journals/*/submission/",
+    ]
     deny_all = "#{Discourse.base_path}/"
 
     robots_info[:agents].each do |agent|
       next if agent[:disallow].include?(deny_all)
-      agent[:disallow] = agent[:disallow] | beacon_paths
+      agent[:disallow] = agent[:disallow] | unindexed_paths
     end
   end
 

@@ -49,12 +49,14 @@ describe "Journal page SEO" do
     )
   end
 
-  it "keeps every crawler group away from page view beacons" do
+  it "keeps every crawler group away from page view beacons and submission downloads" do
     get "/robots.txt"
 
     groups =
       response.body.split("User-agent:").select { |group| group.include?("Disallow: /admin/") }
-    expect(groups).to all(include("Disallow: /srv/pv", "Disallow: /pageview"))
+    expect(groups).to all(
+      include("Disallow: /srv/pv", "Disallow: /pageview", "Disallow: /journals/*/submission/"),
+    )
     expect(groups.size).to be >= 2
   end
 end
