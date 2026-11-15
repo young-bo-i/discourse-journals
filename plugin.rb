@@ -23,6 +23,7 @@ add_admin_route "discourse_journals.title", "discourse-journals"
 after_initialize do
   require_relative "app/models/discourse_journals/mapping_analysis"
   require_relative "app/models/discourse_journals/cover_sync"
+  require_relative "app/models/discourse_journals/comment_post"
   require_relative "app/services/discourse_journals/api_rate_limiter"
   require_relative "app/services/discourse_journals/api_client"
   require_relative "app/services/discourse_journals/cover_url"
@@ -50,10 +51,18 @@ after_initialize do
   require_relative "app/services/discourse_journals/journal_title_search"
   require_relative "app/services/discourse_journals/topic_cover_applier"
   require_relative "app/services/discourse_journals/cover_syncer"
+  require_relative "app/services/discourse_journals/comment_author"
+  require_relative "app/services/discourse_journals/comment_source_note"
+  require_relative "app/services/discourse_journals/comment_bot"
+  require_relative "app/services/discourse_journals/comment_post_builder"
+  require_relative "app/services/discourse_journals/comment_syncer"
+  require_relative "app/services/discourse_journals/comment_sync_state"
   require_relative "app/jobs/regular/discourse_journals/analyze_mapping"
   require_relative "app/jobs/regular/discourse_journals/apply_mapping"
   require_relative "app/jobs/regular/discourse_journals/delete_all_journals"
   require_relative "app/jobs/regular/discourse_journals/sync_covers"
+  require_relative "app/jobs/regular/discourse_journals/sync_comments"
+  require_relative "app/jobs/regular/discourse_journals/rename_comment_authors"
   require_relative "app/jobs/scheduled/discourse_journals/submit_index_now"
   require_relative "app/jobs/scheduled/discourse_journals/rerender_layout"
 
@@ -65,6 +74,7 @@ after_initialize do
   Topic.register_custom_field_type("discourse_journals_normalized_title_key", :string)
   Topic.register_custom_field_type("discourse_journals_api_id", :string)
   Topic.register_custom_field_type("discourse_journals_outdated", :string)
+  Post.register_custom_field_type(DiscourseJournals::CommentAuthor::FIELD, :json)
 
   module ::DiscourseJournals
     # The canonical journal custom-field list lives in JournalUpserter
@@ -280,6 +290,25 @@ after_initialize do
       object.image_url
   end
 
+  # Collected comments are all posted by one bot account; each reply carries the
+  # anonymous author it is shown under (see CommentAuthor).
+  topic_view_post_custom_fields_allowlister { [DiscourseJournals::CommentAuthor::FIELD] }
+
+  add_to_serializer(
+    :post,
+    :dj_comment_author,
+    include_condition: -> { post_custom_fields[DiscourseJournals::CommentAuthor::FIELD].present? },
+  ) { DiscourseJournals::CommentAuthor.display(post_custom_fields[DiscourseJournals::CommentAuthor::FIELD]) }
+
+  add_to_serializer(
+    :post,
+    :dj_comment_source,
+    include_condition: -> do
+      DiscourseJournals::CommentSourceNote.enabled? &&
+        post_custom_fields[DiscourseJournals::CommentAuthor::FIELD].present?
+    end,
+  ) { DiscourseJournals::CommentSourceNote.display(post_custom_fields[DiscourseJournals::CommentAuthor::FIELD]) }
+
   register_modifier(:meta_data_content) do |content, type, context|
     next content unless SiteSetting.discourse_journals_enabled
     next content unless type == :title || type == :description
@@ -430,6 +459,16 @@ after_initialize do
   # follow the submission download links, spending their per-site request
   # budget on URLs that are never indexed (each download also costs a full
   # upstream fetch).
+  on(:site_setting_changed) do |name|
+    if %i[
+         discourse_journals_comment_author_modifiers
+         discourse_journals_comment_author_nouns
+         discourse_journals_comment_author_suffixes
+       ].include?(name)
+      Jobs.enqueue(Jobs::DiscourseJournals::RenameCommentAuthors)
+    end
+  end
+
   on(:robots_info) do |robots_info|
     unindexed_paths = [
       Discourse.beacon_pv_tracking_path,
@@ -593,6 +632,11 @@ after_initialize do
     post "/admin/journals/covers/resume" => "discourse_journals/admin_covers#resume",
          :constraints => AdminConstraint.new
     get "/admin/journals/covers/status" => "discourse_journals/admin_covers#status",
+        :constraints => AdminConstraint.new
+
+    post "/admin/journals/comments/sync" => "discourse_journals/admin_comments#sync",
+         :constraints => AdminConstraint.new
+    get "/admin/journals/comments/status" => "discourse_journals/admin_comments#status",
         :constraints => AdminConstraint.new
 
     delete "/admin/journals/delete_all" => "discourse_journals/admin_mapping#delete_all",

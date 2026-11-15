@@ -1,6 +1,8 @@
 zh_CN:
   js:
     discourse_journals:
+      comment_source:
+        view_original: "查看原文"
       title: "期刊库"
       nav_title: "章节导航"
       suggested_title: "相关期刊"
@@ -93,6 +95,27 @@ zh_CN:
             unchanged: "无需变更"
             legacy_cleaned: "清理失效数据"
             skipped: "无需探测"
+            errors: "错误"
+        comments:
+          heading: "期刊评论同步"
+          description: "从上游拉取期刊的投稿评论，按原始时间写成期刊话题下的回复。所有回复由一个收录账号发布，各自显示匿名作者名，末尾注明来源与原发布时间。测试阶段只同步填写的期刊，或前若干本尚未同步、且有评论的期刊。"
+          topic_ids: "期刊话题 ID"
+          topic_ids_placeholder: "多个用逗号分隔；留空则按数量选取"
+          limit: "期刊数量"
+          start: "同步期刊评论"
+          confirm_start: "确定要同步期刊评论吗？会向上游逐本拉取评论并写成回复。"
+          starting: "正在启动..."
+          progress: "已处理 %{processed} / %{total} 本期刊"
+          completed: "评论同步完成"
+          failed: "评论同步失败"
+          stats:
+            journals: "已同步期刊"
+            created: "新增回复"
+            updated: "更新回复"
+            deleted: "删除回复"
+            unchanged: "无需变更"
+            skipped: "已在其他期刊"
+            held: "删除待确认"
             errors: "错误"
         danger:
           heading: "危险操作"

@@ -702,3 +702,31 @@
     color: var(--primary);
   }
 }
+
+.journals-comment-sync {
+  &__desc {
+    margin: 0 0 16px;
+    color: var(--primary-medium);
+    font-size: 0.9em;
+  }
+
+  &__progress {
+    margin-top: 16px;
+    padding: 16px;
+    background: var(--primary-very-low);
+    border-radius: 8px;
+
+    // The shared track uses the same shade as this panel and would vanish.
+    .progress-track {
+      background: var(--primary-low);
+    }
+
+    .progress-status {
+      margin-bottom: 0;
+    }
+  }
+
+  &__stats {
+    margin-top: 12px;
+  }
+}

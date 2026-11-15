@@ -6,6 +6,10 @@ en:
     discourse_journals_api_key: "API key for the upstream journal API (looks like jk_…), generated on the journal platform's API keys page. Every /api/open endpoint requires it; analysis and sync fail immediately when it is blank."
     discourse_journals_api_rate_limit: "Maximum request rate against the upstream API, in requests per second. Analysis and sync each share one limiter."
     discourse_journals_cover_sync_rate_limit: "Maximum request rate of cover sync, in requests per second. Cover sync sends one lightweight HEAD request per journal, so it can run faster than {{setting:discourse_journals_api_rate_limit}}."
+    discourse_journals_comment_author_modifiers: "First half (modifier) of collected comments' anonymous author names, Chinese or English. Each comment always combines the same modifier with one of {{setting:discourse_journals_comment_author_nouns}}, picked by its code; a name repeated within a topic gets random capital letters appended. Changing it regenerates every collected comment's name in the background."
+    discourse_journals_comment_author_nouns: "Second half (noun) of collected comments' anonymous author names, Chinese or English, combined at random with {{setting:discourse_journals_comment_author_modifiers}}. More words mean fewer repeats."
+    discourse_journals_comment_author_suffixes: "Optional suffixes for collected comments' anonymous author names, Chinese or English, appended after {{setting:discourse_journals_comment_author_nouns}}. A comment may also draw no suffix; leave empty for two-part names."
+    discourse_journals_comment_source_note_enabled: "Show a source note under collected comments (source site, original publication time and a link to the original). Turning it off hides the note on every collected comment at once, without re-syncing."
     discourse_journals_submission_proxy_enabled: "Proxy submission guideline / LaTeX template downloads through the forum. The upstream URLs require the API key, which a browser cannot send; turning this off hides the download links."
     discourse_journals_title_suffix: "Title suffix for SEO (only in HTML title tag)"
     discourse_journals_meta_description: "Meta description template for journal topics. Placeholders: {{summary}} (a generated overview from impact factor, quartiles, ISSN, publisher, open access, papers and citations), {{title}}, {{issn}}, {{publisher}}, {{category}}, {{tags}}, {{site_name}}"
@@ -59,6 +63,56 @@ en:
         probes_failing: "Every cover request in the last batch failed, so the sync stopped. Check the upstream service, then resume."
         unexpected_status: "Unexpected response %{status} for the cover of journal %{api_id}."
         unexpected_etag: "The cover of journal %{api_id} came back without a valid version tag."
+    comment_sync:
+      bot_name: "Collected reviews"
+      bot_bio: "This account collects journal submission reviews from public sources. Every reply ends with its source and original publication time."
+      errors:
+        already_running: "A comment sync is already running."
+        apply_running: "Mapping apply is running. Wait for it to finish before syncing comments."
+        too_many:
+          one: "At most %{count} journal can be synced at once."
+          other: "At most %{count} journals can be synced at once."
+        interrupted: "The comment sync was interrupted."
+    comment_post:
+      note: "Source: %{source} · %{published}"
+      unknown_source: "Unknown source"
+      translation: "Chinese translation"
+      published:
+        at: "Originally published %{date}"
+        month: "Originally published %{year}-%{month}"
+        year: "Originally published %{year}"
+        unknown: "Original publication date unknown"
+      status:
+        accepted: "Accepted"
+        accepted_after_revision: "Accepted after revision"
+        rejected: "Rejected"
+        desk_rejected: "Desk rejected"
+        under_review: "Under review"
+        revision: "In revision"
+        submitted: "Submitted"
+        withdrawn: "Withdrawn"
+      metrics:
+        first_review_days:
+          one: "First review %{count} day"
+          other: "First review %{count} days"
+        total_handling_days:
+          one: "Total handling %{count} day"
+          other: "Total handling %{count} days"
+        review_rounds:
+          one: "%{count} review round"
+          other: "%{count} review rounds"
+        publication_delay_days:
+          one: "Acceptance to publication %{count} day"
+          other: "Acceptance to publication %{count} days"
+      ratings:
+        overall: "Overall %{value}/5"
+        speed: "Speed %{value}/5"
+        communication: "Communication %{value}/5"
+        review_quality: "Review quality %{value}/5"
+        cost: "Cost %{value}/5"
+      fees:
+        fee_page: "Page charge %{value}"
+        fee_review: "Review fee %{value}"
     render:
       unknown_journal: "Unknown Journal"
       outdated_notice: "This journal record is outdated. Please search again for the latest information."

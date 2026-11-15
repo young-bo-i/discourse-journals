@@ -194,4 +194,69 @@ describe DiscourseJournals::ApiClient do
       )
     end
   end
+
+  describe "#fetch_journal_comments" do
+    def stub_comments(id, status: 200, body: {}, headers: {}, query: { "pageSize" => "100" })
+      stub_request(:get, "https://journal.example.com/api/open/journals/#{id}/comments")
+        .with(query: query, headers: { "X-API-Key" => "jk_test_key" })
+        .to_return(
+          status: status,
+          body: body.to_json,
+          headers: { "Content-Type" => "application/json" }.merge(headers),
+        )
+    end
+
+    it "returns one page of comments and the cursor for the next one" do
+      stub_comments(
+        988,
+        query: {
+          "pageSize" => "100",
+          "after" => "cursor-1",
+        },
+        body: {
+          success: true,
+          data: {
+            comments: [{ "record_id" => "letpub-comment-1" }],
+            nextCursor: "cursor-2",
+            total: 286,
+          },
+        },
+      )
+
+      page = described_class.new.fetch_journal_comments(988, after: "cursor-1")
+
+      expect(page.to_h).to eq(
+        status: :ok,
+        api_id: 988,
+        comments: [{ "record_id" => "letpub-comment-1" }],
+        next_cursor: "cursor-2",
+        total: 286,
+      )
+    end
+
+    it "returns the id a merged journal's comments moved to" do
+      stub_comments(
+        207,
+        status: 301,
+        headers: {
+          "Location" => "/api/open/journals/258/comments?pageSize=100",
+        },
+      )
+
+      page = described_class.new.fetch_journal_comments(207)
+
+      expect(page.to_h.slice(:status, :api_id)).to eq(status: :redirected, api_id: 258)
+    end
+
+    it "tells a journal without comments apart from a missing or deleted one" do
+      stub_comments(2, status: 404, body: { success: false, error: "no_comments" })
+      stub_comments(3, status: 404, body: { success: false, error: "journal_not_found" })
+      stub_comments(4, status: 410, body: { success: false, error: "journal_deleted" })
+      client = described_class.new
+
+      statuses = [2, 3, 4].map { |id| client.fetch_journal_comments(id).status }
+
+      expect(statuses).to eq(%i[no_comments not_found gone])
+    end
+  end
 end

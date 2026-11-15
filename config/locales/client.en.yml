@@ -1,6 +1,8 @@
 en:
   js:
     discourse_journals:
+      comment_source:
+        view_original: "View original"
       title: "Journals"
       nav_title: "Navigation"
       suggested_title: "Related Journals"
@@ -93,6 +95,27 @@ en:
             unchanged: "Already current"
             legacy_cleaned: "Stale data removed"
             skipped: "Not checked"
+            errors: "Errors"
+        comments:
+          heading: "Journal comment sync"
+          description: "Fetch submission comments from upstream and post them as replies on the journal topics, in their original order. One collection account posts every reply; each shows its own anonymous author and ends with its source and original publication time. While testing, only the listed journals are synced, or the first few journals that have comments and none synced yet."
+          topic_ids: "Journal topic IDs"
+          topic_ids_placeholder: "Separate several with commas; leave blank to pick by count"
+          limit: "Number of journals"
+          start: "Sync journal comments"
+          confirm_start: "Sync journal comments now? Each journal's comments are fetched from upstream and posted as replies."
+          starting: "Starting..."
+          progress: "Processed %{processed} of %{total} journals"
+          completed: "Comment sync finished"
+          failed: "Comment sync failed"
+          stats:
+            journals: "Journals synced"
+            created: "Replies added"
+            updated: "Replies updated"
+            deleted: "Replies removed"
+            unchanged: "Unchanged"
+            skipped: "Carried by another journal"
+            held: "Removals held for review"
             errors: "Errors"
         danger:
           heading: "Danger Zone"

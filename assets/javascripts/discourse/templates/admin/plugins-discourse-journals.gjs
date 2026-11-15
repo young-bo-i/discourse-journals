@@ -3,6 +3,7 @@ import { on } from "@ember/modifier";
 import { gt, or } from "discourse/truth-helpers";
 import DButton from "discourse/ui-kit/d-button";
 import { i18n } from "discourse-i18n";
+import JournalsCommentSync from "discourse/plugins/discourse-journals/discourse/components/journals-comment-sync";
 import JournalsCoverSync from "discourse/plugins/discourse-journals/discourse/components/journals-cover-sync";
 
 export default <template>
@@ -694,6 +695,8 @@ export default <template>
       {{/if}}
 
       <JournalsCoverSync @applying={{@controller.applying}} />
+
+      <JournalsCommentSync @applying={{@controller.applying}} />
 
       <section class="journals-section danger-section">
         <div class="section-header">

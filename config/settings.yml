@@ -22,6 +22,20 @@ plugins:
     type: integer
     min: 1
     max: 100
+  discourse_journals_comment_author_modifiers:
+    default: "安静的|勤奋的|熬夜的|早起的|快乐的|认真的|佛系|路过的|努力的|淡定的|温柔的|倔强的|好奇的|慢热的|元气|低调的|执着的|微笑的|沉默的|清醒的|发呆的|爱喝咖啡的|迷糊的|追光的|爱读书的|不秃头的|会做饭的|想毕业的|爱跑步的|晒太阳的|写论文的|改稿的|等审稿的|不加班的|爱旅行的|喝奶茶的|怕冷的|爱吃辣的|睡不醒的|慢吞吞的|Silent|Lazy|Happy|Brave|Curious|Sleepy|Lucky|Gentle|Clever|Quiet|Busy|Calm|Cosmic|Midnight|Golden|Little|Wandering|Rainy|Swift|Humble|Fuzzy|Sunny|Mellow|Nimble|Witty|Bold|Cozy|Shy|Jolly|Dreamy"
+    type: list
+    list_type: simple
+  discourse_journals_comment_author_nouns:
+    default: "熊猫|海豚|柠檬|番茄|小鹿|刺猬|考拉|企鹅|松鼠|橘猫|仓鼠|狐狸|鲸鱼|蜗牛|学者|研究僧|博士狗|青椒|咸鱼|星星|月亮|西瓜|土豆|云朵|柴犬|海獭|树懒|羊驼|麋鹿|白鸽|萤火虫|蒲公英|向日葵|芒果|椰子|汤圆|饺子|包子|小笼包|年糕|Panda|Fox|Owl|Otter|Koala|Penguin|Tiger|Falcon|Scholar|Coder|Pilot|Walnut|Mango|Pebble|Comet|Maple|Lotus|Wombat|Sparrow|Badger|Llama|Raccoon|Dolphin|Hedgehog|Pudding|Muffin|Cactus|Pixel|Nova|Breeze"
+    type: list
+    list_type: simple
+  discourse_journals_comment_author_suffixes:
+    default: "同学|君|酱|本尊|在读|学长|学姐|小号|一号|二号|本酱|大人|吖|_Lab|_2024|_99|_CN|007|Jr|Pro|Max|Plus|Ace|Zero"
+    type: list
+    list_type: simple
+  discourse_journals_comment_source_note_enabled:
+    default: true
   discourse_journals_submission_proxy_enabled:
     default: true
     client: true

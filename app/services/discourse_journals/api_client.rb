@@ -50,6 +50,13 @@ module DiscourseJournals
     # journal was merged into.
     CoverProbe = Struct.new(:status, :api_id, :content_hash, keyword_init: true)
 
+    # status: :ok, :redirected (api_id is the merge target), :no_comments,
+    # :not_found or :gone. Only :ok and :no_comments describe the comment list.
+    CommentsPage =
+      Struct.new(:status, :api_id, :comments, :next_cursor, :total, keyword_init: true)
+
+    COMMENTS_PAGE_SIZE = 100
+
     MAX_RETRIES = 5
     RETRYABLE = [
       Net::OpenTimeout,
@@ -229,6 +236,45 @@ module DiscourseJournals
                 status: response.code,
                 api_id: api_id,
               )
+      end
+    end
+
+    # One page of a journal's comments, newest first; pass `next_cursor` back as
+    # `after` until it is nil.
+    def fetch_journal_comments(api_id, after: nil, page_size: COMMENTS_PAGE_SIZE)
+      api_id = api_id.to_i
+      path = "/api/open/journals/#{api_id}/comments"
+      query = { pageSize: page_size }
+      query[:after] = after if after.present?
+      request = Net::HTTP::Get.new("#{path}?#{URI.encode_www_form(query)}")
+      request["Accept"] = "application/json"
+      response = perform(request, path)
+
+      case response.code.to_i
+      when 200
+        body = safe_parse(response.body)
+        raise Error, "API 返回错误: #{body["error"] || body["message"] || "Unknown"} (#{path})" if !body["success"]
+
+        data = body["data"] || {}
+        CommentsPage.new(
+          status: :ok,
+          api_id: api_id,
+          comments: data["comments"] || [],
+          next_cursor: data["nextCursor"].presence,
+          total: data["total"].to_i,
+        )
+      when 301, 302, 307, 308
+        target = response["Location"].to_s[%r{/journals/(\d+)/comments}, 1]
+        raise Error, "API 重定向缺少目标 id (#{path})" if target.nil?
+
+        CommentsPage.new(status: :redirected, api_id: target.to_i)
+      when 404
+        status = safe_parse(response.body)["error"] == "no_comments" ? :no_comments : :not_found
+        CommentsPage.new(status: status, api_id: api_id, comments: [])
+      when 410
+        CommentsPage.new(status: :gone, api_id: api_id)
+      else
+        raise Error, "API 请求失败: #{response.code} #{response.message} (#{path})"
       end
     end
 

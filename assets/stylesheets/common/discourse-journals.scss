@@ -1,3 +1,5 @@
+@use "lib/viewport";
+
 // Journal topic pages. The first post's cooked HTML is the journal archive
 // (MasterRecordRenderer); colors come from core variables plus the tier
 // colors in color-definitions.scss, so one cooked post works in every scheme.
@@ -1660,5 +1662,40 @@ body.dj-journal-page {
     padding: 1rem;
     text-align: center;
     color: var(--primary-medium);
+  }
+}
+
+// Collected comments are posted by one bot account but shown under their own
+// anonymous author, with no profile or user card behind the name.
+.topic-post.dj-collected-comment {
+  .dj-collected-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: hsl(var(--dj-author-hue, 210) 42% 52%);
+    color: #fff;
+    font-size: calc(var(--dj-author-size, 45px) * 0.42);
+    font-weight: 600;
+    line-height: 1;
+    user-select: none;
+  }
+
+  .names {
+    cursor: default;
+  }
+
+  .dj-comment-source {
+    margin: 0 0 var(--space-2);
+    color: var(--primary-medium);
+    font-size: var(--font-down-1);
+
+    @include viewport.from(sm) {
+      padding: 0 var(--topic-body-width-padding);
+    }
+
+    &__separator {
+      margin: 0 0.35em;
+    }
   }
 }

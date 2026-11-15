@@ -6,6 +6,10 @@ zh_CN:
     discourse_journals_api_key: "上游期刊 API 的访问密钥（形如 jk_…），在期刊平台管理控制台「API 密钥」页生成。/api/open 下的全部接口都需要它，留空则分析与同步会立即失败。"
     discourse_journals_api_rate_limit: "调用上游 API 的速率上限（每秒请求数）。分析与同步各自共享一个限流器。"
     discourse_journals_cover_sync_rate_limit: "封面同步的速率上限（每秒请求数）。封面同步对每本期刊只发一次轻量的 HEAD 请求，因此可以比 {{setting:discourse_journals_api_rate_limit}} 更快。"
+    discourse_journals_comment_author_modifiers: "收录评论匿名作者名的前半部分（修饰词），中英文均可。每条评论按自己的编号固定选一个修饰词和一个 {{setting:discourse_journals_comment_author_nouns}} 拼成名字；同一话题内重名时在后面追加随机大写字母。修改后后台任务会重新生成所有收录评论的名字。"
+    discourse_journals_comment_author_nouns: "收录评论匿名作者名的后半部分（名词），中英文均可，与 {{setting:discourse_journals_comment_author_modifiers}} 随机组合。词越多重名越少。"
+    discourse_journals_comment_author_suffixes: "收录评论匿名作者名的可选后缀，中英文均可，接在 {{setting:discourse_journals_comment_author_nouns}} 后面。每条评论也可能抽到「无后缀」；留空则名字只有两段。"
+    discourse_journals_comment_source_note_enabled: "在收录评论下方显示来源说明（来源站点、原发布时间与原文链接）。关闭后所有收录评论立即隐藏这一行，无需重新同步。"
     discourse_journals_submission_proxy_enabled: "由论坛代理下载上游的投稿须知 / LaTeX 模板。上游这两个地址需要 API 密钥，浏览器无法直接携带，关闭后档案页不再显示下载链接。"
     discourse_journals_title_suffix: "SEO 标题后缀"
     discourse_journals_meta_description: "期刊话题的 meta description 模板。可用占位符: {{summary}}（按影响因子、分区、ISSN、出版商、开放获取、发文与被引等数据自动生成的一段简介）, {{title}}, {{issn}}, {{publisher}}, {{category}}, {{tags}}, {{site_name}}"
@@ -59,6 +63,51 @@ zh_CN:
         probes_failing: "上一批封面请求全部失败，同步已停止。请检查上游服务后继续。"
         unexpected_status: "期刊 %{api_id} 的封面返回了意外的状态 %{status}。"
         unexpected_etag: "期刊 %{api_id} 的封面缺少有效的版本标识。"
+    comment_sync:
+      bot_name: "投稿经历收录"
+      bot_bio: "本账号收录公开来源的期刊投稿评价，每条回复末尾注明来源与原发布时间。"
+      errors:
+        already_running: "已有评论同步任务正在进行中。"
+        apply_running: "映射应用正在执行中，请等应用结束后再同步评论。"
+        too_many:
+          other: "一次最多同步 %{count} 本期刊。"
+        interrupted: "评论同步被中断。"
+    comment_post:
+      note: "来源：%{source} · %{published}"
+      unknown_source: "未知来源"
+      translation: "中文译文"
+      published:
+        at: "原发布于 %{date}"
+        month: "原发布于 %{year} 年 %{month} 月"
+        year: "原发布于 %{year} 年"
+        unknown: "原发布时间未知"
+      status:
+        accepted: "已录用"
+        accepted_after_revision: "修改后录用"
+        rejected: "拒稿"
+        desk_rejected: "直接拒稿"
+        under_review: "审稿中"
+        revision: "修改中"
+        submitted: "已投稿"
+        withdrawn: "已撤稿"
+      metrics:
+        first_review_days:
+          other: "首审 %{count} 天"
+        total_handling_days:
+          other: "总周期 %{count} 天"
+        review_rounds:
+          other: "审稿 %{count} 轮"
+        publication_delay_days:
+          other: "录用到见刊 %{count} 天"
+      ratings:
+        overall: "综合 %{value}/5"
+        speed: "速度 %{value}/5"
+        communication: "沟通 %{value}/5"
+        review_quality: "审稿质量 %{value}/5"
+        cost: "费用 %{value}/5"
+      fees:
+        fee_page: "版面费 %{value}"
+        fee_review: "审稿费 %{value}"
     render:
       unknown_journal: "未知期刊"
       outdated_notice: "此期刊信息已过时，建议重新搜索最新内容。"
