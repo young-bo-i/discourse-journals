@@ -1,235 +1,203 @@
 # frozen_string_literal: true
 
 module DiscourseJournals
+  # Static inline SVG for the journal page. Colors come from CSS classes
+  # (`dj-chart__*`) so one cooked post works under every site color scheme.
   class SvgChartBuilder
-    VIEWBOX_W = 340
-    VIEWBOX_H = 160
-    PAD_LEFT = 45
-    PAD_RIGHT = 10
-    PAD_TOP = 10
-    PAD_BOTTOM = 25
-    Y_TICKS = 5
-    FONT_SIZE = 11
+    WIDTH = 360
+    HEIGHT = 170
+    BAR_PAD = { l: 34, r: 6, t: 8, b: 22 }.freeze
+    LINE_PAD = { l: 34, r: 34, t: 14, b: 22 }.freeze
+    STAR_PATH = "M8 1.2l2 4.3 4.7.6-3.5 3.2.9 4.6L8 11.6l-4.1 2.3.9-4.6L1.3 6.1 6 5.5z"
 
-    def self.line_chart(points, color: "#7ac36a", width: VIEWBOX_W, height: VIEWBOX_H, years: nil)
-      return "" if points.nil? || points.size < 2
-      min_val, max_val = value_range(points)
-      coords = chart_coords(points, min_val, max_val, width, height)
-      path = coords.map { |x, y| "#{x.round(1)},#{y.round(1)}" }.join(" ")
+    # rows: [{ year:, total:, part: }]. `part` (e.g. open-access works) is drawn
+    # solid inside the faint `total` bar.
+    def self.bar_chart(rows, label:, partial_year: nil)
+      return "" if rows.blank?
 
-      svg_tag(width, height) do
-        parts = []
-        parts << grid_and_y_labels(min_val, max_val, width, height)
-        parts << x_labels(years, width, height) if years
-        parts << %(<polyline points="#{path}" fill="none" stroke="#{color}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />)
-        parts.join("\n    ")
-      end
-    end
+      max = nice_max(rows.map { |r| r[:total].to_f }.max)
+      inner_w = WIDTH - BAR_PAD[:l] - BAR_PAD[:r]
+      inner_h = HEIGHT - BAR_PAD[:t] - BAR_PAD[:b]
+      slot = inner_w / rows.size.to_f
+      bar_w = [slot * 0.62, 4].max
+      every = label_step(rows.size)
 
-    def self.area_chart(series_a, series_b, color_a: "rgba(122,195,106,0.5)", color_b: "rgba(56,133,200,0.35)", width: VIEWBOX_W, height: VIEWBOX_H, years: nil)
-      return "" if (series_a.nil? || series_a.size < 2) && (series_b.nil? || series_b.size < 2)
-
-      all_values = (series_a || []) + (series_b || [])
-      min_val, max_val = value_range(all_values)
-
-      svg_tag(width, height) do
-        parts = []
-        parts << grid_and_y_labels(min_val, max_val, width, height)
-        parts << x_labels(years, width, height) if years
-
-        [
-          [series_a, color_a],
-          [series_b, color_b],
-        ].each do |series, color|
-          next if series.nil? || series.size < 2
-          coords = chart_coords(series, min_val, max_val, width, height)
-          top_path = coords.map { |x, y| "#{x.round(1)} #{y.round(1)}" }.join(" L")
-          baseline_y = height - PAD_BOTTOM
-          parts << %(<path d="M#{coords.first[0].round(1)} #{baseline_y} L#{top_path} L#{coords.last[0].round(1)} #{baseline_y} Z" fill="#{color}" stroke="none" />)
+      marks =
+        rows.each_with_index.map do |row, i|
+          x = BAR_PAD[:l] + slot * i + (slot - bar_w) / 2
+          partial = row[:year] == partial_year ? " is-partial" : ""
+          parts = [
+            bar(x, bar_w, row[:total].to_f / max * inner_h, inner_h, "dj-chart__bar#{partial}"),
+          ]
+          part_h = row[:part].to_f / max * inner_h
+          if part_h.positive?
+            parts << bar(x, bar_w, part_h, inner_h, "dj-chart__bar dj-chart__bar--part#{partial}")
+          end
+          if i % every == 0 || i == rows.size - 1
+            parts << x_label(x + bar_w / 2, row[:year], row[:year] == partial_year)
+          end
+          parts.join
         end
 
-        parts.join("\n    ")
+      svg(label) { grid(BAR_PAD, max) + marks.join }
+    end
+
+    # points: [{ year:, value: }]. A partial (still running) year is joined with
+    # a dashed segment so its drop does not read as a real decline.
+    def self.line_chart(points, label:, partial_year: nil, digits: 0)
+      points = Array(points).reject { |p| p[:value].nil? }
+      return "" if points.size < 2
+
+      max = nice_max(points.map { |p| p[:value].to_f }.max)
+      inner_w = WIDTH - LINE_PAD[:l] - LINE_PAD[:r]
+      inner_h = HEIGHT - LINE_PAD[:t] - LINE_PAD[:b]
+      x = ->(i) { LINE_PAD[:l] + inner_w * i / (points.size - 1).to_f }
+      y = ->(v) { LINE_PAD[:t] + inner_h * (1 - v.to_f / max) }
+
+      settled = points.reject { |p| p[:year] == partial_year }
+      settled = points if settled.empty?
+      path =
+        settled
+          .each_with_index
+          .map { |p, i| "#{i.zero? ? "M" : "L"}#{r1(x.(i))},#{r1(y.(p[:value]))}" }
+          .join(" ")
+      baseline = LINE_PAD[:t] + inner_h
+
+      parts = [grid(LINE_PAD, max)]
+      if settled.size > 1
+        parts << %(<path class="dj-chart__area" d="#{path} L#{r1(x.(settled.size - 1))},#{baseline} L#{r1(x.(0))},#{baseline} Z"/>)
       end
-    end
-
-    def self.from_time_series(data, value_key:, years: nil, **opts)
-      return "" if data.nil? || data.size < 2
-      values = data.map { |d| d[value_key].to_f }
-      years ||= data.map { |d| d[:year] }.compact
-      line_chart(values, years: years.size == values.size ? years : nil, **opts)
-    end
-
-    def self.area_from_time_series(data, key_a:, key_b:, years: nil, **opts)
-      return "" if data.nil? || data.size < 2
-      series_a = data.map { |d| d[key_a].to_f }
-      series_b = data.map { |d| d[key_b].to_f }
-      years ||= data.map { |d| d[:year] }.compact
-      area_chart(series_a, series_b, years: years.size == series_a.size ? years : nil, **opts)
-    end
-
-    DONUT_COLORS = %w[#e77642 #3885c8 #7ac36a #9b59b6 #f1c40f #1abc9c #e74c3c #34495e].freeze
-
-    def self.donut(segments, size: 150, thickness: 28)
-      return "" if segments.nil? || segments.empty?
-
-      total = segments.sum { |s| s[:value].to_f }
-      return "" if total <= 0
-
-      r = (size / 2.0) - 2
-      inner_r = r - thickness
-      cx = cy = size / 2.0
-      circumference = 2 * Math::PI * r
-
-      parts = []
-      offset = 0.0
-
-      segments.each_with_index do |seg, i|
-        pct = seg[:value].to_f / total
-        dash = pct * circumference
-        gap = circumference - dash
-        color = DONUT_COLORS[i % DONUT_COLORS.size]
-
-        parts << %(<circle cx="#{cx}" cy="#{cx}" r="#{r.round(1)}" fill="none" stroke="#{color}" stroke-width="#{thickness}" ) +
-          %(stroke-dasharray="#{dash.round(2)} #{gap.round(2)}" stroke-dashoffset="#{(-offset).round(2)}" ) +
-          %(transform="rotate(-90 #{cx} #{cy})" />)
-        offset += dash
+      parts << %(<path class="dj-chart__line" d="#{path}"/>)
+      if settled.size < points.size
+        j = settled.size - 1
+        k = points.size - 1
+        parts << %(<path class="dj-chart__line dj-chart__line--partial" d="M#{r1(x.(j))},#{r1(y.(settled[j][:value]))} L#{r1(x.(k))},#{r1(y.(points[k][:value]))}"/>)
       end
 
-      parts << %(<circle cx="#{cx}" cy="#{cy}" r="#{inner_r.round(1)}" fill="var(--secondary, #fff)" />)
+      last = settled.last
+      lx = x.(settled.size - 1)
+      ly = y.(last[:value])
+      value = digits.positive? ? format("%.#{digits}f", last[:value].to_f) : compact(last[:value])
+      parts << %(<circle class="dj-chart__dot" cx="#{r1(lx)}" cy="#{r1(ly)}" r="3.5"/>)
+      parts << %(<text class="dj-chart__value" x="#{r1(lx)}" y="#{r1(ly - 9)}" text-anchor="middle">#{value}</text>)
 
-      %(<svg viewBox="0 0 #{size} #{size}" width="#{size}" height="#{size}" role="img" xmlns="http://www.w3.org/2000/svg">\n    #{parts.join("\n    ")}\n  </svg>)
+      every = label_step(points.size)
+      points.each_with_index do |p, i|
+        next unless i % every == 0 || i == points.size - 1
+        parts << x_label(x.(i), p[:year], p[:year] == partial_year)
+      end
+
+      svg(label) { parts.join }
     end
 
-    def self.progress_bar(percent, color: "#3885c8", width: 200, height: 18)
-      pct = percent.to_f.clamp(0, 100)
-      fill_w = (pct / 100.0 * width).round(1)
-      r = (height / 2.0).round(1)
+    def self.sparkline(values)
+      values = Array(values).compact.map(&:to_f)
+      return "" if values.size < 2
 
-      %(<svg viewBox="0 0 #{width} #{height}" width="100%" height="#{height}" role="img" xmlns="http://www.w3.org/2000/svg" style="font-family:system-ui,sans-serif">) +
-        %(<rect x="0" y="0" width="#{width}" height="#{height}" rx="#{r}" fill="currentColor" opacity="0.08" />) +
-        %(<rect x="0" y="0" width="#{fill_w}" height="#{height}" rx="#{r}" fill="#{color}" opacity="0.85" />) +
-        %(</svg>)
+      w = 120
+      h = 22
+      min, max = values.minmax
+      span = (max - min).nonzero? || 1
+      pts =
+        values.each_with_index.map do |v, i|
+          [i * (w - 6) / (values.size - 1).to_f + 3, h - 4 - (v - min) / span * (h - 8)]
+        end
+      d =
+        pts
+          .each_with_index
+          .map { |(px, py), i| "#{i.zero? ? "M" : "L"}#{r1(px)},#{r1(py)}" }
+          .join(" ")
+      lx, ly = pts.last
+
+      %(<svg class="dj-key__spark" viewBox="0 0 #{w} #{h}" aria-hidden="true"><path d="#{d}"/><circle cx="#{r1(lx)}" cy="#{r1(ly)}" r="2.4"/></svg>)
     end
 
-    def self.star_rating(value, max: 5, size: 16)
-      val = value.to_f.clamp(0, max)
-      stars = (0...max).map { |i|
-        fill = if val >= i + 1
-          "currentColor"
-        elsif val > i
-          "url(#dj-star-half-#{i})"
-        else
-          "none"
-        end
-        stroke = "currentColor"
-        half_pct = ((val - i).clamp(0, 1) * 100).round(0)
+    # Two identical rows of stars; the colored one is clipped by width, which
+    # needs no gradient ids and so stays valid when several render on a page.
+    def self.star_rating(value, label:)
+      pct = (value.to_f.clamp(0, 5) / 5 * 100).round(1)
+      stars = (0..4).map { |i| %(<path transform="translate(#{i * 16} 0)" d="#{STAR_PATH}"/>) }.join
+      row = %(<svg viewBox="0 0 80 16" aria-hidden="true">#{stars}</svg>)
 
-        defs = if val > i && val < i + 1
-          %(<defs><linearGradient id="dj-star-half-#{i}"><stop offset="#{half_pct}%" stop-color="currentColor"/><stop offset="#{half_pct}%" stop-color="transparent"/></linearGradient></defs>)
-        else
-          ""
-        end
+      %(<span class="dj-stars" role="img" aria-label="#{ERB::Util.html_escape(label)}"><span class="dj-stars__base">#{row}</span><span class="dj-stars__fill" style="width: #{pct}%">#{row}</span></span>)
+    end
 
-        x_offset = i * (size + 3)
-        %(<svg x="#{x_offset}" y="0" width="#{size}" height="#{size}" viewBox="0 0 24 24">#{defs}<path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" fill="#{fill}" stroke="#{stroke}" stroke-width="1.5" opacity="0.8"/></svg>)
-      }.join
-
-      total_w = max * (size + 3) - 3
-      %(<svg viewBox="0 0 #{total_w} #{size}" width="#{total_w}" height="#{size}" role="img" xmlns="http://www.w3.org/2000/svg">#{stars}</svg>)
+    def self.compact(value)
+      v = value.to_f
+      if v.abs >= 1_000_000
+        "#{trim(v / 1_000_000.0, 1)}M"
+      elsif v.abs >= 10_000
+        "#{(v / 1_000.0).round}K"
+      elsif v.abs >= 1_000
+        "#{trim(v / 1_000.0, 1)}K"
+      else
+        trim(v, 1).to_s
+      end
     end
 
     class << self
       private
 
-      def svg_tag(width, height, &block)
-        content = block.call
-        %(<svg viewBox="0 0 #{width} #{height}" role="img" xmlns="http://www.w3.org/2000/svg" style="font-family:system-ui,sans-serif">\n    #{content}\n  </svg>)
+      def svg(label)
+        %(<svg viewBox="0 0 #{WIDTH} #{HEIGHT}" role="img" aria-label="#{ERB::Util.html_escape(label)}">#{yield}</svg>)
       end
 
-      def value_range(values)
-        min_val = values.min
-        max_val = values.max
-        min_val = 0 if min_val > 0
-        max_val = 0 if max_val < 0
-        max_val = min_val + 1 if max_val == min_val
-        [min_val, max_val]
+      def grid(pad, max)
+        inner_h = HEIGHT - pad[:t] - pad[:b]
+        [0, 0.5, 1].map do |f|
+            y = r1(pad[:t] + inner_h * (1 - f))
+            %(<line class="dj-chart__grid" x1="#{pad[:l]}" x2="#{WIDTH - pad[:r]}" y1="#{y}" y2="#{y}"/>) +
+              %(<text class="dj-chart__axis" x="#{pad[:l] - 6}" y="#{r1(y + 3)}" text-anchor="end">#{compact(max * f)}</text>)
+          end
+          .join
       end
 
-      def chart_coords(values, min_val, max_val, width, height)
-        usable_w = width - PAD_LEFT - PAD_RIGHT
-        usable_h = height - PAD_TOP - PAD_BOTTOM
-        count = values.size
-
-        values.each_with_index.map do |val, i|
-          x = PAD_LEFT + (i.to_f / (count - 1)) * usable_w
-          y = PAD_TOP + (1.0 - (val - min_val).to_f / (max_val - min_val)) * usable_h
-          [x, y]
-        end
+      def bar(x, width, height, inner_h, css)
+        %(<rect class="#{css}" x="#{r1(x)}" y="#{r1(BAR_PAD[:t] + inner_h - height)}" width="#{r1(width)}" height="#{r1(height)}" rx="2"/>)
       end
 
-      def grid_and_y_labels(min_val, max_val, width, height)
-        usable_h = height - PAD_TOP - PAD_BOTTOM
-        x_start = PAD_LEFT
-        x_end = width - PAD_RIGHT
-        parts = []
-
-        Y_TICKS.times do |i|
-          frac = i.to_f / (Y_TICKS - 1)
-          y = PAD_TOP + (1.0 - frac) * usable_h
-          val = min_val + frac * (max_val - min_val)
-          label = format_axis_value(val)
-
-          parts << %(<line x1="#{x_start}" x2="#{x_end}" y1="#{y.round(1)}" y2="#{y.round(1)}" stroke="currentColor" opacity="0.12" stroke-dasharray="3 3" />)
-          parts << %(<text x="#{x_start - 4}" y="#{(y + 4).round(1)}" text-anchor="end" fill="currentColor" opacity="0.5" font-size="#{FONT_SIZE}">#{label}</text>)
-        end
-
-        parts.join("\n    ")
+      def x_label(x, year, partial)
+        %(<text class="dj-chart__axis" x="#{r1(x)}" y="#{HEIGHT - 6}" text-anchor="middle">#{year.to_i}#{"*" if partial}</text>)
       end
 
-      def x_labels(years, width, height)
-        return "" if years.nil? || years.empty?
-        usable_w = width - PAD_LEFT - PAD_RIGHT
-        count = years.size
-        label_y = height - 4
-
-        step = if count <= 8
-          1
-        elsif count <= 15
-          2
-        elsif count <= 25
+      def label_step(count)
+        if count > 10
           3
+        elsif count > 6
+          2
         else
-          (count / 7.0).ceil
+          1
         end
-
-        indices = (0...count).select { |i| i % step == 0 }
-        indices << (count - 1) unless indices.last == count - 1
-
-        if indices.size >= 2 && (indices[-1] - indices[-2]) < step
-          indices.delete_at(-2)
-        end
-
-        parts = []
-        indices.each do |i|
-          x = PAD_LEFT + (i.to_f / (count - 1)) * usable_w
-          parts << %(<text x="#{x.round(1)}" y="#{label_y}" text-anchor="middle" fill="currentColor" opacity="0.5" font-size="#{FONT_SIZE}">#{years[i]}</text>)
-        end
-
-        parts.join("\n    ")
       end
 
-      def format_axis_value(val)
-        if val.abs >= 1_000_000
-          "#{(val / 1_000_000.0).round(1)}M"
-        elsif val.abs >= 10_000
-          "#{(val / 1_000.0).round(0)}K"
-        elsif val.abs >= 1_000
-          "#{(val / 1_000.0).round(1)}K"
-        elsif val == val.to_i.to_f
-          val.to_i.to_s
-        else
-          format("%.1f", val)
-        end
+      def nice_max(value)
+        value = value.to_f
+        return 1 if value <= 0
+
+        magnitude = 10**Math.log10(value).floor
+        normalized = value / magnitude
+        step =
+          if normalized <= 1
+            1
+          elsif normalized <= 2
+            2
+          elsif normalized <= 2.5
+            2.5
+          elsif normalized <= 5
+            5
+          else
+            10
+          end
+        step * magnitude
+      end
+
+      def trim(value, digits)
+        rounded = value.round(digits)
+        rounded == rounded.to_i ? rounded.to_i : rounded
+      end
+
+      def r1(value)
+        value.to_f.round(1)
       end
     end
   end

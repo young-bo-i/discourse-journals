@@ -5,6 +5,7 @@ import { on } from "@ember/modifier";
 import { action } from "@ember/object";
 import didInsert from "@ember/render-modifiers/modifiers/did-insert";
 import willDestroy from "@ember/render-modifiers/modifiers/will-destroy";
+import { schedule } from "@ember/runloop";
 import concatClass from "discourse/helpers/concat-class";
 import { eq } from "discourse/truth-helpers";
 import { i18n } from "discourse-i18n";
@@ -41,7 +42,9 @@ export default class JournalToc extends Component {
   @action
   setup() {
     this._scanRetries = 0;
-    this._scanTimer = setTimeout(() => this._scanSections(), 300);
+    // The first post normally renders in the same pass, so the list fills in
+    // before the first paint instead of pushing the rail below it down later.
+    schedule("afterRender", this, this._scanSections);
   }
 
   @action
@@ -57,10 +60,14 @@ export default class JournalToc extends Component {
   }
 
   _scanSections() {
+    if (this.isDestroying) {
+      return;
+    }
+
     const nodes = document.querySelectorAll("[data-dj-nav]");
     if (!nodes.length) {
       if (++this._scanRetries < this._maxScanRetries) {
-        this._scanTimer = setTimeout(() => this._scanSections(), 500);
+        this._scanTimer = setTimeout(() => this._scanSections(), 250);
       }
       return;
     }

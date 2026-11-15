@@ -193,6 +193,20 @@ describe DiscourseJournals::JournalUpserter do
     end
   end
 
+  describe ".topics_missing_title_key?" do
+    it "reports journal topics stored without a title key, ignoring the category's About topic" do
+      expect(described_class.topics_missing_title_key?(category)).to eq(true)
+
+      existing_topic.upsert_custom_fields(
+        discourse_journals_normalized_title_key:
+          DiscourseJournals::TitleMatcher.normalized_title_key(existing_topic.title),
+      )
+      Discourse.cache.clear
+
+      expect(described_class.topics_missing_title_key?(category)).to eq(false)
+    end
+  end
+
   describe "#store_custom_fields!" do
     it "stores cover urls as absolute remote urls" do
       prepared = {

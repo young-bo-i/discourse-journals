@@ -18,6 +18,14 @@
    - **同一时间只能有一个应用任务**（`ApplyLock`，Redis 租约 5 分钟）。任务运行期间后台线程每分钟续约并刷新心跳（只改 `apply_checkpoint.heartbeat`），所以慢批次不会再被误判为中断；第二个任务直接退出，后台的「应用」「继续」在锁被占用时拒绝。进程崩溃后租约自然过期，5 分钟无心跳即可「继续」。
    - 应用的第 0 步合并 `merges`：副本话题被移入回收站（不是标过时，因为期刊仍在上游），并建 permalink，旧网址 301 到保留的话题（`DuplicateTopicMerger`；slug 已是百分号编码，建 permalink 时先解码，避免被二次编码）。
    - 新建前按 ISSN-L → `api_id` → 归一化标题查已有话题；同名有歧义时也能靠 `api_id` 找到原话题，不会再多建一份。
+     所有期刊话题都存有标题匹配键时（`JournalUpserter.topics_missing_title_key?`，缓存 10 分钟），跳过 `LOWER(title)` 与 `regexp_replace` 两次全表扫描：
+     它们只为没有标题键的旧话题存在，35 万话题时每次新建约 1 秒，曾让上万条新建拖上十几个小时。
+   - 分析排除分类的「关于」说明帖（它曾被当成上游消失的期刊标为过时，迁移 `20261115063354` 负责修复已被标记的那个）；
+     `OutdatedMarker` 也不会标记任何分类说明帖。
+   - 论坛有、上游没有的话题（以及之前已标过时、仍存有 `api_id` 的话题）会先用 `resolveIds=follow` 问上游旧 id 的去向：
+     并入了已被别的话题承接的记录 → 作为重复话题合并（回收站 + 301）；并入了本要新建话题的记录 → 由这个旧话题承接（保留网址）；
+     上游已删除 → 才标过时。2026-11 本地实测：4,056 个候选里 3,290 个确属删除，759 个转为合并，7 个承接新记录。
+   - 分析任务把「已完成」状态与执行计划在同一次写入中保存，避免后台在计划落库前就放出「应用」按钮。
    - 一次「分析 → 应用」是全量对账：首次全落在 `api_only` 桶（→ 新建），之后是增量更新 / 去重 / 软删。
 
 3. **SEO 是一等公民，很多「怪」设计都是为它。** 软删除保 URL 不 404（`OutdatedMarker`：打 `discourse_journals_outdated` 标记 + 渲染「已过时」横幅 + 关帖，期刊回到 API 后自动复活）；更新时「cooked 无条件重写、但 `updated_at`/搜索索引仅在内容 MD5 真变化时才动、永不 bump」防止 sitemap 抖动；`plugin.rb` 还 monkey-patch 了 core 的 `Sitemap`（顺带修了一个 core 的 `LIMIT/OFFSET` + 聚合分页 bug）。
@@ -88,8 +96,24 @@
 | **`reviews`** | comments | 投稿体验聚合：评分与可信度、质量/速度/沟通/难度/费用 5 个 0-5 维度、录用/拒稿/秒拒/返修率、首审与总处理天数、正负向标签 |
 | **`submission`** | submission | 有无投稿须知 / LaTeX 模板、文档类、参考文献格式、字数页数上限、稿件类型、文件与图片格式 |
 | `open_access` | doaj / openalex / fqb | OA 与 APC，含**逐年 APC 美元价格** |
-| `subjects_topics` `crossref_quality` `wikidata_meta` `preservation` | — | 未变 |
+| `subjects_topics` | openalex / doaj / wikidata | 主题占比（含 OpenAlex 子领域 `subfield`）、DOAJ 关键词与学科、`wikidata_subjects` |
+| **`editorial`** | doaj | 评审方式 `peer_review`（如 Double anonymous peer review）与期刊自己的作者指南 / 目标与范围 / 编委会 / 评审流程链接 `links` |
+| `crossref_quality` `preservation` | — | 未变 |
+| `wikidata_meta` | wikidata | 出版频率 `frequency_interval` + `frequency_unit`（上游已把 `frequency_label` 换成这两个字段）、编辑、长期保存机构 `archives` |
 | **`provenance`** | unified / 行级 | `source_count` / 源清单 / `built_at` / `partial` / `degraded_sources` |
+
+2026-11 档案页改版时补进来的字段（此前上游有、插件丢弃，或存了但没展示）：
+
+- `identity`：中文刊名 `title_zh`、副标题、CN 刊号 `cn_number`、曾用名 / 后继刊。
+- `publication`：主办单位 `sponsor`、所属机构、学会、主编、所在城市、DOI 前缀、访问方式。
+- `jcr.data[].categories`：由 `categories_all` 拆出的全部 JCR 学科及各自分区、排名（原来只有第一个学科）。
+- `cas_partition.data[]`：`annotation`（如 Mega-Journal）、`review`；`scimago`：全球排名 `rank`、`areas`、`coverage`。
+- `ccf`：中文期刊分级 `t_rank`（T1–T3）与年份。另外 CCF 等级上游写作「A类」，标签提取原来只认「A」，`ccf:a/b/c` 标签从未打上过，现已修正。
+- `open_access`：`oa_start`、`oa_flip_year`、APC / 减免政策链接；`reviews.tag_counts`（反馈标签频次）。
+- `submission`：彩图 DPI、Highlights、图形摘要、报告规范、投稿方式；投稿系统链接存在时即使没有须知 / 模板也保留该分区。
+- Wikidata 的 `editors`、`archives` 此前在 `ApiDataTransformer` 一步就被丢掉，现已透传。
+
+这一版同样会改变全部话题的 JSON MD5，上线后的第一次「应用」会把所有话题判为内容变化（全量改 `updated_at` + 重建搜索索引），要挑低峰期跑。
 
 ⚠️ **`reviews` 只存聚合，不存 `comments.recent` 的单条评论正文**：20 条正文 × 28 万话题会让
 `discourse_journals_data` 爆量，单条评论属于 `docs/comments-sync-plan.md` 那条独立管线。
@@ -152,12 +176,30 @@ MessageBus 频道：`/journals/mapping`、`/journals/mapping-apply`、`/journals
 
 - 封面优先级：**上游封面 > 本地默认封面 > 首字母占位**。档案页 hero 只用上游封面（加载失败时纯 CSS 露出首字母兜底图）；
   相关期刊卡片与 og:image / twitter:image / JSON-LD image 优先上游封面，其次本地默认封面（og:image 由 `TopicViewCoverPatch` 处理）。
-- `MasterRecordRenderer` 输出的档案页：hero（封面图，加载失败时纯 CSS 露出首字母兜底图）、JCR/SJR/中科院/新锐分区可视化、指标图表（服务端内联 SVG，图/表用 CSS checkbox 切换，cooked 内零 JS）。
-- 契约 v4 之后新增三块：**投稿体验**（`dj-review-exp`：星级 + 5 维评分条 + 录用/拒稿率 + 正负向标签）、
-  **标准化指标与分级**（`dj-normalized-metrics`：CWTS SNIP/IPP + JUFO 三国等级）、
-  **投稿须知与模板**（`dj-submission-panel`：存在性 + 格式要求 + 代理下载链接）；图表区多一条 SNIP 趋势线。
-  存量话题在重新同步前仍带旧的 `scirev` 块，`render_legacy_peer_review` 负责兜底渲染。
+- `MasterRecordRenderer` 输出的档案页（2026-11 改版，`LAYOUT_VERSION = 2`），自上而下：
+  面包屑（分类 › 学科标签）→ hero（封面、刊名 + 中文名、ISSN / CN、状态徽章、官网 / 在线投稿 / 下载按钮）→
+  预警名单提示（最近一次列入在数据构建年前 2 年内为红色，否则琥珀色「历史」）→ 关键指标条（影响因子带走势线、中科院、新锐、SJR、CCF、投稿评分 / 首审时长；
+  全无评价数据的稀疏刊换成发文 / 被引 / h 指数，并注明未查到 JCR、中科院和 SCImago 记录）→ 一段自动生成的简介 →
+  分节：评价与分区（各体系统一的阶梯行 + 四档刻度、学科分区明细表、历年指标对照表）、投稿体验、投稿指南、开放获取与费用、发文与引用、研究方向、期刊资料 → 数据来源页脚。
+  没有数据的分节整节不输出，正文内的分节导航和右侧 TOC 都按实际分节生成。图表是服务端内联 SVG，数据表放在 `<details>` 里，cooked 内零 JS。
+- 排名值、状态徽章、出版商、国家链接到对应标签页（替代被隐藏的标签行）。标签缓存已预热时（同步、重新生成任务都会预热）链接到规范地址 `/tag/:slug/:id`，否则用按名字的旧路由（会再跳转一次）。
+- 页面框架：connector `journal-page-shell` 给期刊话题加 `body.dj-journal-page`，样式据此隐藏论坛的标题行（`h1` 保留，仅视觉隐藏）、首帖头像 / 发帖人 / 日期 / topic map，
+  并在侧栏收起时把 `--topic-body-width` 放宽到 800px。档案区是 CSS 容器（`container: dj`），窄于 600px 时自动单列；视口窄于 925px（右侧 TOC 不显示）时显示正文内的吸顶分节条。
+- 颜色只用 core 的颜色变量，加上 `color-definitions.scss`（注册为 `:color_definitions`，每个配色方案各编译一次）里的四档等级色，所以同一份 cooked 在深浅配色下都正确。
+  core 给 `.cooked h2/p/ul/table` 写了样式，档案页规则都嵌在 `.dj-journal` 下以更高优先级覆盖；`h()` 返回普通字符串而不是 `SafeBuffer`，避免拼接 HTML 时被二次转义。
+- 存量话题在重新同步前仍可能带旧的 `scirev` 块，`render_legacy_reviews` 负责兜底渲染。
 - 三个 connector：帖子流上方期刊搜索框、右侧导航区的章节 TOC、导航底部「相关期刊」卡片（服务端 `JournalSuggestedProvider` 按 tags×3 + publisher×2 + country×1 打分，缓存 30 分钟）。
+
+### 重新生成期刊页（不请求上游）
+
+cooked HTML 是同步时写死的，改了渲染器或样式表后，存量话题要重新生成才会用上新版式。
+
+- `CookedRerenderer` 读话题上已存的 `discourse_journals_data` 重新渲染首帖，只写 `cooked` / `baked_version`，**不动 `updated_at`**，不请求上游。本地实测约 750 个话题 / 秒。
+- 自动：定时任务 `Jobs::DiscourseJournals::RerenderLayout` 每 10 分钟检查一次，发现站点还没按当前 `MasterRecordRenderer::LAYOUT_VERSION` 生成过，就全量重新生成，
+  进度按批记在 PluginStore（`discourse-journals` / `rendered_layout`），进程中断后下次接着跑。每批之间停 1.5 秒（约 200 话题 / 秒），避免几 GB 的 cooked 改写挤爆 WAL。
+  它和「应用」可以同时跑：写入时比对话题当前的 JSON（md5）和过时标记，与渲染时读到的不一致就跳过，所以不会用旧数据覆盖「应用」刚写的新页面。
+  **改动档案页 HTML 结构时把 `LAYOUT_VERSION` 加 1**，部署后会自动刷新全部页面。
+- 手动：`rake discourse_journals:rerender_cooked`，可选环境变量 `AFTER_ID`（从该话题 id 之后继续）、`LIMIT`、`TOPIC_IDS`（逗号分隔，只处理这些话题）。
 - 期刊话题默认全部关闭（`discourse_journals_close_topics`），而 core 的随机推荐只取未关闭话题，期刊分类的随机池因此恒为空、
   core 永远缓存不上，每次打开期刊页都会对 `topics` 全表做一次 `ORDER BY RANDOM()`（线上 36 万期刊时约 60ms、3 个进程）。
   `RandomTopicSelectorPatch` 在话题关闭时对期刊分类直接返回空，全站随机推荐照常补位。
@@ -187,14 +229,15 @@ app/
                                    outdated_marker · bulk_topic_deleter · duplicate_topic_merger · apply_lock ·
                                    api_rate_limiter · performance_logger · topic_title_key_backfill ·
                                    cover_url · cover_syncer · topic_cover_applier · local_cover_purger ·
-                                   journal_summary · related_journal_links · index_now
+                                   journal_summary · related_journal_links · index_now · cooked_rerenderer
   jobs/regular/discourse_journals/ analyze_mapping · apply_mapping · delete_all_journals · sync_covers
-  jobs/scheduled/discourse_journals/ submit_index_now
-assets/javascripts/discourse/      admin controller/template · connectors · components · initializers
-assets/stylesheets/common/         discourse-journals.scss（档案页）· discourse-journals-admin.scss（后台）
+  jobs/scheduled/discourse_journals/ submit_index_now · rerender_layout
+assets/javascripts/discourse/      admin controller/template · connectors（含 journal-page-shell）· components · initializers
+assets/stylesheets/common/         discourse-journals.scss（档案页与页面框架）· color-definitions.scss（等级色，按配色方案编译）·
+                                   discourse-journals-admin.scss（后台；以 `:admin` 注册，只下发给管理人员，公开页面的样式别放这里）
 config/                            settings.yml · locales/{client,server}.{en,zh_CN}.yml
 db/migrate · db/post_migrate       mapping_analyses 等表与部分索引
-lib/tasks/                         discourse_journals:backfill_normalized_title_keys
+lib/tasks/                         discourse_journals:backfill_normalized_title_keys · discourse_journals:rerender_cooked
 ```
 
 ---
@@ -213,3 +256,8 @@ lib/tasks/                         discourse_journals:backfill_normalized_title_
 - 大量写库刻意绕过 AR 回调（`PostCreator(skip_validations, skip_jobs)`、`update_columns`、`insert_all`/`delete_all`）换吞吐；tag 计数与分类计数分别由 `reconcile_counts!` / `update_category_stats` 手工补一致性。
 - 管理员手工给期刊话题加的 tag 会在下次同步被清掉（tag 是全量替换语义）。
 - `rake discourse_journals:backfill_normalized_title_keys` 为存量话题回填标题匹配键；改动 `TitleMatcher.normalized_title_key` 算法后必须重跑，否则匹配会 miss。
+- 分析在 Sidekiq 进程内存里为全部话题和上游记录建索引：约 34 万话题 + 38 万上游记录时，峰值比进程基线高约 570 MB
+  （按线上 Sidekiq 的 jemalloc 配置实测）。core 每 30 分钟检查一次 Sidekiq RSS，超过 `max(UNICORN_SIDEKIQ_MAX_RSS, 1000)` MB
+  就重启 Sidekiq，正在跑的应用任务会被打断；内存允许时把 `containers/app.yml` 的 `UNICORN_SIDEKIQ_MAX_RSS` 调到 1500 左右。
+  压峰值靠的是：索引条目用 Struct、自定义字段逐个字段 pluck、ISSN-L / api_id 阶段不做标题归一化（只给详情页展示的几百条算）、
+  各 id 索引用完即释放。改 `TitleMatcher` 时注意别退回去。

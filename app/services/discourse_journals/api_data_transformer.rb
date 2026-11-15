@@ -114,6 +114,8 @@ module DiscourseJournals
           indexed_in: normalize_array(raw["indexed_in"]),
           external_ids: normalize_array(raw["external_ids"]),
           aliases: normalize_array(raw["aliases"]),
+          editors: normalize_array(raw["editors"]),
+          archives: normalize_array(raw["archives"]),
         }
       end
 

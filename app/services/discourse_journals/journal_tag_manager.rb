@@ -237,6 +237,14 @@ module DiscourseJournals
       end
     end
 
+    # Read-only cache lookup: nil until warm_caches! has run in this process.
+    def self.cached_tag(name)
+      cache = @_tag_cache
+      return nil if cache.nil?
+
+      cache[DiscourseTagging.clean_tag(name.to_s)]
+    end
+
     def self.ensure_tag_cached!(name)
       cleaned = DiscourseTagging.clean_tag(name.to_s)
       return nil if cleaned.blank?
@@ -373,7 +381,8 @@ module DiscourseJournals
       rank = normalized.dig(:ccf, :rank)
       return unless rank.present?
 
-      tag = case rank.to_s.upcase.gsub(/\s+/, "")
+      # Upstream sends "A类"/"B类"/"C类".
+      tag = case rank.to_s.upcase.gsub(/[\s类]/, "")
             when "A" then "ccf:a"
             when "B" then "ccf:b"
             when "C" then "ccf:c"

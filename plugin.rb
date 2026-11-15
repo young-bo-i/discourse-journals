@@ -8,7 +8,8 @@
 enabled_site_setting :discourse_journals_enabled
 
 register_asset "stylesheets/common/discourse-journals.scss"
-register_asset "stylesheets/common/discourse-journals-admin.scss"
+register_asset "stylesheets/common/discourse-journals-admin.scss", :admin
+register_asset "stylesheets/common/color-definitions.scss", :color_definitions
 
 module ::DiscourseJournals
   PLUGIN_NAME = "discourse-journals"
@@ -32,6 +33,7 @@ after_initialize do
   require_relative "app/services/discourse_journals/bulk_topic_deleter"
   require_relative "app/services/discourse_journals/field_normalizer"
   require_relative "app/services/discourse_journals/master_record_renderer"
+  require_relative "app/services/discourse_journals/cooked_rerenderer"
   require_relative "app/services/discourse_journals/journal_upserter"
   require_relative "app/services/discourse_journals/journal_summary"
   require_relative "app/services/discourse_journals/journal_seo_context"
@@ -53,6 +55,7 @@ after_initialize do
   require_relative "app/jobs/regular/discourse_journals/delete_all_journals"
   require_relative "app/jobs/regular/discourse_journals/sync_covers"
   require_relative "app/jobs/scheduled/discourse_journals/submit_index_now"
+  require_relative "app/jobs/scheduled/discourse_journals/rerender_layout"
 
   Topic.register_custom_field_type("discourse_journals_issn_l", :string)
   Topic.register_custom_field_type("discourse_journals_publisher", :string)
@@ -125,7 +128,9 @@ after_initialize do
       return if data.blank?
 
       id = data[:identity] || {}
-      jsonld["alternateName"] = id[:abbreviation] if id[:abbreviation].present?
+      # The Chinese title is how most readers here search for a foreign journal.
+      alternate_names = [id[:title_zh], id[:abbreviation]].select(&:present?).uniq - [jsonld["name"]]
+      jsonld["alternateName"] = alternate_names.one? ? alternate_names.first : alternate_names if alternate_names.any?
 
       pub = data[:publication] || {}
       if pub[:first_publication_year].present?
@@ -493,7 +498,7 @@ after_initialize do
 
     begin
       normalized = JSON.parse(json_value).deep_symbolize_keys
-      renderer = ::DiscourseJournals::MasterRecordRenderer.new(normalized)
+      renderer = ::DiscourseJournals::MasterRecordRenderer.new(normalized, category: post.topic.category)
       html =
         DiscourseJournals::PerformanceLogger.measure("render.cooked_rebuild", topic_id: post.topic_id) do
           I18n.with_locale(SiteSetting.default_locale) { renderer.render(outdated: outdated) }

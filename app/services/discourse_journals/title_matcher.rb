@@ -13,6 +13,11 @@ module DiscourseJournals
     API_PAGE_SIZE = ApiClient::LIST_PAGE_SIZE
     PROGRESS_BATCH_INTERVAL = 5
 
+    # Structs rather than Hashes: the indexes hold one entry per topic and per
+    # upstream record (~350K each), and a Hash costs about four times the memory.
+    ForumEntry = Struct.new(:topic_id, :title, :outdated, :api_id)
+    ApiEntry = Struct.new(:api_id, :canonical_name, :issn_l)
+
     attr_reader :forum_index, :api_index, :results,
                 :total_forum_topics, :total_api_records
 
@@ -26,8 +31,8 @@ module DiscourseJournals
       @api_issn_index = {}
       @forum_api_id_index = {}
       @api_id_index = {}
-      @api_seen_issns = Set.new
       @dropped_duplicate_issns = 0
+      @unmatched_outdated = []
       @total_forum_topics = 0
       @total_api_records = 0
       @results = {
@@ -51,6 +56,13 @@ module DiscourseJournals
 
     def self.normalized_title_key(title)
       normalize(title).gsub(/[^[:alnum:]]+/, "")
+    end
+
+    # Groups matched by ISSN-L or api_id carry no title of their own: normalizing
+    # all ~320K is the analysis' largest allocation burst, and the details show
+    # only a few hundred.
+    def self.display_title(group)
+      group[:normalized_title] || normalize(group[:api]&.first&.[](:canonical_name))
     end
 
     def run!
@@ -82,7 +94,6 @@ module DiscourseJournals
       @api_issn_index = {}
       @forum_api_id_index = {}
       @api_id_index = {}
-      @api_seen_issns = nil
     end
 
     def build_forum_index
@@ -94,42 +105,40 @@ module DiscourseJournals
       publish_progress(:forum, 0, 0, "正在查询论坛期刊数据...")
 
       base_scope = Topic.where(category_id: category_id).where(deleted_at: nil)
+      # The category's "About" topic is no journal; left in, it would be
+      # flagged outdated like a journal that vanished upstream.
+      definition_topic_id = Category.where(id: category_id).pick(:topic_id)
+      base_scope = base_scope.where.not(id: definition_topic_id) if definition_topic_id
       total = base_scope.count
       topics = base_scope.select(:id, :title)
       publish_progress(:forum, 0, total, "正在建立论坛标题索引 (#{total} 个话题)...")
 
-      field_map =
-        TopicCustomField
-          .where(
-            name: %w[
-              discourse_journals_issn_l
-              discourse_journals_normalized_title_key
-              discourse_journals_api_id
-              discourse_journals_outdated
-            ],
-            topic_id: base_scope.select(:id),
-          )
-          .pluck(:topic_id, :name, :value)
-          .group_by(&:first)
-          .transform_values { |rows| rows.to_h { |_, name, value| [name, value] } }
+      title_keys = custom_field_values(base_scope, "discourse_journals_normalized_title_key")
+      issn_ls = custom_field_values(base_scope, "discourse_journals_issn_l")
+      api_ids = custom_field_values(base_scope, "discourse_journals_api_id")
+      outdated_at = custom_field_values(base_scope, "discourse_journals_outdated")
 
-      merges = duplicate_merges(field_map)
+      merges = duplicate_merges(api_ids)
       merge_topic_ids = merges.keys.to_set | merges.values
       titles = {}
 
       topics.find_each.with_index do |topic, idx|
-        fields = field_map[topic.id] || {}
         titles[topic.id] = topic.title if merge_topic_ids.include?(topic.id)
         # Copies stay out of every index so they are never matched or flagged
         # outdated; the applier merges them into the topic that is kept.
         next if merges.key?(topic.id)
 
-        normalized =
-          fields["discourse_journals_normalized_title_key"].presence || self.class.normalized_title_key(topic.title)
+        normalized = title_keys[topic.id].presence || self.class.normalized_title_key(topic.title)
         next if normalized.blank?
 
-        outdated = fields["discourse_journals_outdated"].present?
-        entry = { topic_id: topic.id, title: topic.title, outdated: outdated }
+        api_id = api_ids[topic.id].presence
+        entry =
+          ForumEntry.new(
+            topic_id: topic.id,
+            title: topic.title,
+            outdated: outdated_at[topic.id].present?,
+            api_id: api_id,
+          )
 
         # Keep outdated topics in EVERY index (incl. the title index) so a returning
         # journal matches and revives them via update, instead of being classified
@@ -138,16 +147,13 @@ module DiscourseJournals
         @forum_index[normalized] ||= []
         @forum_index[normalized] << entry
 
-        issn_l = fields["discourse_journals_issn_l"]
+        issn_l = issn_ls[topic.id]
         if issn_l.present?
           @forum_issn_index[issn_l] ||= []
           @forum_issn_index[issn_l] << entry
         end
 
-        api_id = fields["discourse_journals_api_id"]
-        if api_id.present?
-          @forum_api_id_index[api_id.to_s] = entry
-        end
+        @forum_api_id_index[api_id] = entry if api_id
 
         if (idx + 1) % 10_000 == 0
           check_cancelled!
@@ -156,7 +162,7 @@ module DiscourseJournals
       end
 
       @duplicate_topic_count = merges.size
-      @results[:duplicates] = duplicate_groups(merges, titles, field_map)
+      @results[:duplicates] = duplicate_groups(merges, titles, api_ids)
 
       publish_progress(
         :forum,
@@ -166,12 +172,17 @@ module DiscourseJournals
       )
     end
 
+    # One query per field: plucking the four together returns a name string per
+    # row and needs a Hash per topic to regroup them, several times the memory.
+    def custom_field_values(topic_scope, name)
+      TopicCustomField.where(name: name, topic_id: topic_scope.select(:id)).pluck(:topic_id, :value).to_h
+    end
+
     # Topics storing the same upstream api_id are copies of one journal, made
     # when appliers once ran concurrently. Maps each copy to the oldest topic.
-    def duplicate_merges(field_map)
+    def duplicate_merges(api_ids)
       topic_ids_by_api_id = Hash.new { |hash, api_id| hash[api_id] = [] }
-      field_map.each do |topic_id, fields|
-        api_id = fields["discourse_journals_api_id"]
+      api_ids.each do |topic_id, api_id|
         topic_ids_by_api_id[api_id] << topic_id if api_id.present?
       end
 
@@ -183,7 +194,7 @@ module DiscourseJournals
       end
     end
 
-    def duplicate_groups(merges, titles, field_map)
+    def duplicate_groups(merges, titles, api_ids)
       merges
         .group_by { |_copy_id, keep_id| keep_id }
         .map do |keep_id, pairs|
@@ -191,7 +202,7 @@ module DiscourseJournals
             normalized_title: self.class.normalize(titles[keep_id]),
             forum:
               [keep_id, *pairs.map(&:first)].map { |topic_id| { topic_id: topic_id, title: titles[topic_id] } },
-            api: [{ api_id: field_map.dig(keep_id, "discourse_journals_api_id") }],
+            api: [{ api_id: api_ids[keep_id] }],
           }
         end
     end
@@ -260,7 +271,7 @@ module DiscourseJournals
         # collision here means the guarantee broke — count and log it instead of
         # dropping rows silently, because a dropped row means its forum topic
         # falls into forum_only and gets flagged outdated.
-        if issn_l.present? && @api_seen_issns.include?(issn_l)
+        if issn_l.present? && @api_issn_index.key?(issn_l)
           @dropped_duplicate_issns += 1
           if @dropped_duplicate_issns <= 20
             Rails.logger.warn(
@@ -274,11 +285,7 @@ module DiscourseJournals
         normalized = self.class.normalized_title_key(canonical_name)
         next if normalized.blank?
 
-        entry = {
-          api_id: api_id,
-          canonical_name: canonical_name,
-          issn_l: issn_l,
-        }
+        entry = ApiEntry.new(api_id: api_id, canonical_name: canonical_name, issn_l: issn_l)
 
         if api_id.present?
           @api_id_index[api_id.to_s] = entry
@@ -287,10 +294,7 @@ module DiscourseJournals
         @api_index[normalized] ||= []
         @api_index[normalized] << entry
 
-        if issn_l.present?
-          @api_seen_issns.add(issn_l)
-          @api_issn_index[issn_l] = entry
-        end
+        @api_issn_index[issn_l] = entry if issn_l.present?
 
         count += 1
       end
@@ -308,10 +312,113 @@ module DiscourseJournals
       # then api_id, then title; each later phase skips already-matched forum
       # topics and API records, so a topic is never emitted as a target twice.
       match_issn_l(matched_forum_ids, matched_api_ids)
+      # Freed as soon as their phase is done, so their memory is reused for the
+      # title phase's groups instead of adding to the analysis' peak.
+      @forum_issn_index = {}
+      @api_issn_index = {}
       match_api_id(matched_forum_ids, matched_api_ids)
+      @forum_api_id_index = {}
+      @api_id_index = {}
       match_by_title(matched_forum_ids, matched_api_ids)
+      resolve_stale_records
 
       publish_progress(:match, 1, 1, "比对完成！")
+    end
+
+    # A topic left without an upstream record usually still tracks an id that
+    # upstream merged into another record or deleted. Upstream says which:
+    # - merged into a record another topic carries: the topic is a copy of that
+    #   journal, merged into it with a 301 like the api_id duplicates;
+    # - merged into a record the plan would give a new topic: this topic takes
+    #   the record instead, keeping its URL;
+    # - deleted: it stays forum_only and is flagged outdated.
+    # Topics already flagged outdated are checked the same way, so copies left
+    # behind by earlier runs get merged too.
+    def resolve_stale_records
+      stale =
+        (@results[:forum_only].flat_map { |group| group[:forum] } + @unmatched_outdated)
+          .select { |forum| forum[:api_id].present? }
+          .sort_by { |forum| forum[:topic_id] }
+      return if stale.empty?
+
+      publish_progress(:match, 1, 2, "正在向上游核对 #{stale.size} 个话题的失效期刊 id...")
+      targets = resolve_api_ids(stale.map { |forum| forum[:api_id].to_i }.uniq)
+      carriers = claimed_topics_by_api_id
+      creatable = @results[:api_only].flat_map { |group| group[:api] }.index_by { |api| api[:api_id].to_i }
+      settled = Set.new
+      adopted = Set.new
+
+      stale.each do |forum|
+        target = targets[forum[:api_id].to_i]
+        next if target.nil?
+
+        if (keeper = carriers[target])
+          @results[:duplicates] << {
+            normalized_title: self.class.normalize(keeper[:title]),
+            forum: [keeper, forum].map { |entry| { topic_id: entry.topic_id, title: entry.title } },
+            api: [{ api_id: target }],
+          }
+          settled << forum[:topic_id]
+        elsif (record = creatable[target]) && adopted.add?(target)
+          @results[:exact_1to1] << {
+            normalized_title: self.class.normalize(record[:canonical_name]),
+            forum: [forum],
+            api: [record],
+          }
+          carriers[target] = forum
+          settled << forum[:topic_id]
+        end
+      end
+
+      drop_settled!(settled, adopted)
+      Rails.logger.info(
+        "[DiscourseJournals::TitleMatcher] Stale ids: #{stale.size} checked, " \
+          "#{settled.size - adopted.size} merged as copies, #{adopted.size} took over a record",
+      )
+    rescue PausedError
+      raise
+    rescue StandardError => e
+      # Without the answer these topics keep the old treatment (flagged outdated).
+      Rails.logger.warn(
+        "[DiscourseJournals::TitleMatcher] Could not resolve stale ids: #{e.class}: #{e.message}",
+      )
+    end
+
+    def resolve_api_ids(ids)
+      client = ApiClient.new(rate_limiter: @rate_limiter).start!
+      ids
+        .each_slice(ApiClient::IDS_MAX_PER_REQUEST)
+        .each_with_object({}) do |batch, targets|
+          check_cancelled!
+          targets.merge!(client.resolve_journal_ids(batch))
+        end
+    ensure
+      client&.finish!
+    end
+
+    # api_id => the forum entry that will be updated with that record, paired
+    # the same way AnalyzeMapping#build_action_plan_data pairs them.
+    def claimed_topics_by_api_id
+      %i[exact_1to1 forum_1_to_api_n forum_n_to_api_1 forum_n_to_api_m].each_with_object(
+        {},
+      ) do |bucket, claimed|
+        @results[bucket].each do |group|
+          forums = group[:forum] || []
+          apis = group[:api] || []
+          [forums.size, apis.size].min.times { |i| claimed[apis[i][:api_id].to_i] = forums[i] }
+        end
+      end
+    end
+
+    def drop_settled!(settled, adopted)
+      @results[:forum_only] = @results[:forum_only].filter_map do |group|
+        forums = group[:forum].reject { |forum| settled.include?(forum[:topic_id]) }
+        group.merge(forum: forums) if forums.any?
+      end
+      @results[:api_only] = @results[:api_only].filter_map do |group|
+        apis = group[:api].reject { |api| adopted.include?(api[:api_id].to_i) }
+        group.merge(api: apis) if apis.any?
+      end
     end
 
     def match_api_id(matched_forum_ids, matched_api_ids)
@@ -328,15 +435,7 @@ module DiscourseJournals
         next if matched_forum_ids.include?(forum_entry[:topic_id])
         next if matched_api_ids.include?(api_entry[:api_id])
 
-        normalized_title = self.class.normalize(api_entry[:canonical_name])
-
-        entry = {
-          normalized_title: normalized_title,
-          forum: [forum_entry],
-          api: [api_entry],
-        }
-
-        @results[:exact_1to1] << entry
+        @results[:exact_1to1] << { forum: [forum_entry], api: [api_entry] }
 
         matched_forum_ids.add(forum_entry[:topic_id])
         matched_api_ids.add(api_entry[:api_id])
@@ -362,13 +461,7 @@ module DiscourseJournals
         fresh_forum = forum_entries.reject { |f| matched_forum_ids.include?(f[:topic_id]) }
         next if fresh_forum.empty?
 
-        normalized_title = self.class.normalize(api_entry[:canonical_name])
-
-        entry = {
-          normalized_title: normalized_title,
-          forum: fresh_forum,
-          api: [api_entry],
-        }
+        entry = { forum: fresh_forum, api: [api_entry] }
 
         if fresh_forum.size == 1
           @results[:exact_1to1] << entry
@@ -387,7 +480,8 @@ module DiscourseJournals
     end
 
     def match_by_title(matched_forum_ids, matched_api_ids)
-      all_normalized_titles = (@forum_index.keys.to_set | @api_index.keys).to_a
+      # The union of both key sets, in the same order, without a set of every title.
+      all_normalized_titles = @forum_index.keys.concat(@api_index.keys.reject { |key| @forum_index.key?(key) })
       total = all_normalized_titles.size
 
       all_normalized_titles.each_with_index do |normalized_title, idx|
@@ -421,7 +515,8 @@ module DiscourseJournals
         elsif forum_entries && api_entries.nil?
           # Already-outdated topics are excluded so they are not re-flagged; only
           # genuinely new orphans become forum_only.
-          live_forum = forum_entries.reject { |f| f[:outdated] }
+          live_forum, outdated_forum = forum_entries.partition { |f| !f[:outdated] }
+          @unmatched_outdated.concat(outdated_forum)
           if live_forum.any?
             @results[:forum_only] << {
               normalized_title: normalized_title,

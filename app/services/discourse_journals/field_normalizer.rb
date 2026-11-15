@@ -30,6 +30,7 @@ module DiscourseJournals
         cwts: build_cwts,
         jufo: build_jufo,
         submission: build_submission,
+        editorial: build_editorial,
         wikidata_meta: build_wikidata_meta,
         preservation: build_preservation,
         provenance: build_provenance,
@@ -69,10 +70,17 @@ module DiscourseJournals
       @_cwts_main ||= sources.dig(:cwts, :main) || {}
     end
 
+    def ccf_main
+      @_ccf_main ||= sources.dig(:ccf, :main) || {}
+    end
+
     def build_identity
       abbreviation = wd_main[:iso4_abbreviation] ||
         wd_main[:short_name] ||
         sources.dig(:openalex, :alternate_titles)&.first&.dig(:title)
+
+      title = unified[:canonical_name]
+      title_zh = wd_main[:label_zh].presence || unified[:wikidata_label_zh].presence
 
       {
         # The upstream row id. JournalUpserter persists it as
@@ -80,11 +88,18 @@ module DiscourseJournals
         # it used to read a :unified key that normalize() never produced, so the
         # field was never written and the api_id match phase never fired.
         api_id: unified[:id],
-        title: unified[:canonical_name],
+        title: title,
+        title_zh: title_zh == title ? nil : title_zh,
+        subtitle: wd_main[:subtitle].presence,
         abbreviation: abbreviation,
         issn_l: unified[:issn_l],
         print_issn: unified[:print_issn],
         electronic_issn: unified[:electronic_issn],
+        # China's domestic serial number; upstream only carries it on the CCF
+        # and emerging-tier rows of Chinese journals.
+        cn_number:
+          ccf_main[:cn_number].presence ||
+            (sources.dig(:xr, :all_years) || []).filter_map { |y| y[:cn_number].presence }.first,
         issn_details: issn_details,
         alternate_titles: extract_alternate_titles,
         aliases: extract_aliases,
@@ -97,6 +112,8 @@ module DiscourseJournals
         # JSON shape, and with it every topic's content MD5, does not change.
         cover_original_url: nil,
         homepage_url: oa_main[:homepage_url] || extract_wikidata_homepage,
+        former_title: wd_main[:follows_label].presence,
+        successor_title: wd_main[:followed_by_label].presence || wd_main[:replaced_by_label].presence,
       }
     end
 
@@ -110,6 +127,15 @@ module DiscourseJournals
         last_publication_year: oa_main[:last_publication_year],
         is_core: oa_main[:is_core],
         is_preprint_repository: to_bool(oa_main[:is_preprint_repository]),
+        sponsor: ccf_main[:sponsor].presence,
+        owned_by: wd_main[:owned_by_label].presence,
+        societies: (sources.dig(:openalex, :societies) || []).filter_map { |s| s[:organization].presence }.uniq.first(3),
+        editor_in_chief: wd_main[:editor_in_chief_label].presence,
+        hq_location: wd_main[:hq_location_label].presence,
+        # Wikidata stores the journal-level DOI ("10.1038/41586.1476-4687"); the
+        # registrant prefix is what authors recognise.
+        doi_prefix: wd_main[:doi].to_s.split("/").first.presence,
+        online_access: wd_main[:online_access_status_label].presence,
       }
     end
 
@@ -159,9 +185,27 @@ module DiscourseJournals
               quartile: y[:if_quartile],
               rank: y[:if_rank],
               category: y[:category],
+              web_of_science: y[:web_of_science],
+              categories: parse_jcr_categories(y),
             }
           },
       }
+    end
+
+    # `categories_all` lists every JCR category the journal sits in, e.g.
+    # "ENERGY & FUELS|Q2|51/191; ENGINEERING, CHEMICAL|Q1|31/183". The single
+    # category/if_quartile pair only describes the first one.
+    def parse_jcr_categories(year_row)
+      categories =
+        year_row[:categories_all].to_s.split(";").filter_map do |part|
+          name, quartile, rank = part.split("|").map(&:strip)
+          next if name.blank?
+          { name: name, quartile: quartile.presence, rank: rank.presence }
+        end
+      return categories if categories.any?
+      return [] if year_row[:category].blank?
+
+      [{ name: year_row[:category], quartile: year_row[:if_quartile], rank: year_row[:if_rank] }]
     end
 
     def build_scimago
@@ -170,7 +214,10 @@ module DiscourseJournals
       return nil if main.empty? && all_years.empty?
 
       years = all_years.any? ? all_years : [main]
+      latest = years.select { |y| y[:year] }.max_by { |y| y[:year].to_i } || main
       {
+        areas: latest[:areas].to_s.split(";").map(&:strip).reject(&:blank?),
+        coverage: latest[:coverage].presence,
         data: years
           .select { |y| y[:year] }
           .sort_by { |y| -y[:year].to_i }
@@ -179,6 +226,7 @@ module DiscourseJournals
               year: y[:year],
               sjr: parse_decimal(y[:sjr]),
               best_quartile: y[:sjr_best_quartile],
+              rank: y[:rank],
               h_index: y[:h_index],
               total_docs_year: y[:total_docs_year],
               total_docs_3years: y[:total_docs_3years],
@@ -219,6 +267,8 @@ module DiscourseJournals
               top: y[:top],
               web_of_science: y[:web_of_science],
               open_access: y[:open_access],
+              review: y[:review],
+              annotation: y[:annotation].presence,
               minor_categories: minor_cats,
             }
           },
@@ -297,6 +347,10 @@ module DiscourseJournals
         has_waiver: to_bool(doaj_main[:waiver_has_waiver]),
         has_other_charges: to_bool(doaj_main[:other_charges_has_other_charges]),
         publication_time_weeks: doaj_main[:publication_time_weeks],
+        oa_start: doaj_main[:oa_start] || oa_main[:is_in_doaj_since_year],
+        oa_flip_year: oa_main[:oa_flip_year],
+        apc_url: doaj_main[:apc_url].presence,
+        waiver_url: doaj_main[:waiver_url].presence,
         apc_usd: oa_main[:apc_usd],
         apc_prices: sources.dig(:openalex, :apc_prices) || [],
         apc_usd_by_year: build_apc_history,
@@ -323,23 +377,28 @@ module DiscourseJournals
               name: t[:display_name],
               count: t[:count],
               score: t[:score],
+              subfield: t[:subfield_display_name],
               field: t[:field_display_name],
               domain: t[:domain_display_name],
             }
           },
         topic_shares: oa_topic_shares
           .select { |ts| ts[:display_name] && ts[:value] }
+          .sort_by { |ts| -ts[:value].to_f }
           .first(8)
           .map { |ts|
             {
               name: ts[:display_name],
               value: ts[:value].to_f,
+              subfield: ts[:subfield_display_name],
               field: ts[:field_display_name],
               domain: ts[:domain_display_name],
             }
           },
         keywords: doaj_keywords.map { |k| k[:keyword] }.compact,
         subjects: doaj_subjects.map { |s| s[:term] || s[:code] }.compact,
+        wikidata_subjects:
+          (sources.dig(:wikidata, :subjects) || []).filter_map { |s| s[:subject_label].presence }.uniq.first(10),
       }
     end
 
@@ -403,6 +462,12 @@ module DiscourseJournals
         positive_tags: (agg[:top_positive_tags] || []).compact.first(5),
         negative_tags: (agg[:top_negative_tags] || []).compact.first(5),
         status_counts: agg[:status_counts] || {},
+        tag_counts:
+          (agg[:tag_counts] || {})
+            .select { |_tag, tag_count| tag_count.to_i.positive? }
+            .sort_by { |_tag, tag_count| -tag_count.to_i }
+            .first(12)
+            .to_h { |tag, tag_count| [tag.to_s, tag_count.to_i] },
       }
     end
 
@@ -466,7 +531,8 @@ module DiscourseJournals
 
       has_guideline = to_bool(summary[:has_guideline]) || to_bool(main[:has_guideline])
       has_latex = to_bool(summary[:has_latex]) || to_bool(main[:has_latex])
-      return nil unless has_guideline || has_latex
+      system_url = fields.dig(:submission, :system_url)
+      return nil unless has_guideline || has_latex || system_url.present?
 
       {
         has_guideline: has_guideline,
@@ -484,11 +550,33 @@ module DiscourseJournals
         article_types: Array(fields[:article_types]).compact.first(12),
         file_formats: Array(fields.dig(:submission, :file_formats)).compact,
         figure_formats: Array(fields.dig(:figures, :formats)).compact,
-        submission_system_url: fields.dig(:submission, :system_url),
+        figure_dpi: fields.dig(:figures, :dpi_color),
+        highlights: to_bool(fields[:highlights]),
+        graphical_abstract: to_bool(fields[:graphical_abstract]),
+        submission_system_url: system_url,
+        submission_method: fields.dig(:submission, :method),
         ai_disclosure_required: to_bool(fields.dig(:ethics, :ai_disclosure_required)),
+        reporting_guidelines: Array(fields.dig(:ethics, :reporting_guidelines)).compact,
         oa_licenses: Array(fields.dig(:open_access, :licenses)).compact,
         capture_quality: main[:capture_quality] || fields[:capture_quality],
       }
+    end
+
+    # How the journal reviews and where its own author pages live, as declared
+    # to DOAJ. Kept apart from `submission`, which only exists for journals
+    # with an uploaded guideline or template.
+    def build_editorial
+      peer_review =
+        (sources.dig(:doaj, :editorial_review_processes) || []).filter_map { |p| p[:process_name].presence }.uniq
+      links = {
+        author_instructions: doaj_main[:ref_author_instructions].presence,
+        aims_scope: doaj_main[:ref_aims_scope].presence,
+        editorial_board: doaj_main[:editorial_board_url].presence,
+        review_process: doaj_main[:editorial_review_url].presence,
+      }.compact
+      return nil if peer_review.empty? && links.empty?
+
+      { peer_review: peer_review, links: links }
     end
 
     # Which upstream sources actually backed this record, and whether the row we
@@ -507,11 +595,15 @@ module DiscourseJournals
     end
 
     def build_ccf
-      ccf = sources.dig(:ccf, :main) || {}
+      ccf = ccf_main
       return nil if ccf.empty?
 
       {
         rank: ccf[:ccf_rank],
+        # T1–T3 tier of CCF's list of Chinese-language journals, which carries
+        # no A/B/C rank.
+        t_rank: ccf[:t_rank].presence,
+        year: ccf[:year],
         field: ccf[:field],
         category: ccf[:ccf_category],
         abbreviation: ccf[:abbreviation],
@@ -533,15 +625,22 @@ module DiscourseJournals
         l[:language_label] || l[:label]
       }
 
+      archives = (sources.dig(:wikidata, :archives) || []).filter_map { |a| a[:archive_label].presence }
+
       {
         description_en: wd[:description_en],
         description_zh: wd[:description_zh],
         inception: wd[:inception],
+        # Upstream replaced frequency_label with an interval and a unit label
+        # ("1" + "week"); the old key is kept so stored JSON keeps its shape.
         frequency: wd[:frequency_label],
+        frequency_interval: wd[:publication_interval].presence,
+        frequency_unit: wd[:publication_interval_unit_label].presence,
         coden: wd[:coden],
         indexed_in: indexed_in,
         editors: editors,
         languages: languages,
+        archives: archives.uniq,
       }
     end
 

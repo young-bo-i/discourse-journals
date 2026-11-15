@@ -20,6 +20,8 @@ module DiscourseJournals
 
     def self.mark!(topic)
       return false if outdated?(topic)
+      # A category's "About" topic is never a journal.
+      return false if Category.exists?(topic_id: topic.id)
 
       # Flag first, inside a transaction: if the re-render or close fails, the flag
       # is rolled back too — so we never leave a banner persisted without the flag
@@ -48,7 +50,7 @@ module DiscourseJournals
         if data_json.present?
           normalized = JSON.parse(data_json).deep_symbolize_keys
           I18n.with_locale(SiteSetting.default_locale) do
-            MasterRecordRenderer.new(normalized).render(outdated: true)
+            MasterRecordRenderer.new(normalized, category: post.topic&.category).render(outdated: true)
           end
         else
           # No stored journal data to re-render — prepend a standalone banner, but

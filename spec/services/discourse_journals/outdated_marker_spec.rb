@@ -45,6 +45,14 @@ describe DiscourseJournals::OutdatedMarker do
       expect(topic.closed).to eq(true)
       expect(topic.first_post.reload.cooked).to include("dj-outdated-notice")
     end
+
+    it "never flags a category's About topic" do
+      about = Fabricate(:category_with_definition).topic
+
+      expect(described_class.mark!(about)).to eq(false)
+      expect(described_class.outdated?(about)).to eq(false)
+      expect(about.reload.closed).to eq(false)
+    end
   end
 
   describe ".mark_batch" do

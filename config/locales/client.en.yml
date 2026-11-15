@@ -36,6 +36,8 @@ en:
           col_issn_l: "ISSN-L"
           confirm_start: "Are you sure you want to start mapping analysis?\n\nThis will traverse all forum topics and API data for title matching, which may take 5-15 minutes."
           confirm_restart: "Are you sure you want to restart the mapping analysis?\n\nThis will discard any previous results and start fresh."
+          confirm_start_discarding_apply: "Start a new mapping analysis?\n\nAn apply run is paused or failed. A new analysis discards its progress, and you will need to apply the new results again."
+          confirm_restart_discarding_apply: "Restart the mapping analysis?\n\nAn apply run is paused or failed. Restarting discards its progress, and you will need to apply the new results again."
           pause: "Pause"
           pausing: "Pausing..."
           restart: "Restart"

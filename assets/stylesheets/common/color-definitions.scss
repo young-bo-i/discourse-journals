@@ -1,0 +1,10 @@
+// Compiled once per color scheme, so dark-light-choose sees that scheme's
+// colors. Tier 1 is the top band of every ranking system (Q1, 1区, CCF A).
+:root {
+  --dj-tier-1: #{dark-light-choose(#b25b07, #f2b24f)};
+  --dj-tier-2: #{dark-light-choose(#1d7f43, #55c584)};
+  --dj-tier-3: #{dark-light-choose(#2457c5, #74a7f2)};
+  --dj-tier-4: #{dark-light-choose(#69717d, #9ba3af)};
+  --dj-warn: #{dark-light-choose(#b25b07, #f2b24f)};
+  --dj-star: #{dark-light-choose(#e09b1a, #f2b24f)};
+}

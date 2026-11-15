@@ -159,6 +159,32 @@ module DiscourseJournals
       }
     end
 
+    # Where these journal ids live now: the id itself while upstream still has
+    # it, the surviving id when upstream merged it into another record, or nil
+    # when upstream deleted it. Ids upstream says nothing about are left out.
+    def resolve_journal_ids(ids)
+      ids = Array(ids).map(&:to_i).uniq
+      return {} if ids.empty?
+
+      if ids.size > IDS_MAX_PER_REQUEST
+        raise Error, "ids 单次上限 #{IDS_MAX_PER_REQUEST} 个（收到 #{ids.size} 个）"
+      end
+
+      payload =
+        get_data(
+          "/api/open/journals",
+          { "ids" => ids.join(","), "resolveIds" => "follow", "fields" => "id" },
+        )
+
+      requested = ids.to_set
+      targets = (payload["redirects"] || {}).to_h { |old_id, new_id| [old_id.to_i, new_id&.to_i] }
+      (payload["rows"] || []).each do |row|
+        id = row.dig("unified", "id").to_i
+        targets[id] = id if requested.include?(id) && !targets.key?(id)
+      end
+      targets
+    end
+
     # HEAD on the anonymous cover preview. Upstream cannot list or filter
     # journals by cover, so this is the cheapest way to ask about one journal.
     def probe_cover(api_id, etag: nil)

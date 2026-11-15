@@ -36,6 +36,8 @@ zh_CN:
           col_issn_l: "ISSN-L"
           confirm_start: "确定要开始映射分析吗？\n\n这将遍历所有论坛话题和 API 数据进行标题匹配，可能需要 5-15 分钟。"
           confirm_restart: "确定要重新开始映射分析吗？\n\n这将丢弃之前的分析结果，从头开始。"
+          confirm_start_discarding_apply: "确定要开始新的映射分析吗？\n\n当前有一个已暂停或失败的应用任务，开始新的分析会丢弃它的进度，之后需要对新结果重新「应用映射」。"
+          confirm_restart_discarding_apply: "确定要重新开始映射分析吗？\n\n当前有一个已暂停或失败的应用任务，重新分析会丢弃它的进度，之后需要对新结果重新「应用映射」。"
           pause: "暂停"
           pausing: "正在暂停..."
           restart: "重新开始"

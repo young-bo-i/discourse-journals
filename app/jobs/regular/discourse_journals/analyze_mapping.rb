@@ -38,6 +38,11 @@ module Jobs
         )
 
         results = matcher.run!
+        total_forum_topics = matcher.total_forum_topics
+        total_api_records = matcher.total_api_records
+        # The matcher holds the results too; without dropping it they stay alive
+        # through the large details write, which is the analysis' memory peak.
+        matcher = nil
 
         publish_progress(user_id, analysis, "processing", 100, "正在整理分析结果...")
 
@@ -51,10 +56,18 @@ module Jobs
           duplicates: results[:duplicates].sum { |entry| entry[:forum].size - 1 },
         }
 
+        publish_progress(user_id, analysis, "processing", 100, "正在保存详细数据...")
+
+        details = build_details(results)
+        details["_action_plan"] = build_action_plan_data(results)
+        results = nil
+
+        # The admin page offers "应用" as soon as the status reads completed, so
+        # the status and the plan it runs from are written together.
         analysis.update!(
           status: :completed,
-          total_forum_topics: matcher.total_forum_topics,
-          total_api_records: matcher.total_api_records,
+          total_forum_topics: total_forum_topics,
+          total_api_records: total_api_records,
           exact_1to1_count: counts[:exact_1to1],
           forum_1_to_api_n_count: counts[:forum_1_to_api_n],
           forum_n_to_api_1_count: counts[:forum_n_to_api_1],
@@ -62,15 +75,9 @@ module Jobs
           forum_only_count: counts[:forum_only],
           api_only_count: counts[:api_only],
           duplicate_topics_count: counts[:duplicates],
+          details_data: details,
           completed_at: Time.current,
         )
-
-        publish_progress(user_id, analysis, "processing", 100, "正在保存详细数据...")
-
-        details = build_details(results)
-        details["_action_plan"] = build_action_plan_data(results)
-        results = nil
-        analysis.update_column(:details_data, details)
         details = nil
 
         publish_progress(user_id, analysis, "completed", 100, "映射分析完成！")
@@ -205,7 +212,7 @@ module Jobs
 
         results.each do |category, entries|
           items = entries.first(DETAILS_LIMIT).map do |entry|
-            detail = { normalized_title: entry[:normalized_title] }
+            detail = { normalized_title: ::DiscourseJournals::TitleMatcher.display_title(entry) }
 
             if entry[:forum]
               detail[:forum] = entry[:forum].map do |f|

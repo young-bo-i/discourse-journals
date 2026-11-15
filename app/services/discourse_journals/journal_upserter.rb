@@ -23,6 +23,27 @@ module DiscourseJournals
       )
     SQL
 
+    # Whether any journal topic still lacks a stored title key; the
+    # discourse_journals:backfill_normalized_title_keys task fills them in.
+    def self.topics_missing_title_key?(category)
+      Discourse.cache.fetch(
+        "discourse_journals:topics_missing_title_key:#{category.id}",
+        expires_in: 10.minutes,
+      ) do
+        Topic
+          .where(category_id: category.id, deleted_at: nil)
+          .where.not(id: category.topic_id)
+          .where(<<~SQL)
+            NOT EXISTS (
+              SELECT 1 FROM topic_custom_fields tcf
+              WHERE tcf.topic_id = topics.id
+                AND tcf.name = 'discourse_journals_normalized_title_key'
+            )
+          SQL
+          .exists?
+      end
+    end
+
     def initialize(system_user: Discourse.system_user, category: nil)
       @system_user = system_user
       @category_cache = category
@@ -70,7 +91,7 @@ module DiscourseJournals
       html = nil
       raw_text = nil
       I18n.with_locale(SiteSetting.default_locale) do
-        renderer = MasterRecordRenderer.new(normalized)
+        renderer = MasterRecordRenderer.new(normalized, category: @category_cache)
         html = renderer.render
         raw_text = renderer.render_plain_text
       end
@@ -354,6 +375,12 @@ module DiscourseJournals
           )
           return nil
         end
+
+        # The two title scans below exist for topics stored before title keys.
+        # Once every topic has a key they cannot find anything the lookup above
+        # missed, and each scans the whole category: about a second per new
+        # journal, which made a large sync's creates take most of a day.
+        return nil if !self.class.topics_missing_title_key?(category)
       end
 
       exact_match =

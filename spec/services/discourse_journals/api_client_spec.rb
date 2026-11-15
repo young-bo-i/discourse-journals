@@ -81,6 +81,30 @@ describe DiscourseJournals::ApiClient do
     end
   end
 
+  describe "#resolve_journal_ids" do
+    it "maps each id to where upstream keeps it now" do
+      stub_api(
+        { "ids" => "100,101,102", "resolveIds" => "follow", "fields" => "id" },
+        body: {
+          success: true,
+          data: {
+            rows: [{ "unified" => { "id" => 200 } }, { "unified" => { "id" => 102 } }],
+            redirects: {
+              "100" => 200,
+              "101" => nil,
+            },
+          },
+        },
+      )
+
+      expect(described_class.new.resolve_journal_ids([100, 101, 102])).to eq(
+        100 => 200,
+        101 => nil,
+        102 => 102,
+      )
+    end
+  end
+
   describe "error handling" do
     it "raises AuthError on 401 without retrying" do
       stub = stub_api(

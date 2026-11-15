@@ -199,6 +199,132 @@ describe DiscourseJournals::FieldNormalizer do
     end
   end
 
+  describe "#normalize fields shown on the journal page" do
+    it "keeps identity, publisher and ranking details the page displays" do
+      data = {
+        unified: {
+          id: 15_450,
+          canonical_name: "Nature",
+          wikidata_label_zh: "自然",
+        },
+        sources: {
+          wikidata: {
+            main: {
+              subtitle: "International weekly journal of science",
+              publication_interval: "1",
+              publication_interval_unit_label: "week",
+              hq_location_label: "London",
+              doi: "10.1038/41586.1476-4687",
+              follows_label: "Old Nature",
+            },
+            archives: [{ archive_label: "CLOCKSS" }],
+            subjects: [{ subject_label: "natural science" }],
+          },
+          ccf: {
+            main: {
+              year: 2025,
+              t_rank: "T1",
+              cn_number: "11-1826/TP",
+              sponsor: "中国计算机学会",
+            },
+          },
+          jcr: {
+            all_years: [
+              {
+                year: 2025,
+                impact_factor: "4.2",
+                if_quartile: "Q2",
+                category: "TELECOMMUNICATIONS",
+                web_of_science: "SCIE",
+                categories_all: "TELECOMMUNICATIONS|Q2|53/127; ENGINEERING, ELECTRICAL|Q1|20/369",
+              },
+            ],
+          },
+          fqb: { all_years: [{ year: 2025, major_quartile: "4 [318/758]", annotation: "Mega-Journal" }] },
+          scimago: {
+            all_years: [{ year: 2025, sjr: "0.884", rank: 5931, areas: "Engineering; Physics", coverage: "2013-2026" }],
+          },
+          openalex: {
+            main: { oa_flip_year: 2012 },
+            societies: [{ organization: "IEEE Communications Society" }],
+            topic_shares: [{ display_name: "MIMO", value: 0.03, subfield_display_name: "Signal Processing" }],
+          },
+          doaj: {
+            main: { oa_start: 2013, waiver_url: "https://example.com/waiver", ref_author_instructions: "https://example.com/authors" },
+            editorial_review_processes: [{ process_name: "Double anonymous peer review" }],
+          },
+          comments: { comment_count: 3, tag_counts: { "审稿快": 2, "退稿": 1, "外审": 0 } },
+          submission: {
+            main: { has_guideline: true },
+            fields_json: {
+              highlights: true,
+              figures: { dpi_color: 300 },
+              ethics: { reporting_guidelines: ["SAGER"] },
+              submission: { system_url: "https://example.com/submit" },
+            },
+          },
+        },
+      }
+
+      normalized = described_class.new(data).normalize
+
+      expect(normalized[:identity]).to include(
+        title_zh: "自然",
+        subtitle: "International weekly journal of science",
+        cn_number: "11-1826/TP",
+        former_title: "Old Nature",
+      )
+      expect(normalized[:publication]).to include(
+        sponsor: "中国计算机学会",
+        hq_location: "London",
+        doi_prefix: "10.1038",
+        societies: ["IEEE Communications Society"],
+      )
+      expect(normalized[:wikidata_meta]).to include(frequency_interval: "1", frequency_unit: "week", archives: ["CLOCKSS"])
+      expect(normalized.dig(:jcr, :data, 0, :categories)).to eq(
+        [
+          { name: "TELECOMMUNICATIONS", quartile: "Q2", rank: "53/127" },
+          { name: "ENGINEERING, ELECTRICAL", quartile: "Q1", rank: "20/369" },
+        ],
+      )
+      expect(normalized.dig(:cas_partition, :data, 0, :annotation)).to eq("Mega-Journal")
+      expect(normalized[:scimago]).to include(areas: %w[Engineering Physics], coverage: "2013-2026")
+      expect(normalized.dig(:scimago, :data, 0, :rank)).to eq(5931)
+      expect(normalized[:ccf]).to include(t_rank: "T1", year: 2025)
+      expect(normalized[:open_access]).to include(oa_start: 2013, oa_flip_year: 2012, waiver_url: "https://example.com/waiver")
+      expect(normalized[:editorial]).to eq(
+        peer_review: ["Double anonymous peer review"],
+        links: { author_instructions: "https://example.com/authors" },
+      )
+      expect(normalized.dig(:reviews, :tag_counts)).to eq("审稿快" => 2, "退稿" => 1)
+      expect(normalized[:submission]).to include(
+        highlights: true,
+        figure_dpi: 300,
+        reporting_guidelines: ["SAGER"],
+        submission_system_url: "https://example.com/submit",
+      )
+      expect(normalized.dig(:subjects_topics, :topic_shares, 0, :subfield)).to eq("Signal Processing")
+      expect(normalized.dig(:subjects_topics, :wikidata_subjects)).to eq(["natural science"])
+    end
+
+    it "carries Wikidata editors and archives through the API transformer" do
+      row = {
+        "unified" => { "id" => 1, "canonical_name" => "Nature" },
+        "sources" => {
+          "wikidata" => {
+            "main" => { "label_en" => "Nature" },
+            "editors" => [{ "editor_label" => "Magdalena Skipper" }],
+            "archives" => [{ "archive_label" => "Portico" }],
+          },
+        },
+      }
+
+      normalized = described_class.new(DiscourseJournals::ApiDataTransformer.transform(row)).normalize
+
+      expect(normalized[:wikidata_meta]).to include(editors: ["Magdalena Skipper"], archives: ["Portico"])
+    end
+  end
+
   describe "#normalize provenance" do
     it "records the contributing sources and whether the row was degraded" do
       data = {

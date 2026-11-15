@@ -70,7 +70,9 @@ module DiscourseJournals
 
       cooked =
         I18n.with_locale(SiteSetting.default_locale) do
-          MasterRecordRenderer.new(normalized).render(outdated: OutdatedMarker.outdated?(@topic))
+          MasterRecordRenderer.new(normalized, category: @topic.category).render(
+            outdated: OutdatedMarker.outdated?(@topic),
+          )
         end
       post.update_columns(cooked: cooked, baked_version: Post::BAKED_VERSION, updated_at: now)
     end

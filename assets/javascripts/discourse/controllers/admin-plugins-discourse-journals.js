@@ -120,7 +120,11 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
   @action
   async startMappingAnalysis() {
     const confirmed = await this.dialog.yesNoConfirm({
-      message: i18n("discourse_journals.admin.mapping.confirm_start"),
+      message: i18n(
+        this.canResumeApply
+          ? "discourse_journals.admin.mapping.confirm_start_discarding_apply"
+          : "discourse_journals.admin.mapping.confirm_start"
+      ),
     });
     if (!confirmed) {
       return;
@@ -169,7 +173,11 @@ export default class AdminPluginsDiscourseJournalsController extends Controller 
   @action
   async restartMappingAnalysis() {
     const confirmed = await this.dialog.yesNoConfirm({
-      message: i18n("discourse_journals.admin.mapping.confirm_restart"),
+      message: i18n(
+        this.canResumeApply
+          ? "discourse_journals.admin.mapping.confirm_restart_discarding_apply"
+          : "discourse_journals.admin.mapping.confirm_restart"
+      ),
     });
     if (!confirmed) {
       return;

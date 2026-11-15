@@ -35,6 +35,14 @@ describe DiscourseJournals::JournalTagManager do
     end
   end
 
+  describe ".build_tag_assignments CCF rank" do
+    it "reads upstream ranks written with the 类 suffix" do
+      assignments = described_class.build_tag_assignments({ ccf: { rank: "C类" } })
+
+      expect(assignments[:ccf_rank]).to eq(["ccf:c"])
+    end
+  end
+
   describe ".apply_tags! delta write + reconcile_counts!" do
     fab!(:category)
     fab!(:topic) { Fabricate(:topic, category: category) }
