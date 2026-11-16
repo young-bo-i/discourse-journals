@@ -123,8 +123,6 @@ zh_CN:
       sentence_end: "。"
       sentence_join: ""
       crumbs_label: "所在位置"
-      toc_label: "本页目录"
-      nav_overview: "概览"
       nav_rankings: "评价与分区"
       nav_reviews: "投稿体验"
       nav_submission: "投稿指南"

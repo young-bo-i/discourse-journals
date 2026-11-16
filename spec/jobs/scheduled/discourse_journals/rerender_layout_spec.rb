@@ -35,7 +35,7 @@ describe Jobs::DiscourseJournals::RerenderLayout do
     it "rewrites journal posts once for the current layout version" do
       described_class.new.execute({})
 
-      expect(journal_post.reload.cooked).to include(%(<article class="dj-journal">))
+      expect(journal_post.reload.cooked).to include(%(<article class="dj-journal d-wrap">))
       expect(layout_state).to include(
         "version" => DiscourseJournals::MasterRecordRenderer::LAYOUT_VERSION,
       )
@@ -51,7 +51,7 @@ describe Jobs::DiscourseJournals::RerenderLayout do
         DiscourseJournals::ApplyLock.synchronize { described_class.new.execute({}) }
       end
 
-      expect(journal_post.reload.cooked).to include(%(<article class="dj-journal">))
+      expect(journal_post.reload.cooked).to include(%(<article class="dj-journal d-wrap">))
     end
   end
 end

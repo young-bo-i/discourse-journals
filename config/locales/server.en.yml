@@ -128,8 +128,6 @@ en:
       sentence_end: "."
       sentence_join: " "
       crumbs_label: "Breadcrumb"
-      toc_label: "On this page"
-      nav_overview: "Overview"
       nav_rankings: "Rankings"
       nav_reviews: "Submission experience"
       nav_submission: "Submission guide"

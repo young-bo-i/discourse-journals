@@ -94,6 +94,22 @@ describe DiscourseJournals::MasterRecordRenderer do
   end
 
   describe "#render" do
+    it "leaves the table of contents to DiscoTOC, which reads headings in a top-level d-wrap" do
+      fragment = Nokogiri::HTML5.fragment(render)
+
+      expect(fragment.element_children.map { |node| [node.name, node["class"]] }).to eq(
+        [%w[article dj-journal\ d-wrap]],
+      )
+      expect(fragment.css("h1, h2")).to be_empty
+      expect(fragment.at_css(".dj-hero__title")).to have_attributes(name: "p", text: "IEEE Access")
+      expect(fragment.css("h3").map(&:text)).to eq(
+        %i[rankings reviews submission open_access impact profile].map do |key|
+          I18n.t("discourse_journals.render.#{described_class::SECTIONS[key]}")
+        end,
+      )
+      expect(fragment.css(".dj-toc, [data-dj-nav]")).to be_empty
+    end
+
     it "lays out the sections a journal has data for, in page order" do
       html = render
 

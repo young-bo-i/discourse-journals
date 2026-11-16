@@ -9,7 +9,7 @@ module DiscourseJournals
   class MasterRecordRenderer
     # Bump when the markup changes in a way the stylesheet depends on;
     # Jobs::DiscourseJournals::RerenderLayout then rewrites every journal post.
-    LAYOUT_VERSION = 2
+    LAYOUT_VERSION = 3
 
     SECTIONS = {
       rankings: "nav_rankings",
@@ -128,11 +128,13 @@ module DiscourseJournals
       parts << render_alert
       parts << render_key_figures
       parts << render_summary
-      parts << render_toc(sections.map(&:first))
       parts.concat(sections.map(&:last))
       parts << render_footer
 
-      %(<article class="dj-journal">\n#{parts.compact.join("\n")}\n</article>)
+      # The page's table of contents comes from the DiscoTOC theme component,
+      # which only reads headings at the top level of a post or inside a
+      # top-level `d-wrap` block.
+      %(<article class="dj-journal d-wrap">\n#{parts.compact.join("\n")}\n</article>)
     end
 
     def render_plain_text
@@ -348,7 +350,7 @@ module DiscourseJournals
       head = %(<h3 class="dj-section__title">#{h(t(SECTIONS[key]))}</h3>)
       head += %(<span class="dj-section__meta">#{meta}</span>) if meta.present?
       <<~HTML
-        <section class="dj-section dj-section--#{key.to_s.tr("_", "-")}" id="dj-nav-#{key.to_s.tr("_", "-")}" data-dj-nav="#{h(t(SECTIONS[key]))}">
+        <section class="dj-section dj-section--#{key.to_s.tr("_", "-")}" id="dj-nav-#{key.to_s.tr("_", "-")}">
           <div class="dj-section__head">#{head}</div>
           #{body}
         </section>
@@ -428,11 +430,11 @@ module DiscourseJournals
       links = hero_links
 
       <<~HTML
-        <header class="dj-hero" id="dj-nav-hero" data-dj-nav="#{h(t("nav_overview"))}">
+        <header class="dj-hero" id="dj-nav-hero">
           #{render_cover(title)}
           <div class="dj-hero__body">
             #{%(<p class="dj-hero__eyebrow">#{eyebrow.map { |v| h(v) }.join(" · ")}</p>) if eyebrow.any?}
-            <h2 class="dj-hero__title">#{h(title)}</h2>
+            <p class="dj-hero__title" role="heading" aria-level="2">#{h(title)}</p>
             #{%(<p class="dj-hero__alt">#{alt.join}</p>) if alt.any?}
             #{%(<ul class="dj-hero__ids">#{ids_html}</ul>) if ids.any?}
             #{%(<div class="dj-hero__badges">#{badges.join}</div>) if badges.any?}
@@ -796,15 +798,6 @@ module DiscourseJournals
 
       text = sentences.map { |s| "#{s}#{t("sentence_end")}" }.join(t("sentence_join"))
       %(<p class="dj-summary">#{h(text)}</p>)
-    end
-
-    def render_toc(keys)
-      return nil if keys.size < 2
-      links =
-        keys
-          .map { |key| %(<a href="#dj-nav-#{key.to_s.tr("_", "-")}">#{h(t(SECTIONS[key]))}</a>) }
-          .join
-      %(<nav class="dj-toc" aria-label="#{h(t("toc_label"))}">#{links}</nav>)
     end
 
     # ── Rankings ────────────────────────────────────────────────

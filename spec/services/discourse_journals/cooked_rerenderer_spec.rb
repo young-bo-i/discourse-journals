@@ -46,7 +46,7 @@ describe DiscourseJournals::CookedRerenderer do
       result = described_class.new.rerender_all!
 
       expect(result.to_h).to include(rendered: 2, failed: 0)
-      expect(live.first_post.reload.cooked).to include(%(<article class="dj-journal">), "1,234")
+      expect(live.first_post.reload.cooked).to include(%(<article class="dj-journal d-wrap">), "1,234")
       expect(live.first_post.updated_at).to eq_time(updated_at)
       expect(outdated.first_post.reload.cooked).to include("dj-outdated-notice")
       expect(bare.first_post.reload.cooked).not_to include("dj-journal")

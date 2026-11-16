@@ -503,45 +503,12 @@ body.dj-journal-page {
     color: var(--primary-high);
   }
 
-  // In-article section bar, shown when the topic rail (and its TOC) is hidden.
-  .dj-toc {
-    position: sticky;
-    top: var(--header-offset, 60px);
-    z-index: 3;
-    display: none;
-    gap: 6px;
-    margin: 18px 0 0;
-    padding: 8px 0;
-    overflow-x: auto;
-    scrollbar-width: none;
-    border-bottom: 1px solid var(--primary-low);
-    background: var(--secondary);
-
-    &::-webkit-scrollbar {
-      display: none;
-    }
-
-    a {
-      flex: none;
-      padding: 4px 10px;
-      border: 1px solid var(--primary-low);
-      border-radius: 999px;
-      font-size: 0.8em;
-      color: var(--primary-high);
-      text-decoration: none;
-    }
-
-    @media screen and (width < 925px) {
-      display: flex;
-    }
-  }
-
   // Sections
   .dj-section {
     margin-top: 36px;
     padding-top: 22px;
     border-top: 1px solid var(--primary-low);
-    scroll-margin-top: calc(var(--header-offset, 60px) + 56px);
+    scroll-margin-top: calc(var(--header-offset, 60px) + 16px);
 
     &__head {
       display: flex;
@@ -1329,63 +1296,18 @@ body.dj-journal-page {
   flex: 1;
 }
 
-// ── Topic rail: section TOC (replaces the timeline) ────────────
-.dj-journal-nav {
+// ── Topic rail: related journals ───────────────────────────────
+.dj-journal-suggested {
   width: 100%;
-
-  ~ .timeline-container {
-    display: none !important;
-  }
+  margin-top: var(--space-6);
 }
 
-.dj-journal-nav__title,
 .dj-journal-suggested__title {
   margin: 0 0 var(--space-2);
   font-size: var(--font-down-2-rem);
   font-weight: 600;
   letter-spacing: 0.04em;
   color: var(--primary-medium);
-}
-
-.dj-journal-nav__list {
-  display: flex;
-  flex-direction: column;
-  max-height: 50vh;
-  margin: 0;
-  padding: 0;
-  overflow-y: auto;
-  list-style: none;
-}
-
-.dj-journal-nav__item {
-  margin: 0;
-
-  a {
-    display: block;
-    padding: 5px 0 5px 12px;
-    border-left: 2px solid var(--primary-low);
-    color: var(--primary-high);
-    font-size: var(--font-down-1-rem);
-    line-height: var(--line-height-medium);
-    text-decoration: none;
-
-    &:hover,
-    &:focus-visible {
-      color: var(--primary);
-    }
-  }
-
-  &--active a {
-    border-left-color: var(--tertiary);
-    color: var(--primary);
-    font-weight: 500;
-  }
-}
-
-// ── Topic rail: related journals ───────────────────────────────
-.dj-journal-suggested {
-  width: 100%;
-  margin-top: var(--space-6);
 }
 
 .dj-journal-suggested__list {
