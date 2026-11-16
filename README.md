@@ -67,7 +67,7 @@
 
 ## 话题 custom fields
 
-真理源 `discourse_journals_data`（归一化 JSON）。匹配键：`discourse_journals_issn_l`、`discourse_journals_api_id`、`discourse_journals_normalized_title_key`（前两者有 `topic_custom_fields` 部分索引）。其余：`discourse_journals_publisher`、`discourse_journals_country`、`discourse_journals_cover_url`（上游封面的**绝对**地址 `…/api/covers/preview/{id}.webp?v={content_hash}`，相关期刊卡片与 og:image 读它；JSON 里的 `identity.cover_url` 存同一地址的相对路径，档案页 hero 读它）、`discourse_journals_outdated`（软删标记，值为 ISO8601 时间）。
+真理源 `discourse_journals_data`（归一化 JSON）。匹配键：`discourse_journals_issn_l`、`discourse_journals_api_id`、`discourse_journals_normalized_title_key`（前两者有 `topic_custom_fields` 部分索引）。其余：`discourse_journals_publisher`、`discourse_journals_country`、`discourse_journals_cover_url`（上游封面的**绝对**地址 `…/api/covers/preview/{id}.webp?v={content_hash}`，推荐话题缩略图与 og:image 读它；JSON 里的 `identity.cover_url` 存同一地址的相对路径，档案页 hero 读它）、`discourse_journals_outdated`（软删标记，值为 ISO8601 时间）。
 
 > 旧封面子系统（2026-07 删除代码）留下的 `discourse_journals_cover_url_hash` 指纹与 `topics.image_upload_id`
 > 本地封面图，由「封面同步」在处理到对应话题时自动清理，见下文。
@@ -193,20 +193,23 @@ MessageBus 频道：`/journals/mapping`、`/journals/mapping-apply`、`/journals
 ## 前端展示（期刊话题页）
 
 - 封面优先级：**上游封面 > 本地默认封面 > 首字母占位**。档案页 hero 只用上游封面（加载失败时纯 CSS 露出首字母兜底图）；
-  相关期刊卡片与 og:image / twitter:image / JSON-LD image 优先上游封面，其次本地默认封面（og:image 由 `TopicViewCoverPatch` 处理）。
-- `MasterRecordRenderer` 输出的档案页（2026-11 改版，`LAYOUT_VERSION = 2`），自上而下：
+  og:image / twitter:image / JSON-LD image 优先上游封面，其次本地默认封面（og:image 由 `TopicViewCoverPatch` 处理）。
+- `MasterRecordRenderer` 输出的档案页（2026-11 改版，`LAYOUT_VERSION = 3`），自上而下：
   面包屑（分类 › 学科标签）→ hero（封面、刊名 + 中文名、ISSN / CN、状态徽章、官网 / 在线投稿 / 下载按钮）→
   预警名单提示（最近一次列入在数据构建年前 2 年内为红色，否则琥珀色「历史」）→ 关键指标条（影响因子带走势线、中科院、新锐、SJR、CCF、投稿评分 / 首审时长；
   全无评价数据的稀疏刊换成发文 / 被引 / h 指数，并注明未查到 JCR、中科院和 SCImago 记录）→ 一段自动生成的简介 →
   分节：评价与分区（各体系统一的阶梯行 + 四档刻度、学科分区明细表、历年指标对照表）、投稿体验、投稿指南、开放获取与费用、发文与引用、研究方向、期刊资料 → 数据来源页脚。
-  没有数据的分节整节不输出，正文内的分节导航和右侧 TOC 都按实际分节生成。图表是服务端内联 SVG，数据表放在 `<details>` 里，cooked 内零 JS。
+  没有数据的分节整节不输出。目录交给 DiscoTOC 主题组件：它只读帖子最外层或最外层 `d-wrap` 块里的标题，
+  所以档案外层是 `<article class="dj-journal d-wrap">`，刊名不用 `h2`（`role="heading"`），目录从各分节开始；
+  DiscoTOC 的 `auto_TOC_categories` 要包含期刊分类，标题少于 3 个的稀疏刊不显示目录。图表是服务端内联 SVG，数据表放在 `<details>` 里，cooked 内零 JS。
 - 排名值、状态徽章、出版商、国家链接到对应标签页（替代被隐藏的标签行）。标签缓存已预热时（同步、重新生成任务都会预热）链接到规范地址 `/tag/:slug/:id`，否则用按名字的旧路由（会再跳转一次）。
 - 页面框架：connector `journal-page-shell` 给期刊话题加 `body.dj-journal-page`，样式据此隐藏论坛的标题行（`h1` 保留，仅视觉隐藏）、首帖头像 / 发帖人 / 日期 / topic map，
-  并在侧栏收起时把 `--topic-body-width` 放宽到 800px。档案区是 CSS 容器（`container: dj`），窄于 600px 时自动单列；视口窄于 925px（右侧 TOC 不显示）时显示正文内的吸顶分节条。
+  并在侧栏收起时把 `--topic-body-width` 放宽到 800px。档案区是 CSS 容器（`container: dj`），窄于 600px 时自动单列。
 - 颜色只用 core 的颜色变量，加上 `color-definitions.scss`（注册为 `:color_definitions`，每个配色方案各编译一次）里的四档等级色，所以同一份 cooked 在深浅配色下都正确。
   core 给 `.cooked h2/p/ul/table` 写了样式，档案页规则都嵌在 `.dj-journal` 下以更高优先级覆盖；`h()` 返回普通字符串而不是 `SafeBuffer`，避免拼接 HTML 时被二次转义。
 - 存量话题在重新同步前仍可能带旧的 `scirev` 块，`render_legacy_reviews` 负责兜底渲染。
-- 三个 connector：帖子流上方期刊搜索框、右侧导航区的章节 TOC、导航底部「相关期刊」卡片（服务端 `JournalSuggestedProvider` 按 tags×3 + publisher×2 + country×1 打分，缓存 30 分钟）。
+- connector：帖子流上方期刊搜索框、给页面加 `body.dj-journal-page` 的 `journal-page-shell`。相关期刊用 core 的帖子底部推荐话题展示，
+  推荐内容由服务端 `JournalSuggestedProvider` 按 tags×3 + publisher×2 + country×1 打分（缓存 30 分钟）。
 
 ### 重新生成期刊页（不请求上游）
 
@@ -226,7 +229,7 @@ cooked HTML 是同步时写死的，改了渲染器或样式表后，存量话�
   全站头部下方的 Scholay 推广横幅及其曝光/点击统计已移除，升级时迁移会删除 `discourse_journals_promo_stats` 表和两个横幅设置。
 - SEO：title 关键词、meta description/keywords、schema.org `Periodical` JSON-LD（有投稿体验数据时附
   `aggregateRating`）；期刊页服务端注入 CSS 隐藏 sidebar。
-  爬虫看不到前端的「相关期刊」卡片，所以 crawler 视图在帖子后服务端输出 12 个相关期刊链接（`RelatedJournalLinks`，复用推荐打分，缓存 1 天），
+  爬虫看不到前端加载的推荐话题，所以 crawler 视图在帖子后服务端输出 12 个相关期刊链接（`RelatedJournalLinks`，复用推荐打分，缓存 1 天），
   否则期刊页之间没有互链，只能靠 sitemap 被发现。robots.txt 对所有爬虫组禁止 core 的浏览统计信标 `/srv/pv`、`/pageview`
   （渲染期刊页的爬虫会触发它们，曾占 Googlebot 约三成抓取）。
 

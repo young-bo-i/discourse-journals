@@ -41,6 +41,14 @@ describe "Journal page SEO" do
     )
   end
 
+  it "hides only the sidebar on journal pages, leaving the suggested journals below the posts" do
+    get journal.relative_url
+
+    expect(Nokogiri::HTML5(response.body).at_css("style#dj-hide-sidebar").text).to eq(
+      ".sidebar-wrapper{display:none !important}",
+    )
+  end
+
   it "links crawlers to related journals" do
     get journal.relative_url, headers: { "User-Agent" => "Googlebot" }
 

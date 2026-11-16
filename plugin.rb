@@ -280,19 +280,6 @@ after_initialize do
     end
   end
 
-  add_preloaded_topic_list_custom_field("discourse_journals_cover_url")
-
-  add_to_serializer(
-    :suggested_topic,
-    :discourse_journals_cover_url,
-    include_condition: -> {
-      object.custom_fields["discourse_journals_cover_url"].present? || object.image_upload_id.present?
-    },
-  ) do
-    DiscourseJournals::CoverUrl.displayable(object.custom_fields["discourse_journals_cover_url"]) ||
-      object.image_url
-  end
-
   # Collected comments are all posted by one bot account; each reply carries the
   # anonymous author it is shown under (see CommentAuthor).
   topic_view_post_custom_fields_allowlister { [DiscourseJournals::CommentAuthor::FIELD] }
@@ -443,7 +430,7 @@ after_initialize do
     next "" unless topic_cat == category_id
 
     <<~HTML
-      <style id="dj-hide-sidebar">.sidebar-wrapper{display:none !important}@media(min-width:925px){.more-topics__container{display:none !important}}</style>
+      <style id="dj-hide-sidebar">.sidebar-wrapper{display:none !important}</style>
       <meta name="dj-journal-page" content="1">
     HTML
   end

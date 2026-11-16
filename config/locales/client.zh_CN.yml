@@ -4,7 +4,6 @@ zh_CN:
       comment_source:
         view_original: "查看原文"
       title: "期刊库"
-      suggested_title: "相关期刊"
       search:
         placeholder: "搜索期刊（输入名称、ISSN、出版商...）"
         no_results: "没有找到相关期刊"

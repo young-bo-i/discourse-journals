@@ -31,27 +31,4 @@ describe "Journal cover display" do
 
     expect(response.body).not_to include(legacy_cover)
   end
-
-  it "prefers the upstream cover over a local one in suggested journals" do
-    topic.update_columns(image_upload_id: Fabricate(:upload).id)
-    topic.upsert_custom_fields(discourse_journals_cover_url: upstream_cover)
-
-    json = SuggestedTopicSerializer.new(topic.reload, scope: Guardian.new, root: false).as_json
-
-    expect(json[:discourse_journals_cover_url]).to eq(upstream_cover)
-  end
-
-  it "falls back to the local cover in suggested journals while only a dead cover is stored" do
-    upload = Fabricate(:upload)
-    topic.update_columns(image_upload_id: upload.id)
-    topic.upsert_custom_fields(
-      discourse_journals_cover_url:
-        "https://journal.example.com/api/covers/image/Annals%20of%20Neurology",
-    )
-
-    json = SuggestedTopicSerializer.new(topic.reload, scope: Guardian.new, root: false).as_json
-
-    expect(topic.image_url).to be_present
-    expect(json[:discourse_journals_cover_url]).to eq(topic.image_url)
-  end
 end

@@ -42,11 +42,6 @@ body.dj-journal-page {
     &:not(.has-sidebar-page) {
       --topic-body-width: min(800px, calc(100vw - 460px));
     }
-
-    // Related journals sit in the topic rail instead.
-    .more-topics__container {
-      display: none;
-    }
   }
 }
 
@@ -1294,114 +1289,6 @@ body.dj-journal-page {
 
 .dj-outdated-notice__text {
   flex: 1;
-}
-
-// ── Topic rail: related journals ───────────────────────────────
-.dj-journal-suggested {
-  width: 100%;
-  margin-top: var(--space-6);
-}
-
-.dj-journal-suggested__title {
-  margin: 0 0 var(--space-2);
-  font-size: var(--font-down-2-rem);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  color: var(--primary-medium);
-}
-
-.dj-journal-suggested__list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  max-height: 45vh;
-  margin: 0;
-  padding: 0;
-  overflow-y: auto;
-  list-style: none;
-  scrollbar-width: thin;
-  scrollbar-color: var(--primary-low-mid) transparent;
-}
-
-.dj-journal-suggested__item {
-  margin: 0;
-
-  a {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--space-2);
-    padding: var(--space-1);
-    border-radius: var(--d-border-radius);
-    color: var(--primary);
-    text-decoration: none;
-
-    &:hover,
-    &:focus-visible {
-      background: var(--d-hover);
-      outline: none;
-    }
-  }
-}
-
-.dj-journal-suggested__cover,
-.dj-journal-suggested__cover-placeholder {
-  flex-shrink: 0;
-  width: 36px;
-  height: 48px;
-  border: 1px solid var(--primary-low);
-  border-radius: 3px;
-  object-fit: cover;
-}
-
-.dj-journal-suggested__cover {
-  background: var(--primary-very-low);
-}
-
-.dj-journal-suggested__cover-placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--primary-very-low);
-  color: var(--primary-high);
-  font-size: var(--font-down-1);
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
-.dj-journal-suggested__info {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.dj-journal-suggested__name {
-  display: -webkit-box;
-  overflow: hidden;
-  font-size: var(--font-down-1-rem);
-  font-weight: 500;
-  line-height: var(--line-height-medium);
-  color: var(--primary);
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-}
-
-.dj-journal-suggested__tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.dj-journal-suggested__tag {
-  display: inline-block;
-  padding: 1px 6px;
-  border: 1px solid var(--primary-low);
-  border-radius: 4px;
-  font-size: var(--font-down-3, 0.7rem);
-  line-height: 1.4;
-  color: var(--primary-high);
-  white-space: nowrap;
 }
 
 // ── Journal search box (above the post stream) ─────────────────

@@ -4,7 +4,6 @@ en:
       comment_source:
         view_original: "View original"
       title: "Journals"
-      suggested_title: "Related Journals"
       search:
         placeholder: "Search journals (name, ISSN, publisher...)"
         no_results: "No journals found"
