@@ -156,7 +156,7 @@ module DiscourseJournals
 
       store_custom_fields!(topic, prepared)
       JournalTagManager.apply_tags!(topic, prepared[:normalized])
-      ensure_closed!(topic)
+      apply_closed_setting!(topic)
       IndexNow.queue(topic)
 
       topic
@@ -203,17 +203,13 @@ module DiscourseJournals
       # Revival: the journal is back in the API (we matched it), so ALWAYS drop any
       # outdated flag — even on a byte-identical re-sync where content_changed is
       # false. The freshly written cooked (rendered without the banner) is current
-      # again. Reopen the topic if it was only closed by the outdated marker.
-      revived =
-        TopicCustomField.where(topic_id: topic.id, name: "discourse_journals_outdated").delete_all
-      if revived.positive? && topic.closed? && !SiteSetting.discourse_journals_close_topics
-        topic.update_columns(closed: false)
-      end
+      # again.
+      TopicCustomField.where(topic_id: topic.id, name: "discourse_journals_outdated").delete_all
 
       store_custom_fields!(topic, prepared)
       LocalCoverPurger.purge!(topic) if prepared[:cover_url].present?
       JournalTagManager.apply_tags!(topic, prepared[:normalized])
-      ensure_closed!(topic)
+      apply_closed_setting!(topic)
 
       topic
     end
@@ -280,10 +276,12 @@ module DiscourseJournals
       end
     end
 
-    def ensure_closed!(topic)
-      return unless SiteSetting.discourse_journals_close_topics
-      return if topic.closed?
-      topic.update_column(:closed, true)
+    # Journal topics follow discourse_journals_close_topics both ways: with it
+    # off (the default) every sync leaves the topic open for replies, reopening
+    # one that was closed. Columns only, so no notice post, bump or notification.
+    def apply_closed_setting!(topic)
+      closed = SiteSetting.discourse_journals_close_topics
+      topic.update_column(:closed, closed) if topic.closed? != closed
     end
 
     def find_existing_topic(prepared)

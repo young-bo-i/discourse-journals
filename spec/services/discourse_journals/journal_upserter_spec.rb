@@ -405,4 +405,44 @@ describe DiscourseJournals::JournalUpserter do
       expect(DiscourseJournals::OutdatedMarker.outdated?(existing_topic.reload)).to eq(false)
     end
   end
+
+  describe "closed state" do
+    let(:prepared) do
+      {
+        title: existing_topic.title,
+        html: "<p>content</p>",
+        raw_text: "content",
+        normalized: {
+          identity: {
+            title: existing_topic.title,
+          },
+        },
+        normalized_json: { identity: { title: existing_topic.title } }.to_json,
+        normalized_title_key:
+          DiscourseJournals::TitleMatcher.normalized_title_key(existing_topic.title),
+        issn_l: nil,
+        publisher: nil,
+        cover_url: nil,
+        country: nil,
+      }
+    end
+
+    it "reopens a closed journal topic so readers can reply" do
+      existing_topic.update_columns(closed: true)
+
+      expect do
+        described_class.new.upsert_prepared!(prepared, existing_topic_id: existing_topic.id)
+      end.not_to change { Post.count }
+
+      expect(existing_topic.reload.closed).to eq(false)
+    end
+
+    it "closes it while discourse_journals_close_topics is on" do
+      SiteSetting.discourse_journals_close_topics = true
+
+      described_class.new.upsert_prepared!(prepared, existing_topic_id: existing_topic.id)
+
+      expect(existing_topic.reload.closed).to eq(true)
+    end
+  end
 end

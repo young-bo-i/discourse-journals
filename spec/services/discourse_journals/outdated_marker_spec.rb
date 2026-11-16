@@ -18,15 +18,24 @@ describe DiscourseJournals::OutdatedMarker do
   end
 
   describe ".mark!" do
-    it "flags the topic, closes it, and renders the outdated banner into the post" do
+    it "flags the topic and renders the outdated banner, leaving it open for replies" do
       set_journal_data(topic)
 
       expect(described_class.mark!(topic)).to eq(true)
 
       topic.reload
       expect(described_class.outdated?(topic)).to eq(true)
-      expect(topic.closed).to eq(true)
+      expect(topic.closed).to eq(false)
       expect(topic.first_post.reload.cooked).to include("dj-outdated-notice")
+    end
+
+    it "closes the topic while discourse_journals_close_topics keeps journal topics closed" do
+      SiteSetting.discourse_journals_close_topics = true
+      set_journal_data(topic)
+
+      described_class.mark!(topic)
+
+      expect(topic.reload.closed).to eq(true)
     end
 
     it "is idempotent: a second call is a no-op and never adds a second flag" do
@@ -37,12 +46,11 @@ describe DiscourseJournals::OutdatedMarker do
       expect(TopicCustomField.where(topic_id: topic.id, name: described_class::FIELD).count).to eq(1)
     end
 
-    it "still flags and closes a topic that has no stored journal data" do
+    it "still flags a topic that has no stored journal data" do
       expect(described_class.mark!(topic)).to eq(true)
 
       topic.reload
       expect(described_class.outdated?(topic)).to eq(true)
-      expect(topic.closed).to eq(true)
       expect(topic.first_post.reload.cooked).to include("dj-outdated-notice")
     end
 

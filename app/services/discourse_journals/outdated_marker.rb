@@ -3,12 +3,13 @@
 module DiscourseJournals
   # Soft-delete for forum-only journals: instead of hard-deleting a topic whose
   # journal is gone from the API (which would 404 and lose its SEO), mark it
-  # "outdated" — keep the topic, render an outdated banner at the top, and close
-  # it. The banner is rendered FROM this flag (never appended), so re-rendering
-  # can't duplicate it; and TitleMatcher drops outdated topics from the title
-  # index so they are not re-flagged on the next sync. If the journal later
-  # returns to the API it is matched by ISSN/api_id and the update path clears
-  # the flag (revival).
+  # "outdated" — keep the topic and render an outdated banner at the top. It is
+  # closed only while discourse_journals_close_topics keeps every journal topic
+  # closed; otherwise readers can still reply. The banner is rendered FROM this
+  # flag (never appended), so re-rendering can't duplicate it; and TitleMatcher
+  # drops outdated topics from the title index so they are not re-flagged on the
+  # next sync. If the journal later returns to the API it is matched by
+  # ISSN/api_id and the update path clears the flag (revival).
   class OutdatedMarker
     FIELD = "discourse_journals_outdated"
 
@@ -30,7 +31,9 @@ module DiscourseJournals
         TopicCustomField.create!(topic_id: topic.id, name: FIELD, value: Time.current.iso8601)
         post = topic.first_post
         rerender_post(post) if post
-        topic.update_columns(closed: true) unless topic.closed?
+        if SiteSetting.discourse_journals_close_topics && !topic.closed?
+          topic.update_columns(closed: true)
+        end
       end
       true
     rescue StandardError => e

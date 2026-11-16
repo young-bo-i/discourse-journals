@@ -50,7 +50,7 @@ plugins:
   discourse_journals_indexnow_enabled:
     default: false
   discourse_journals_close_topics:
-    default: true
+    default: false
   discourse_journals_suggested_mode:
     default: "custom_first"
     type: enum

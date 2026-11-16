@@ -56,6 +56,8 @@ after_initialize do
   require_relative "app/services/discourse_journals/comment_bot"
   require_relative "app/services/discourse_journals/comment_post_builder"
   require_relative "app/services/discourse_journals/comment_syncer"
+  require_relative "app/services/discourse_journals/comment_fetcher"
+  require_relative "app/services/discourse_journals/journal_topic_opener"
   require_relative "app/services/discourse_journals/comment_sync_state"
   require_relative "app/jobs/regular/discourse_journals/analyze_mapping"
   require_relative "app/jobs/regular/discourse_journals/apply_mapping"
@@ -63,6 +65,7 @@ after_initialize do
   require_relative "app/jobs/regular/discourse_journals/sync_covers"
   require_relative "app/jobs/regular/discourse_journals/sync_comments"
   require_relative "app/jobs/regular/discourse_journals/rename_comment_authors"
+  require_relative "app/jobs/regular/discourse_journals/open_journal_topics"
   require_relative "app/jobs/scheduled/discourse_journals/submit_index_now"
   require_relative "app/jobs/scheduled/discourse_journals/rerender_layout"
 
@@ -636,8 +639,17 @@ after_initialize do
 
     post "/admin/journals/comments/sync" => "discourse_journals/admin_comments#sync",
          :constraints => AdminConstraint.new
+    post "/admin/journals/comments/pause" => "discourse_journals/admin_comments#pause",
+         :constraints => AdminConstraint.new
+    post "/admin/journals/comments/resume" => "discourse_journals/admin_comments#resume",
+         :constraints => AdminConstraint.new
     get "/admin/journals/comments/status" => "discourse_journals/admin_comments#status",
         :constraints => AdminConstraint.new
+
+    get "/admin/journals/topics/status" => "discourse_journals/admin_topics#status",
+        :constraints => AdminConstraint.new
+    post "/admin/journals/topics/open_all" => "discourse_journals/admin_topics#open_all",
+         :constraints => AdminConstraint.new
 
     delete "/admin/journals/delete_all" => "discourse_journals/admin_mapping#delete_all",
            :constraints => AdminConstraint.new

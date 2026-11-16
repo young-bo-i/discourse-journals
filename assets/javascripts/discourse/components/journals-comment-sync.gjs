@@ -6,7 +6,9 @@ import { trustHTML } from "@ember/template";
 import Form from "discourse/components/form";
 import { ajax } from "discourse/lib/ajax";
 import { popupAjaxError } from "discourse/lib/ajax-error";
+import { duration } from "discourse/lib/formatter";
 import { or } from "discourse/truth-helpers";
+import DButton from "discourse/ui-kit/d-button";
 import { i18n } from "discourse-i18n";
 
 const CHANNEL = "/journals/comment-sync";
@@ -25,6 +27,7 @@ const STATS = [
 const RESULTS = {
   completed: "message-success",
   failed: "message-error",
+  paused: "message-warning",
 };
 
 export default class JournalsCommentSync extends Component {
@@ -32,6 +35,7 @@ export default class JournalsCommentSync extends Component {
   @service messageBus;
 
   @tracked commentSync = null;
+  @tracked pausing = false;
   @tracked progress = null;
 
   formData = { topic_ids: "", limit: 5 };
@@ -40,6 +44,7 @@ export default class JournalsCommentSync extends Component {
     this.progress = data;
 
     if (data.status !== "processing") {
+      this.pausing = false;
       this.messageBus.unsubscribe(CHANNEL, this.#onMessage);
       this.#loadStatus();
     }
@@ -55,8 +60,17 @@ export default class JournalsCommentSync extends Component {
     this.messageBus.unsubscribe(CHANNEL, this.#onMessage);
   }
 
+  get canResume() {
+    return ["paused", "failed"].includes(this.commentSync?.status);
+  }
+
   get isRunning() {
     return ["pending", "processing"].includes(this.commentSync?.status);
+  }
+
+  get modeLabel() {
+    const mode = this.progress?.mode || this.commentSync?.mode || "test";
+    return i18n(`discourse_journals.admin.comments.mode_${mode}`);
   }
 
   get percent() {
@@ -67,7 +81,8 @@ export default class JournalsCommentSync extends Component {
       return 0;
     }
 
-    return Math.min(100, Math.round((processed * 100) / total));
+    // One decimal: a full run takes hours, so whole percents sit still for minutes.
+    return Math.min(100, Math.round((processed * 1000) / total) / 10);
   }
 
   get progressMessage() {
@@ -76,9 +91,18 @@ export default class JournalsCommentSync extends Component {
       return i18n("discourse_journals.admin.comments.starting");
     }
 
-    return i18n("discourse_journals.admin.comments.progress", {
+    const values = {
       processed: this.progress?.processed ?? this.commentSync?.processed ?? 0,
       total,
+    };
+    if (!this.progress?.eta_seconds) {
+      return i18n("discourse_journals.admin.comments.progress", values);
+    }
+
+    return i18n("discourse_journals.admin.comments.progress_with_eta", {
+      ...values,
+      speed: this.progress.speed,
+      eta: duration(this.progress.eta_seconds, { format: "medium" }),
     });
   }
 
@@ -114,18 +138,33 @@ export default class JournalsCommentSync extends Component {
   }
 
   @action
-  async start(data) {
-    const confirmed = await this.dialog.yesNoConfirm({
-      message: i18n("discourse_journals.admin.comments.confirm_start"),
-    });
-    if (!confirmed) {
-      return;
-    }
+  async pause() {
+    this.pausing = true;
 
     try {
-      const result = await ajax("/admin/journals/comments/sync", {
+      const result = await ajax("/admin/journals/comments/pause", {
         type: "POST",
-        data: { topic_ids: data.topic_ids, limit: data.limit },
+      });
+      this.commentSync = result.comment_sync;
+    } catch (e) {
+      this.pausing = false;
+      popupAjaxError(e);
+    }
+  }
+
+  @action
+  async restartFull() {
+    await this.#startRun(
+      { mode: "full" },
+      "discourse_journals.admin.comments.confirm_restart"
+    );
+  }
+
+  @action
+  async resume() {
+    try {
+      const result = await ajax("/admin/journals/comments/resume", {
+        type: "POST",
       });
       this.progress = null;
       this.commentSync = result.comment_sync;
@@ -133,6 +172,22 @@ export default class JournalsCommentSync extends Component {
     } catch (e) {
       popupAjaxError(e);
     }
+  }
+
+  @action
+  async startFull() {
+    await this.#startRun(
+      { mode: "full" },
+      "discourse_journals.admin.comments.confirm_full"
+    );
+  }
+
+  @action
+  async startTest(data) {
+    await this.#startRun(
+      { mode: "test", topic_ids: data.topic_ids, limit: data.limit },
+      "discourse_journals.admin.comments.confirm_test"
+    );
   }
 
   async #loadStatus() {
@@ -147,6 +202,27 @@ export default class JournalsCommentSync extends Component {
     }
   }
 
+  async #startRun(params, confirmKey) {
+    const confirmed = await this.dialog.yesNoConfirm({
+      message: i18n(confirmKey),
+    });
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      const result = await ajax("/admin/journals/comments/sync", {
+        type: "POST",
+        data: params,
+      });
+      this.progress = null;
+      this.commentSync = result.comment_sync;
+      this.#subscribe();
+    } catch (e) {
+      popupAjaxError(e);
+    }
+  }
+
   #subscribe() {
     this.messageBus.unsubscribe(CHANNEL, this.#onMessage);
     this.messageBus.subscribe(CHANNEL, this.#onMessage);
@@ -156,45 +232,47 @@ export default class JournalsCommentSync extends Component {
     <section class="journals-section journals-comment-sync">
       <div class="section-header">
         <h3>{{i18n "discourse_journals.admin.comments.heading"}}</h3>
+        <div class="header-actions journals-comment-sync__actions">
+          {{#if this.isRunning}}
+            <DButton
+              class="btn-danger"
+              @action={{this.pause}}
+              @disabled={{this.pausing}}
+              @icon="pause"
+              @isLoading={{this.pausing}}
+              @label="discourse_journals.admin.comments.pause"
+            />
+          {{else if this.canResume}}
+            <DButton
+              class="btn-primary"
+              @action={{this.resume}}
+              @disabled={{@applying}}
+              @icon="play"
+              @label="discourse_journals.admin.comments.resume"
+            />
+            <DButton
+              class="btn-default"
+              @action={{this.restartFull}}
+              @disabled={{@applying}}
+              @icon="arrows-rotate"
+              @label="discourse_journals.admin.comments.restart_full"
+            />
+          {{else}}
+            <DButton
+              class="btn-primary"
+              @action={{this.startFull}}
+              @disabled={{@applying}}
+              @icon="comments"
+              @label="discourse_journals.admin.comments.start_full"
+            />
+          {{/if}}
+        </div>
       </div>
 
       <div class="section-content">
         <p class="journals-comment-sync__desc">{{i18n
             "discourse_journals.admin.comments.description"
           }}</p>
-
-        <Form @data={{this.formData}} @onSubmit={{this.start}} as |form|>
-          <form.Field
-            @format="large"
-            @name="topic_ids"
-            @title={{i18n "discourse_journals.admin.comments.topic_ids"}}
-            @type="input"
-            as |field|
-          >
-            <field.Control
-              placeholder={{i18n
-                "discourse_journals.admin.comments.topic_ids_placeholder"
-              }}
-            />
-          </form.Field>
-
-          <form.Field
-            @format="small"
-            @name="limit"
-            @title={{i18n "discourse_journals.admin.comments.limit"}}
-            @type="input-number"
-            @validation="required|integer|between:1,200"
-            as |field|
-          >
-            <field.Control />
-          </form.Field>
-
-          <form.Submit
-            @disabled={{or this.isRunning @applying}}
-            @icon="comments"
-            @label="discourse_journals.admin.comments.start"
-          />
-        </Form>
 
         {{#if this.isRunning}}
           <div class="journals-comment-sync__progress">
@@ -204,11 +282,16 @@ export default class JournalsCommentSync extends Component {
               </div>
               <span class="progress-percent">{{this.percent}}%</span>
             </div>
-            <p class="progress-status">{{this.progressMessage}}</p>
+            <p class="progress-status">
+              <span
+                class="journals-comment-sync__mode"
+              >{{this.modeLabel}}</span>
+              {{this.progressMessage}}
+            </p>
           </div>
         {{else if this.result}}
           <div class="message-box {{this.result.className}}">
-            <strong>{{this.result.title}}</strong>
+            <strong>{{this.modeLabel}} · {{this.result.title}}</strong>
             {{#if this.commentSync.error_message}}
               <p>{{this.commentSync.error_message}}</p>
             {{/if}}
@@ -225,6 +308,48 @@ export default class JournalsCommentSync extends Component {
             {{/each}}
           </div>
         {{/if}}
+
+        <details class="journals-comment-sync__test">
+          <summary>{{i18n
+              "discourse_journals.admin.comments.test_heading"
+            }}</summary>
+          <p class="journals-comment-sync__desc">{{i18n
+              "discourse_journals.admin.comments.test_description"
+            }}</p>
+
+          <Form @data={{this.formData}} @onSubmit={{this.startTest}} as |form|>
+            <form.Field
+              @format="large"
+              @name="topic_ids"
+              @title={{i18n "discourse_journals.admin.comments.topic_ids"}}
+              @type="input"
+              as |field|
+            >
+              <field.Control
+                placeholder={{i18n
+                  "discourse_journals.admin.comments.topic_ids_placeholder"
+                }}
+              />
+            </form.Field>
+
+            <form.Field
+              @format="small"
+              @name="limit"
+              @title={{i18n "discourse_journals.admin.comments.limit"}}
+              @type="input-number"
+              @validation="required|integer|between:1,200"
+              as |field|
+            >
+              <field.Control />
+            </form.Field>
+
+            <form.Submit
+              @disabled={{or this.isRunning @applying}}
+              @icon="flask"
+              @label="discourse_journals.admin.comments.start_test"
+            />
+          </Form>
+        </details>
       </div>
     </section>
   </template>

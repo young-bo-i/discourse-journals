@@ -5,6 +5,7 @@ import DButton from "discourse/ui-kit/d-button";
 import { i18n } from "discourse-i18n";
 import JournalsCommentSync from "discourse/plugins/discourse-journals/discourse/components/journals-comment-sync";
 import JournalsCoverSync from "discourse/plugins/discourse-journals/discourse/components/journals-cover-sync";
+import JournalsTopicState from "discourse/plugins/discourse-journals/discourse/components/journals-topic-state";
 
 export default <template>
   <div class="admin-container journals-admin-page">
@@ -695,6 +696,8 @@ export default <template>
       {{/if}}
 
       <JournalsCoverSync @applying={{@controller.applying}} />
+
+      <JournalsTopicState />
 
       <JournalsCommentSync @applying={{@controller.applying}} />
 

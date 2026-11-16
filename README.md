@@ -58,7 +58,7 @@
 | `discourse_journals_title_suffix` | 期刊详情 \| … | SEO 标题关键词，插在期刊名之后、分类与站名之前（仅 HTML title），如 `Nature - 影响因子·分区·ISSN - 学术期刊 - 恩特学术` |
 | `discourse_journals_meta_description` / `_meta_keywords` | 模板 | meta 模板，占位符 `{{title}}/{{issn}}/{{publisher}}/{{category}}/{{tags}}/{{site_name}}`；description 另有 `{{summary}}`（`JournalSummary` 按影响因子/分区、ISSN/出版商、开放获取、发文/被引、研究方向自动成句，最长 160 字） |
 | `discourse_journals_indexnow_enabled` | false | 同步新建或内容变化的期刊入 Redis 队列，`SubmitIndexNow` 每 30 分钟批量推给 IndexNow（Bing/Yandex 等）；验证文件 `/<key>.txt`，key 由站点密钥派生 |
-| `discourse_journals_close_topics` | true | upsert 后关闭话题 |
+| `discourse_journals_close_topics` | false | 保持期刊话题关闭（读者不能回复）；默认关：同步让期刊话题保持打开（含过时的），已关闭的会重新打开 |
 | `discourse_journals_suggested_mode` / `_criteria` / `_count` | custom_first / `tags\|publisher` / 5 | 「相关期刊」推荐 |
 | `discourse_journals_performance_logging` | false | 结构化性能日志（`PerformanceLogger`） |
 | `discourse_journals_major_publishers` | 20 家 | 仅这些出版商的期刊打 publisher tag |
@@ -172,17 +172,21 @@ MessageBus 频道：`/journals/mapping`、`/journals/mapping-apply`、`/journals
 
 ---
 
-## 期刊评论同步（测试版）
+## 期刊评论同步
 
-设计见 `docs/comments-sync-plan.md`。管理页「期刊评论同步」按填写的话题 ID，或前 N 本（≤200）上游有评论、
-本站还没同步过的期刊，拉取 `GET /api/open/journals/{id}/comments`，把每条评论写成期刊话题下的一条回复。
+设计见 `docs/comments-sync-plan.md`。管理页「期刊评论同步」拉取 `GET /api/open/journals/{id}/comments`，
+把每条评论写成期刊话题下的一条回复。
+
+- 「全量同步」按话题 id 顺序处理所有上游有评论的期刊：断点是最后处理完的话题，可暂停/继续；Sidekiq 重启时任务被放回队列，
+  会从断点自动接着跑；apply 运行时自动暂停。抓取 4 路并发并预取下一批，数据库写入只在任务线程里。
+- 折叠的「测试」入口只同步填写的话题 ID，或前 N 本（≤200）还没同步过、且有评论的期刊。
 
 - 全部回复由一个 bot 账号（负 id，首次同步时自动创建）发布，不计入用户数、用户目录和排行榜；
   每条回复显示自己的匿名作者名（修饰词 + 名词 + 可选后缀三个词表随机组合，默认约 12 万种，同话题重名追加随机字母；改词表后后台任务重算），点名字不弹用户卡片。
 - 回复正文是原文，下方一行来源说明注明来源、原发布时间（北京时间）和原文链接（前端渲染，`discourse_journals_comment_source_note_enabled` 可关闭）；评分、结果、周期只展示上游标为高置信度的。
 - 按原始时间先后插入，不顶帖、不发通知；`discourse_journals_comment_posts.record_id` 唯一，重跑不会重复。
   上游改了的会改写，上游删了的会软删除，一次要删超过一半时不删、只记日志。
-- 尚未实现：全量同步、定时增量、暂停/续跑。
+- 尚未实现：定时增量。生产跑全量前先调高 `UNICORN_SIDEKIQ_MAX_RSS`：同步时 Sidekiq 约多占 150–180 MB。
 
 ---
 
@@ -214,9 +218,11 @@ cooked HTML 是同步时写死的，改了渲染器或样式表后，存量话�
   它和「应用」可以同时跑：写入时比对话题当前的 JSON（md5）和过时标记，与渲染时读到的不一致就跳过，所以不会用旧数据覆盖「应用」刚写的新页面。
   **改动档案页 HTML 结构时把 `LAYOUT_VERSION` 加 1**，部署后会自动刷新全部页面。
 - 手动：`rake discourse_journals:rerender_cooked`，可选环境变量 `AFTER_ID`（从该话题 id 之后继续）、`LIMIT`、`TOPIC_IDS`（逗号分隔，只处理这些话题）。
-- 期刊话题默认全部关闭（`discourse_journals_close_topics`），而 core 的随机推荐只取未关闭话题，期刊分类的随机池因此恒为空、
-  core 永远缓存不上，每次打开期刊页都会对 `topics` 全表做一次 `ORDER BY RANDOM()`（线上 36 万期刊时约 60ms、3 个进程）。
-  `RandomTopicSelectorPatch` 在话题关闭时对期刊分类直接返回空，全站随机推荐照常补位。
+- 期刊话题默认打开，读者可以回复。管理页「期刊话题评论」的「全部打开」把现有关闭的期刊话题一次性打开：后台按 id 分批、只改列，
+  不发通知、不顶帖、不改 `updated_at`；同时关掉 `discourse_journals_close_topics`，之后的同步都保持打开。
+  打开这个设置时同步会关闭期刊话题。这时 core 的随机推荐只取未关闭的话题，期刊分类的随机池恒为空、缓存不上，
+  每打开一次期刊页都会对 `topics` 全表做一次 `ORDER BY RANDOM()`（线上 36 万期刊时约 60ms），
+  所以 `RandomTopicSelectorPatch` 在这种情况下对期刊分类直接返回空，全站随机推荐照常补位。
   全站头部下方的 Scholay 推广横幅及其曝光/点击统计已移除，升级时迁移会删除 `discourse_journals_promo_stats` 表和两个横幅设置。
 - SEO：title 关键词、meta description/keywords、schema.org `Periodical` JSON-LD（有投稿体验数据时附
   `aggregateRating`）；期刊页服务端注入 CSS 隐藏 sidebar。

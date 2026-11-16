@@ -704,10 +704,41 @@
 }
 
 .journals-comment-sync {
+  &__actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+
   &__desc {
     margin: 0 0 16px;
     color: var(--primary-medium);
     font-size: 0.9em;
+  }
+
+  &__mode {
+    margin-right: 8px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: var(--tertiary-very-low);
+    color: var(--tertiary);
+    font-size: 0.85em;
+  }
+
+  &__test {
+    margin-top: 20px;
+    padding-top: 12px;
+    border-top: 1px solid var(--primary-low);
+
+    summary {
+      cursor: pointer;
+      color: var(--primary-high);
+      font-weight: 600;
+    }
+
+    &[open] summary {
+      margin-bottom: 12px;
+    }
   }
 
   &__progress {
@@ -728,5 +759,24 @@
 
   &__stats {
     margin-top: 12px;
+  }
+}
+
+.journals-topic-state {
+  &__desc {
+    margin: 0 0 12px;
+    color: var(--primary-medium);
+    font-size: 0.9em;
+  }
+
+  &__status {
+    margin: 0;
+    font-weight: 600;
+  }
+
+  &__warning {
+    margin: 8px 0 0;
+    color: var(--danger);
+    font-size: 0.9em;
   }
 }

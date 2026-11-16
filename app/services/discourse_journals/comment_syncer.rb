@@ -28,33 +28,17 @@ module DiscourseJournals
         end
       end
 
-    def initialize(topic, client:, bot:)
-      @topic = topic
-      @client = client
-      @bot = bot
-    end
-
-    def sync!
-      api_id =
-        TopicCustomField.where(topic_id: @topic.id, name: "discourse_journals_api_id").pick(:value)
-      return Result.empty(:no_api_id) if api_id.blank?
-
-      status, comments = fetch_comments(api_id.to_i)
-      return Result.empty(status) if comments.nil?
-
-      reconcile(comments)
-    end
-
-    private
-
-    def fetch_comments(api_id)
+    # All of a journal's comments, as [status, comments]; comments is nil when
+    # upstream has no such journal (:not_found, :gone). HTTP only, so the full
+    # sync runs it on fetcher threads (see CommentFetcher).
+    def self.fetch(client, api_id)
       comments = []
       after = nil
       redirects = 0
       pages = 0
 
       loop do
-        page = @client.fetch_journal_comments(api_id, after: after)
+        page = client.fetch_journal_comments(api_id, after: after)
 
         case page.status
         when :ok
@@ -78,6 +62,32 @@ module DiscourseJournals
         end
       end
     end
+
+    def initialize(topic, bot:, client: nil)
+      @topic = topic
+      @client = client
+      @bot = bot
+    end
+
+    # `fetched` is what CommentSyncer.fetch returned, when it already ran.
+    def sync!(fetched = nil)
+      if fetched.nil?
+        api_id =
+          TopicCustomField.where(topic_id: @topic.id, name: "discourse_journals_api_id").pick(
+            :value,
+          )
+        return Result.empty(:no_api_id) if api_id.blank?
+
+        fetched = self.class.fetch(@client, api_id.to_i)
+      end
+
+      status, comments = fetched
+      return Result.empty(status) if comments.nil?
+
+      reconcile(comments)
+    end
+
+    private
 
     def reconcile(comments)
       result = Result.empty(:ok)

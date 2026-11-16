@@ -15,7 +15,7 @@ zh_CN:
     discourse_journals_meta_description: "期刊话题的 meta description 模板。可用占位符: {{summary}}（按影响因子、分区、ISSN、出版商、开放获取、发文与被引等数据自动生成的一段简介）, {{title}}, {{issn}}, {{publisher}}, {{category}}, {{tags}}, {{site_name}}"
     discourse_journals_meta_keywords: "期刊话题的 meta keywords 模板。可用占位符: {{title}}, {{issn}}, {{publisher}}, {{category}}, {{tags}}, {{site_name}}"
     discourse_journals_indexnow_enabled: "期刊被同步新建或内容变化时，通过 IndexNow 通知 Bing 等搜索引擎重新抓取（每 30 分钟批量提交一次）。"
-    discourse_journals_close_topics: "创建后关闭期刊话题"
+    discourse_journals_close_topics: "保持期刊话题关闭（读者不能回复）。默认关闭此项：同步会让期刊话题保持打开，包括被标记过时的，已关闭的会在下次同步时重新打开。"
     discourse_journals_suggested_mode: "期刊推荐话题模式。default：使用默认推荐；custom_first：优先自定义匹配，不足时补充默认；custom_only：仅显示自定义匹配"
     discourse_journals_suggested_criteria: "匹配条件，用 | 分隔。可选：tags（共享标签）、publisher（相同出版商）、country（相同国家）"
     discourse_journals_suggested_count: "自定义推荐期刊话题的数量"
@@ -71,7 +71,10 @@ zh_CN:
         apply_running: "映射应用正在执行中，请等应用结束后再同步评论。"
         too_many:
           other: "一次最多同步 %{count} 本期刊。"
-        interrupted: "评论同步被中断。"
+        interrupted: "评论同步被中断（进程被重启），可从断点继续。"
+        not_running: "当前没有正在运行的评论同步。"
+        cannot_resume: "当前没有可以继续的评论同步（需要处于暂停、失败或中断状态）。"
+        paused_for_apply: "映射应用开始运行，评论同步已自动暂停；应用结束后点「继续」接着同步。"
     comment_post:
       note: "来源：%{source} · %{published}"
       unknown_source: "未知来源"

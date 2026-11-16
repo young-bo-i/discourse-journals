@@ -315,7 +315,7 @@ module DiscourseJournals
       remaining_ids.each_slice(DELETE_BATCH_SIZE).with_index do |batch_ids, batch_idx|
         check_cancelled!
 
-        # Soft-delete: forum-only journals are marked outdated (banner + closed),
+        # Soft-delete: forum-only journals are marked outdated (banner),
         # NOT hard-deleted, to preserve their SEO. Already-outdated topics are
         # skipped (idempotent).
         marked_count = OutdatedMarker.mark_batch(batch_ids)
